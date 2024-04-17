@@ -29,6 +29,11 @@ optional arguments:
 
 """
 
+"""
+TODO: debug
+
+"""
+
 
 def check_input(args):
     """
@@ -38,54 +43,56 @@ def check_input(args):
     
     """
     ## required arguments
-    if not args.ldr_gwas and not args.y2_gwas:
+    if args.ldr_gwas is None and args.y2_gwas is None:
         raise ValueError('Either --ldr-gwas or --y2-gwas should be provided.')
-    if not args.n:
+    if args.n is None :
         raise ValueError('--n is required.')
-    if not args.snp:
+    if args.snp is None:
         raise ValueError('--snp is required.')
-    if not args.a1:
+    if args.a1 is None:
         raise ValueError('--a1 is required.')
-    if not args.a2:
+    if args.a2 is None:
         raise ValueError('--a2 is required.')
-    if not args.beta and not args.odds_ratio:
+    if args.beta is None and args.odds_ratio is None:
         raise ValueError('Either --beta or --odds_ratio should be provided.')
-    if not args.se:
+    if args.se is None:
         raise ValueError('--se is required.')
-    if not args.out:
+    if args.out is None:
         raise ValueError('--out is required.')
     
+    dirname = os.path.dirname(args.out)
+    if dirname is not None and not os.path.exists(os.path.dirname(args.out)):
+        raise ValueError(f'{os.path.dirname(args.out)} does not exist.')
+    
     ## optional argument
-    if args.maf and args.maf_min:
+    if args.maf is not None and args.maf_min is not None:
         try:
             args.maf_min = float(args.maf_min)
         except:
             raise ValueError('--maf-min should be a number.')
         if args.maf_min < 0 or args.maf_min > 1:
             raise ValueError('--maf-min should be between 0 and 1.')
-    elif not args.maf and args.maf_min:
+    elif args.maf is None and args.maf_min:
         warnings.warn('No --maf column is provided. Ignore --maf-min')
         args.maf_min = None
-    elif args.maf and not args.maf_min:
+    elif args.maf and args.maf_min is None:
         args.maf_min = 0.01
     
-    if args.info and args.info_min:
+    if args.info is not None and args.info_min is not None:
         try:
             args.info_min = float(args.info_min)
         except:
             raise ValueError('--info-min should be a number.')
         if args.info_min < 0 or args.info_min > 1:
             raise ValueError('--info-min should be between 0 and 1')
-    elif not args.info and args.info_min:
+    elif args.info is None and args.info_min:
         warnings.warn('No --info column is provided. Ignore --info-min')
         args.info_min = None
-    elif args.info and not args.info_min:
+    elif args.info and args.info_min is None:
         args.info_min = 0.9
 
     ## processing some arguments
-    dirname = os.path.dirname(args.out)
-    if dirname is not None and not os.path.exists(os.path.dirname(args.out)):
-        raise ValueError(f'{os.path.dirname(args.out)} does not exist.')
+    
     
     if args.ldr_gwas:
         ldr_gwas_files = parse_gwas_input(args.ldr_gwas)
@@ -183,7 +190,7 @@ class GWAS:
     def __init__(self, beta, se, snpinfo):
         self.beta = beta
         self.se = se
-        self.snpnfo = snpinfo
+        self.snpinfo = snpinfo
 
 
     @classmethod
@@ -270,7 +277,6 @@ class GWAS:
         self.logger.info(f"Removed {n_snps - gwas.shape[0]} duplicated SNPs.")
         n_snps = self._check_ramaining_snps(gwas)
 
-        # gwas = gwas.loc[~gwas.isna().any(axis=1)]
         gwas = gwas.loc[~gwas.isin([np.inf, -np.inf, np.nan]).any(axis=1)]
         self.logger.info(f"Removed {n_snps - gwas.shape[0]} SNPs with any missing or infinite values.")
         n_snps = self._check_ramaining_snps(gwas)
@@ -351,8 +357,8 @@ class GWAS:
 
 
     def save(self, out):
-        pickle.dump({'beta': self.beta_df, 'se': self.se_df}, open(f'{out}.sumstats', 'wb'), protocol=4)
-        self.snp_info.to_csv(f'{out}.snpinfo', sep='\t', index=None, na_rep='NA')
+        pickle.dump({'beta': self.beta, 'se': self.se}, open(f'{out}.sumstats', 'wb'), protocol=4)
+        self.snpinfo.to_csv(f'{out}.snpinfo', sep='\t', index=None, na_rep='NA')
 
     
 
