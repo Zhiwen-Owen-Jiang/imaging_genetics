@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import chi2
 from ldmatrix import LDmatrix
-from ldsc import LDSC
+from old_version.ldsc import LDSC
 import sumstats
 
 
@@ -640,7 +640,7 @@ def print_results_gc(gene_cor, gene_cor_se):
 
 
     
-def heri_gc(args, log):
+def run(args, log):
     check_input(args, log)
     ldr_gwas, y2_gwas, bases, inner_ldr, ld, ld_inv = read_process_data(args, log)
     log.info('Computing heritability and/or genetic correlation ...')

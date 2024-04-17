@@ -380,8 +380,8 @@ def check_input(args):
         raise ValueError('--bfile is required.') 
     if args.partition is None:
         raise ValueError('--partition is required.')
-    if args.prop is None:
-        raise ValueError('--prop is required.')
+    if args.ld_regu is None:
+        raise ValueError('--ld-regu is required.')
     if args.out is None:
         raise ValueError('--out is required.')
     
@@ -414,18 +414,18 @@ def check_input(args):
             raise ValueError(f'{ld_inv_bfile + suffix} does not exist.')
         
     try:
-        ld_prop, ld_inv_prop = [float(x) for x in args.prop.split(',')]
+        ld_regu, ld_inv_regu = [float(x) for x in args.ld_regu.split(',')]
     except:
         raise ValueError('Two regularization levels should be provided with --prop and separated with comma.')
-    if ld_prop >= 1 or ld_prop <= 0 or ld_inv_prop >= 1 or  ld_inv_prop <= 0:
+    if ld_regu >= 1 or ld_regu <= 0 or ld_inv_regu >= 1 or  ld_inv_regu <= 0:
         raise ValueError('Both regularization levels should be greater than 0 and less than 1.')
 
 
-    return ld_bfile, ld_inv_bfile, ld_prop, ld_inv_prop
+    return ld_bfile, ld_inv_bfile, ld_regu, ld_inv_regu
 
 
 
-def make_ld(args, log):
+def run(args, log):
     ld_bfile, ld_inv_bfile, ld_prop, ld_inv_prop = check_input(args)
 
     log.info(f"Read SNP list from {ld_bfile}.bim and remove duplicated SNPs.")

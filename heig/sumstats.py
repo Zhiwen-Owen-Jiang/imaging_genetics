@@ -16,12 +16,12 @@ required arguments:
 --snp: SNP column
 --a1: A1 column
 --a2: A2 column
+--beta: beta column
+--odds-ratio: odds_ratio column
 --se: se column
 --out: directory to save summmary statistics
 
 optional arguments:
---beta: beta column
---odds-ratio: odds_ratio column
 --maf: maf column
 --info: info column
 --maf-min: minimum maf
@@ -367,7 +367,7 @@ class GWAS:
     
 
 
-def munge_sumstats(args, log):
+def run(args, log):
     args = check_input(args)
     cols_map, cols_map2 = map_cols(args)
     

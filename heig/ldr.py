@@ -488,10 +488,10 @@ def select_n_ldr(data, bases, log):
     return n_opt
 
 
-def determine_n_ldr(values, var_keep, log):
+def determine_n_ldr(values, prop, log):
     eff_num = np.sum(values) ** 2 / np.sum(values ** 2)
     prop_var = np.cumsum(values) / np.sum(values)
-    idxs = (prop_var <= var_keep) & (values != 0)
+    idxs = (prop_var <= prop) & (values != 0)
     n_idxs = np.sum(idxs) + 1
     n_opt = max(n_idxs, int(eff_num) + 1)
     var_prop = np.sum(values[:n_opt]) / np.sum(values)
@@ -510,8 +510,8 @@ def check_input(args, log):
         raise ValueError('--covar is required')
     if not args.out:
         raise ValueError('--out is required')
-    if not args.var_keep:
-        args.var_keep = 0.8
+    if not args.prop:
+        args.prop = 0.8
         log.info("By default, perserving 80% of variance")
 
     if not os.path.exists(args.image):
@@ -522,15 +522,15 @@ def check_input(args, log):
         raise ValueError(f"{args.covar} does not exist")
     if args.keep and not os.path.exists(args.keep):
         raise ValueError(f"{args.covar} does not exist")
-    if args.var_keep and (args.var_keep <= 0 or args.var_keep > 1):
+    if args.prop and (args.prop <= 0 or args.prop > 1):
         raise ValueError('--var-keep should be between 0 and 1')
-    if args.var_keep and args.var_keep < 0.8:
+    if args.prop and args.prop < 0.8:
         log.info('WARNING: keeping less than 80% of variance will have bad performance')
     if args.bw_opt and args.bw_opt <= 0:
         raise ValueError('--bw-opt should be positive')
         
 
-def main(args, log):
+def run(args, log):
     # check input
     check_input(args)
 
