@@ -123,12 +123,15 @@ parser_voxelgwas.add_argument('--bases',
                               help='directory to bases')
 parser_voxelgwas.add_argument('--inner-ldr', 
                               help='directory to inner product of LDR')
+parser_voxelgwas.add_argument('--sig-thresh', 
+                              help='significance threshold for p-values, e.g. 0.00000005')
 parser_voxelgwas.add_argument('--voxel', type=int, 
                               help='which voxel, 0 based index')
-parser_voxelgwas.add_argument('--start', type=int, 
-                              help='start position')
-parser_voxelgwas.add_argument('--end', type=int, 
-                              help='end position')
+parser_voxelgwas.add_argument('--range',  
+                              help=('a segment of chromosome, e.g. 3:1000000,3:2000000, '
+                                    'where 3 is chromosome, and 1000000 is position'))
+parser_voxelgwas.add_argument('--snp', 
+                              help='which SNP to generate an atlas of association, rsID')
 
 
 

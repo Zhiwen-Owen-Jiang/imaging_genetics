@@ -1,12 +1,9 @@
-import os
+import warnings
 import numpy as np
 import pandas as pd
-import pickle
+from scipy.stats import chi2
+import sumstats
 
-
-MASTHEAD = "***********************************************************************************\n"
-MASTHEAD += "* Voxelwise GWAS using HEIG\n"
-MASTHEAD += "***********************************************************************************"
 
 
 def recover_se(bases, inner_ldr, n, ldr_beta, ztz_inv):
@@ -17,84 +14,134 @@ def recover_se(bases, inner_ldr, n, ldr_beta, ztz_inv):
     return se
 
 
-def main(args, log):
-    inner_ldr = np.load(args.inner_ldr)
-    bases = np.load(args.bases)
-    ldr_gwas = pickle.load(open(args.ldr_gwas, 'rb')) 
-
-    ldr_gwas.beta_df = ldr_gwas.beta_df.iloc[:, :args.n_ldrs]
-    ldr_gwas.se_df = ldr_gwas.se_df.iloc[:, :args.n_ldrs]
-    bases = bases[:, :args.n_ldrs]
-    inner_ldr = inner_ldr[:args.n_ldrs, :args.n_ldrs]
-
-    ldr_beta = np.array(ldr_gwas.beta_df)
-    ldr_se = np.array(ldr_gwas.se_df)
-    ldr_n = np.array(ldr_gwas.snp_info['N']).reshape(-1, 1)
-
-    if args.start and args.end:
-        chr, start = [int(x) for x in args.start.split(':')]
-        chr_, end =[int(x) for x in args.end.split(':')]
-        if chr != chr_:
-            raise ValueError('CHR should be the same for start and end')
-
-        idx = (ldr_gwas.snp_info['POS'] > start) & (ldr_gwas.snp_info['POS'] < end) & (ldr_gwas.snp_info['CHR'] == chr)
-        ldr_beta = ldr_beta[idx]
-        ldr_se = ldr_se[idx]
-        ldr_n = ldr_n[idx]
-        outpath = f"{args.out}_voxel{args.voxel}_start{args.start}_end{args.end}.txt"
-        snp_info = ldr_gwas.snp_info.loc[idx].copy()
-    else:
-        outpath = f"{args.out}_voxel{args.voxel}.txt"
-        snp_info = ldr_gwas.snp_info
+def check_input(args):
+    ## required arguments
+    if args.ldr_sumstats is None:
+        raise ValueError('--ldr-sumstats is required.')
+    if args.bases is None:
+        raise ValueError('--bases is required.')
+    if args.inner_ldr is None:
+        raise ValueError('--inner-ldr is required.')
     
-    ztz_inv = np.mean((ldr_n * ldr_se ** 2 + ldr_beta**2) / np.diag(inner_ldr), axis=1)
+    ## optional arguments
+    if args.range is not None and args.snp is not None:
+        warnings.warn('--snp will be ignored if --range is provided.')
+        args.snp = None
+    if args.n_ldrs is not None and args.n_ldrs <= 0:
+        raise ValueError('--n-ldrs should be greater than 0.')
+    if args.voxel is not None and args.voxel < 0:
+        raise ValueError('--voxel should be nonnegative.')
+    if args.range is None and args.voxel is None and args.sig_thresh is None:
+        raise ValueError(('Generating all voxelwise summary statistics will require large disk memory. ',
+                          'Specify a p-value threshold by --sig-thresh to screen out insignificant results.'))
+    if args.sig_thresh is not None and (args.sig_thresh <= 0 or args.sig_thresh >= 1):
+        raise ValueError('--sig-thresh should be greater than 0 and less than 1.')
+
+    ## process some arguments
+    if args.range is not None:
+        try:
+            start, end = args.range.split(',')
+            start_chr, start_pos = [int(x) for x in start.split(':')]
+            end_chr, end_pos = [int(x) for x in end.split(':')]
+        except:
+            raise ValueError('--range should be in this format: 3:1000000,3:2000000.')
+        if start_chr != end_chr:
+            raise ValueError((f'The start chromosome is {start_chr} while the end chromosome is {end_chr}, '
+                              'which is not allowed.'))
+        if start_pos > end_pos:
+            raise ValueError((f'The start position is {start_pos} while the end position is {end_pos}, '
+                              'which is not allowed.'))
+    else:
+        start_chr, start_pos, end_chr, end_pos = None, None, None, None
+
+    return start_chr, start_pos, end_pos
+
+
+
+def run(args, log):
+    target_chr, start_pos, end_pos = check_input(args)
+    
+    log.info(f'Read inner product of LDR from {args.inner_ldr}')
+    inner_ldr = np.load(args.inner_ldr)
+    log.info(f'Read bases from {args.bases}')
+    bases = np.load(args.bases)
+    log.info(f'Read LDR summary statistics from {args.ldr_sumstats}')
+    ldr_gwas = sumstats.read_sumstats(args.ldr_sumstats)
+
+    if args.n_ldrs:
+        if args.n_ldrs > ldr_gwas.beta.shape[1]:
+            raise ValueError('--n-ldrs is greater than LDRs in summary statistics')
+        else:
+            ldr_gwas.beta = ldr_gwas.beta.iloc[:, :args.n_ldrs]
+            ldr_gwas.se = ldr_gwas.se.iloc[:, :args.n_ldrs]
+            bases = bases[:, :args.n_ldrs]
+            inner_ldr = inner_ldr[:args.n_ldrs, :args.n_ldrs]
+
+    ldr_beta = np.array(ldr_gwas.beta)
+    ldr_se = np.array(ldr_gwas.se)
+    ldr_n = np.array(ldr_gwas.snpinfo['N']).reshape(-1, 1)
+
+    outpath = args.out
+
+    if args.voxel is not None: 
+        if args.voxel < bases.shape[0]:
+            voxel_list = [args.voxel]
+            outpath += f"_voxel{args.voxel}"
+        else:
+            raise ValueError('--voxel index out of range.')
+    else:
+        voxel_list = range(bases.shape[0])
+
+    if target_chr:
+        idx = ((ldr_gwas.snpinfo['POS'] > start_pos) & (ldr_gwas.snpinfo['POS'] < end_pos) & 
+               (ldr_gwas.snpinfo['CHR'] == target_chr))
+        outpath += f"_start{start_pos}_end{end_pos}.txt"
+    elif args.snp:
+        idx = (ldr_gwas.snpinfo['SNP'] == args.snp)
+        outpath += f"_snp{args.snp}.txt"
+    else:
+        idx = (ldr_gwas.snpinfo['SNP'] is not None)
+        outpath += ".txt"
+
+    ldr_beta = ldr_beta[idx]
+    ldr_se = ldr_se[idx]
+    ldr_n = ldr_n[idx]
+    snp_info = ldr_gwas.snpinfo.loc[idx]
+
+    if args.sig_thresh:
+        thresh_chisq = chi2.pp(1 - args.sig_thresh, 1)
+    else:
+        thresh_chisq = 0 
+    
+    ztz_inv = np.mean((ldr_n * ldr_se ** 2 + ldr_beta ** 2) / np.diag(inner_ldr), axis=1)
     ztz_inv = ztz_inv.reshape(-1, 1)
 
-    voxel_beta = np.dot(ldr_beta, bases[args.voxel].T)
-    voxel_se = np.squeeze(recover_se(bases[args.voxel], inner_ldr, ldr_n, ldr_beta, ztz_inv))
-    voxel_z = voxel_beta / voxel_se
-    
-    snp_info['BETA_HEIG'] = voxel_beta
-    snp_info['SE_HEIG'] = voxel_se
-    snp_info['Z_HEIG'] = voxel_z
-    snp_info.to_csv(outpath, sep='\t', index=None, na_rep='NA')
+    log.info(f"Recovering voxel-level GWAS results ...")
+    is_first_write = True
+    for i in voxel_list:
+        if i % 100 == 1 and i > 1:
+            log.info(f"Finished {i} voxels")
+        voxel_beta = np.dot(ldr_beta, bases[i].T)
+        voxel_se = np.squeeze(recover_se(bases[i], inner_ldr, ldr_n, ldr_beta, ztz_inv))
+        voxel_z = voxel_beta / voxel_se
+        sig_idxs = voxel_z ** 2 >= thresh_chisq
+
+        if sig_idxs.any():
+            sig_snps = snp_info.loc[sig_idxs].copy()
+            sig_snps['BETA'] = voxel_beta[sig_idxs]
+            sig_snps['SE'] = voxel_se[sig_idxs]
+            sig_snps['Z'] = voxel_z[sig_idxs]
+            sig_snps['P'] = chi2.sf(sig_snps['Z']**2, 1)
+            sig_snps.insert(0, 'INDEX', [i] * np.sum(sig_idxs))
+            
+            if is_first_write:
+                sig_snps_output = sig_snps.to_csv(sep='\t', header=True, sep='\t', na_rep='NA')
+                is_first_write = False
+                with open(outpath, 'w') as file:
+                    file.write(sig_snps_output)
+            else:
+                sig_snps_output = sig_snps.to_csv(sep='\t', header=False, sep='\t', na_rep='NA')
+                with open(outpath, 'a') as file:
+                    file.write(sig_snps_output)
+            
     log.info(f"Save the output to {outpath}")
-
-
-parser = argparse.ArgumentParser()
-parser.add_argument('--n-ldrs', type=int, help='number of LDRs to use')
-parser.add_argument('--ldr-gwas', help='directory to LDR gwas files (prefix)')
-parser.add_argument('--bases', help='directory to bases')
-parser.add_argument('--inner-ldr', help='directory to inner product of LDR')
-parser.add_argument('--voxel', type=int, help='which voxel, 0 based index')
-parser.add_argument('--start', help='start position')
-parser.add_argument('--end', help='end position')
-parser.add_argument('--out', help='directory for output')
-
-
-
-if __name__ == '__main__':
-    args = parser.parse_args()
-
-    logpath = os.path.join(f"{args.out}_voxel{args.voxel}.log")
-    log = GetLogger(logpath)
-
-    log.info(MASTHEAD)
-    start_time = time.time()
-    try:
-        defaults = vars(parser.parse_args(''))
-        opts = vars(args)
-        non_defaults = [x for x in opts.keys() if opts[x] != defaults[x]]
-        header = "Parsed arguments\n"
-        options = ['--'+x.replace('_','-')+' '+str(opts[x]) for x in non_defaults]
-        header += '\n'.join(options).replace('True','').replace('False','')
-        header = header+'\n'
-        log.info(header)
-        main(args, log)
-    except Exception:
-        log.info(traceback.format_exc())
-        raise
-    finally:
-        log.info(f"Analysis finished at {time.ctime()}")
-        time_elapsed = round(time.time() - start_time, 2)
-        log.info(f"Total time elapsed: {sec_to_str(time_elapsed)}")
