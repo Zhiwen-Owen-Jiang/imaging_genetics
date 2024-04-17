@@ -181,7 +181,6 @@ class LDmatrixBED(LDmatrix):
     def __init__(self, num_snps_part, ld_info, snp_getter, prop, inv=False):
         """
         Making an LD matrix with selected subjects and SNPs with an MAF > 0.01
-        TODO: remove all duplicated SNPs, add a column for MAF
 
         Parameters:
         ------------
@@ -282,7 +281,7 @@ def read_plink(dir, keep_snps=None, keep_indivs=None, maf=None):
 
 def partition_genome(bim, part, log):
     """
-    # TODO: update block
+    # TODO: update block, is it correct that begin = -1 at the beginning?
 
     """
     num_snps_part = []
@@ -304,6 +303,8 @@ def partition_genome(bim, part, log):
             if block_size < 2000: 
                 sub_blocks = [(begin, end)]
             else:
+                log.info((f'A large LD block with size {block_size}, ',
+                          'evenly partition it to small blocks with size ~1000.'))
                 sub_blocks = get_sub_blocks(begin, end)
             for sub_block in sub_blocks:
                 sub_begin, sub_end = sub_block
@@ -320,7 +321,8 @@ def partition_genome(bim, part, log):
                 block_idx += 1
         else:
             n_skipped_blocks += 1
-
+    log.info(f'{n_skipped_blocks} blocks with no SNP are skipped.')
+    
     return num_snps_part, bim
 
 
@@ -422,6 +424,7 @@ def check_input(args):
     return ld_bfile, ld_inv_bfile, ld_prop, ld_inv_prop
 
 
+
 def make_ld(args, log):
     ld_bfile, ld_inv_bfile, ld_prop, ld_inv_prop = check_input(args)
 
@@ -455,8 +458,9 @@ def make_ld(args, log):
     log.info(f"There are {genome_part.shape[0]} genome blocks to partition.")
 
     log.info(f"Doing genome partition ...")
-    num_snps_part, ld_info = partition_genome(ld_bim, genome_part)
-    log.info(f"There are {sum(num_snps_part)} SNPs partitioned into {len(num_snps_part)} blocks, with the biggest one {np.max(num_snps_part)} SNPs.")
+    num_snps_part, ld_info = partition_genome(ld_bim, genome_part, log)
+    log.info((f"There are {sum(num_snps_part)} SNPs partitioned into {len(num_snps_part)} blocks, "
+              "with the biggest one {np.max(num_snps_part)} SNPs."))
 
     log.info('Making an LD matrix ...')
     ld = LDmatrixBED(num_snps_part, ld_info, ld_snp_getter, ld_prop)
