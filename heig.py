@@ -1,4 +1,5 @@
 import os, time, argparse, traceback
+import heig
 from heig.utils import GetLogger, sec_to_str
 
 

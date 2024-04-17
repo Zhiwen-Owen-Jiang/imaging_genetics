@@ -356,6 +356,10 @@ class GWAS:
             self.logger.info(f"Median value of {effect} is {median_beta}, which is reasonable.")
 
 
+    def get_zscore(self):
+        self.z = self.beta / self.se
+        
+
     def save(self, out):
         pickle.dump({'beta': self.beta, 'se': self.se}, open(f'{out}.sumstats', 'wb'), protocol=4)
         self.snpinfo.to_csv(f'{out}.snpinfo', sep='\t', index=None, na_rep='NA')
