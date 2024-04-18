@@ -45,18 +45,18 @@ def check_input(args):
     ## required arguments
     if args.ldr_gwas is None and args.y2_gwas is None:
         raise ValueError('Either --ldr-gwas or --y2-gwas should be provided.')
-    if args.n is None :
-        raise ValueError('--n is required.')
-    if args.snp is None:
-        raise ValueError('--snp is required.')
-    if args.a1 is None:
-        raise ValueError('--a1 is required.')
-    if args.a2 is None:
-        raise ValueError('--a2 is required.')
-    if args.beta is None and args.odds_ratio is None:
-        raise ValueError('Either --beta or --odds_ratio should be provided.')
-    if args.se is None:
-        raise ValueError('--se is required.')
+    if args.n_col is None :
+        raise ValueError('--n-col is required.')
+    if args.snp_col is None:
+        raise ValueError('--snp-col is required.')
+    if args.a1_col is None:
+        raise ValueError('--a1-col is required.')
+    if args.a2_col is None:
+        raise ValueError('--a2-col is required.')
+    if args.beta_col is None and args.odds_ratio_col is None:
+        raise ValueError('Either --beta-col or --odds_ratio-col should be provided.')
+    if args.se_col is None:
+        raise ValueError('--se-col is required.')
     if args.out is None:
         raise ValueError('--out is required.')
     
@@ -64,36 +64,34 @@ def check_input(args):
     if dirname is not None and not os.path.exists(os.path.dirname(args.out)):
         raise ValueError(f'{os.path.dirname(args.out)} does not exist.')
     
-    ## optional argument
-    if args.maf is not None and args.maf_min is not None:
+    ## optional arguments
+    if args.maf_col is not None and args.maf_min is not None:
         try:
             args.maf_min = float(args.maf_min)
         except:
             raise ValueError('--maf-min should be a number.')
         if args.maf_min < 0 or args.maf_min > 1:
             raise ValueError('--maf-min should be between 0 and 1.')
-    elif args.maf is None and args.maf_min:
-        warnings.warn('No --maf column is provided. Ignore --maf-min')
+    elif args.maf_col is None and args.maf_min:
+        warnings.warn('No --maf-col is provided. Ignore --maf-min')
         args.maf_min = None
-    elif args.maf and args.maf_min is None:
+    elif args.maf_col and args.maf_min is None:
         args.maf_min = 0.01
     
-    if args.info is not None and args.info_min is not None:
+    if args.info_col is not None and args.info_min is not None:
         try:
             args.info_min = float(args.info_min)
         except:
             raise ValueError('--info-min should be a number.')
         if args.info_min < 0 or args.info_min > 1:
             raise ValueError('--info-min should be between 0 and 1')
-    elif args.info is None and args.info_min:
+    elif args.info_col is None and args.info_min:
         warnings.warn('No --info column is provided. Ignore --info-min')
         args.info_min = None
-    elif args.info and args.info_min is None:
+    elif args.info_col and args.info_min is None:
         args.info_min = 0.9
 
     ## processing some arguments
-    
-    
     if args.ldr_gwas:
         ldr_gwas_files = parse_gwas_input(args.ldr_gwas)
         for file in ldr_gwas_files:
@@ -144,16 +142,16 @@ def map_cols(args):
 
     """
     cols_map = dict()
-    cols_map['N'] = args.n
-    cols_map['SNP'] = args.snp
-    cols_map['BETA'] = args.beta
-    cols_map['SE'] = args.se
-    cols_map['A1'] = args.a1
-    cols_map['A2'] = args.a2
-    cols_map['OR'] = args.odds_ratio
-    cols_map['MAF'] = args.maf
+    cols_map['N'] = args.n_col
+    cols_map['SNP'] = args.snp_col
+    cols_map['BETA'] = args.beta_col
+    cols_map['SE'] = args.se_col
+    cols_map['A1'] = args.a1_col
+    cols_map['A2'] = args.a2_col
+    cols_map['OR'] = args.odds_ratio_col
+    cols_map['MAF'] = args.maf_col
     cols_map['MAF_MIN'] = args.maf_min
-    cols_map['INFO'] = args.info
+    cols_map['INFO'] = args.info_col
     cols_map['INFO_MIN'] = args.info_min
     
     cols_map2 = dict()
