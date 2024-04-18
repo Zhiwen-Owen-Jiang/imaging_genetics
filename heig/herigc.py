@@ -2,9 +2,9 @@ import os
 import numpy as np
 import pandas as pd
 from scipy.stats import chi2
-from ldmatrix import LDmatrix
-from ldsc import LDSC
-import sumstats
+from .ldmatrix import LDmatrix
+from .ldsc import LDSC
+from . import sumstats
 
 
 MASTHEAD = "***********************************************************************************\n"

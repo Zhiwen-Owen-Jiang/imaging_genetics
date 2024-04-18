@@ -3,7 +3,7 @@ import pickle
 import re
 import pandas as pd
 import numpy as np
-from parse import PlinkBIMFile, PlinkFAMFile, PlinkBEDFile
+from .parse import PlinkBIMFile, PlinkFAMFile, PlinkBEDFile
 
 
 """
@@ -441,8 +441,8 @@ def run(args, log):
     log.info(f'{ld_inv_bim.shape[0]} SNPs remaining for LD inverse matrix.') 
 
     ld_merged = ld_bim.merge(ld_inv_bim, on='SNP')
-    log.info((f'Merging SNP lists of LD matrix and its inverse, "
-              "{ld_merged.shape[0]} SNPs are common.'))   
+    log.info((f"Merging SNP lists of LD matrix and its inverse, "
+              f"{ld_merged.shape[0]} SNPs are common."))   
     
     log.info(f"Reading bfile from {ld_bfile} and keeping merged SNPs ...")
     ld_keep_snp_idx = ld_bim.loc[ld_bim['SNP'].isin(ld_merged['SNP'])].index.to_list()

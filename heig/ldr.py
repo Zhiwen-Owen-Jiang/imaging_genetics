@@ -6,7 +6,7 @@ import pandas as pd
 from numpy.linalg import inv
 from sklearn.utils.extmath import randomized_svd
 from scipy.sparse import csc_matrix
-import utils
+from . import utils
 
 
 MASTHEAD = "*********************************************************************\n"

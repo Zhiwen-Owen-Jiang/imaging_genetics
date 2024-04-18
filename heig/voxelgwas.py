@@ -2,7 +2,7 @@ import warnings
 import numpy as np
 import pandas as pd
 from scipy.stats import chi2
-import sumstats
+from . import sumstats
 
 
 
@@ -135,12 +135,12 @@ def run(args, log):
             sig_snps.insert(0, 'INDEX', [i] * np.sum(sig_idxs))
             
             if is_first_write:
-                sig_snps_output = sig_snps.to_csv(sep='\t', header=True, sep='\t', na_rep='NA')
+                sig_snps_output = sig_snps.to_csv(sep='\t', header=True, na_rep='NA')
                 is_first_write = False
                 with open(outpath, 'w') as file:
                     file.write(sig_snps_output)
             else:
-                sig_snps_output = sig_snps.to_csv(sep='\t', header=False, sep='\t', na_rep='NA')
+                sig_snps_output = sig_snps.to_csv(sep='\t', header=False, na_rep='NA')
                 with open(outpath, 'a') as file:
                     file.write(sig_snps_output)
             

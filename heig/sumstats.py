@@ -5,34 +5,9 @@ import logging
 import warnings
 import numpy as np
 import pandas as pd
-import utils
+from scipy.stats import chi2
+from . import utils
 
-"""
-required arguments:
---ldr-gwas: directory to LDR gwas files
---y2-gwas: directory to gwas file of a single trait
---out: directory to output
---n: sample size column
---snp: SNP column
---a1: A1 column
---a2: A2 column
---beta: beta column
---odds-ratio: odds_ratio column
---se: se column
---out: directory to save summmary statistics
-
-optional arguments:
---maf: maf column
---info: info column
---maf-min: minimum maf
---info-min: minimum info score
-
-"""
-
-"""
-TODO: debug
-
-"""
 
 
 def check_input(args):
@@ -45,26 +20,34 @@ def check_input(args):
     ## required arguments
     if args.ldr_gwas is None and args.y2_gwas is None:
         raise ValueError('Either --ldr-gwas or --y2-gwas should be provided.')
-    if args.n_col is None :
-        raise ValueError('--n-col is required.')
     if args.snp_col is None:
         raise ValueError('--snp-col is required.')
     if args.a1_col is None:
         raise ValueError('--a1-col is required.')
     if args.a2_col is None:
         raise ValueError('--a2-col is required.')
-    if args.beta_col is None and args.odds_ratio_col is None:
-        raise ValueError('Either --beta-col or --odds_ratio-col should be provided.')
-    if args.se_col is None:
-        raise ValueError('--se-col is required.')
     if args.out is None:
         raise ValueError('--out is required.')
     
     dirname = os.path.dirname(args.out)
-    if dirname is not None and not os.path.exists(os.path.dirname(args.out)):
+    if dirname is not None and not os.path.exists(dirname):
         raise ValueError(f'{os.path.dirname(args.out)} does not exist.')
     
     ## optional arguments
+    if args.n_col is None and args.n is None:
+        raise ValueError('Either --n-col or --n is required.')
+    if args.ldr_gwas is not None:
+        if args.effect_col is None:
+            raise ValueError('--effect-col is required for LDR summary statistics.')
+        if args.se_col is None:
+            raise ValueError('--se-col is required for LDR summary statistics.')
+        
+    if args.y2_gwas is not None:
+        if not (args.z_col is not None or args.effect_col is not None and args.se_col is not None
+                or args.effect_col is not None and args.p_col is not None):
+            raise ValueError(('Specify --z-col or --effect-col + --se-col or '
+                              '--effect-col + --p-col for --y2-gwas.'))
+        
     if args.maf_col is not None and args.maf_min is not None:
         try:
             args.maf_min = float(args.maf_min)
@@ -90,6 +73,9 @@ def check_input(args):
         args.info_min = None
     elif args.info_col and args.info_min is None:
         args.info_min = 0.9
+        
+    if args.n is not None and args.n <= 0:
+        raise ValueError('--n should be greater than 0.')
 
     ## processing some arguments
     if args.ldr_gwas:
@@ -103,6 +89,15 @@ def check_input(args):
         if not os.path.exists(args.y2_gwas):
             raise ValueError(f"{args.y2_gwas} does not exist.")
         args.gwas = [args.y2_gwas]
+
+    if args.effect_col is not None:
+        try:
+            args.effect, args.null_value = args.effect_col.split(',')
+            args.null_value = int(args.null_value)
+        except:
+            raise ValueError('--effect-col should be specified as `BETA,0` or `OR,1`.')
+        if args.null_value not in (0, 1):
+            raise ValueError('The null value should be 0 for BETA (log OR) or 1 for OR.')
 
     return args
 
@@ -137,26 +132,29 @@ def parse_gwas_input(arg):
 
 def map_cols(args):
     """
-    cols_map: keys are required columns, values are provided columns
-    cols_map2: keys are provided columns, values are required columns
+    cols_map: keys are standard colnames, values are provided colnames
+    cols_map2: keys are provided colnames, values are standard colnames
 
     """
     cols_map = dict()
     cols_map['N'] = args.n_col
+    cols_map['n'] = args.n
     cols_map['SNP'] = args.snp_col
-    cols_map['BETA'] = args.beta_col
+    cols_map['EFFECT'] = args.effect
+    cols_map['null_value'] = args.null_value
     cols_map['SE'] = args.se_col
     cols_map['A1'] = args.a1_col
     cols_map['A2'] = args.a2_col
-    cols_map['OR'] = args.odds_ratio_col
+    cols_map['Z'] = args.z_col
+    cols_map['P'] = args.p_col
     cols_map['MAF'] = args.maf_col
-    cols_map['MAF_MIN'] = args.maf_min
+    cols_map['maf_min'] = args.maf_min
     cols_map['INFO'] = args.info_col
-    cols_map['INFO_MIN'] = args.info_min
+    cols_map['info_min'] = args.info_min
     
     cols_map2 = dict()
     for k, v in cols_map.items():
-        if v is not None:
+        if v is not None and k not in ('n', 'maf_min', 'info_min', 'null_value'):
             cols_map2[v] = k
 
     return cols_map, cols_map2
@@ -177,25 +175,37 @@ def read_sumstats(dir):
         raise ValueError((f"Summary statistics and the meta data contain different number of SNPs, "
                           "which means the files have been modified."))
     
-    return GWAS(sumstats['beta'], sumstats['se'], snpinfo)
+    return GWAS(sumstats['beta'], sumstats['se'], sumstats['z'], snpinfo)
 
 
 
 class GWAS:
-    required_cols = ['SNP', 'A1', 'A2', 'N', 'SE']
+    required_cols = ['SNP', 'A1', 'A2']
     complement = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C'} 
 
-    def __init__(self, beta, se, snpinfo):
+    def __init__(self, beta, se, z, snpinfo):
         self.beta = beta
         self.se = se
+        self.z = z
         self.snpinfo = snpinfo
 
 
     @classmethod
-    def from_rawdata(cls, gwas_files, cols_map, cols_map2, maf_min=None, info_min=None):
+    def from_rawdata_ldr(cls, gwas_files, cols_map, cols_map2, maf_min=None, info_min=None):
         """
+        Preprocessing LDR GWAS summary statistics. BETA and SE are required columns. 
+        
+        Parameters:
+        ------------
         gwas_files: a list of gwas files
-        cols_map: a dict mapping required colnames to provided colnames
+        cols_map: a dict mapping standard colnames to provided colnames
+        cols_map2: a dict mapping provided colnames to standard colnames 
+        maf_min: the minumum of MAF
+        info_min: the minumum of INFO
+
+        Returns:
+        ---------
+        a GWAS instance
         
         """
         cls.logger = logging.getLogger(__name__)
@@ -207,16 +217,16 @@ class GWAS:
             gwas_data = pd.read_csv(gwas_file, delim_whitespace=True, compression=compression, 
                                     usecols=list(cols_map2.keys()), na_values=[-9, 'NONE']) # TODO: read by block
             gwas_data = gwas_data.rename(cols_map2, axis=1)
-
-            if 'BETA' in cols_map:
-                cls._check_median(gwas_data, 'BETA', 0)
-            else:
-                cls._check_median(gwas_data, 'OR', 1)
-                gwas_data['BETA'] = np.log(gwas_data['OR'])
-            
             gwas_data['A1'] = gwas_data['A1'].str.upper()
             gwas_data['A2'] = gwas_data['A2'].str.upper()
 
+            if cols_map['N'] is None:
+                gwas_data['N'] = cols_map['n']
+
+            cls._check_median(gwas_data, cols_map['null_value'])
+            if cols_map['null_value'] == 1:
+                gwas_data['EFFECT'] = np.log(gwas_data['EFFECT'])
+            
             if i == 0:
                 orig_snps_list = gwas_data[['SNP', 'A1', 'A2', 'N']]
                 beta_mat = np.zeros((gwas_data.shape[0], r))
@@ -241,13 +251,67 @@ class GWAS:
                             index=range(beta_mat.shape[0]))
         se = pd.DataFrame(se_mat, columns=[f'SE{i}' for i in range(1, se_mat.shape[1] + 1)], 
                             index=range(se_mat.shape[0]))
+        z = None
         snpinfo = common_snp_info.reset_index(drop=True)
 
+        return cls(beta, se, z, snpinfo)
 
-        return cls(beta, se, snpinfo)
+    
+    @classmethod
+    def from_rawdata_y2(cls, gwas_file, cols_map, cols_map2, maf_min=None, info_min=None):
+        """
+        Preprocessing non-imaging GWAS summary statistics. Only Z is required.
+        
+        Parameters:
+        ------------
+        gwas_files: a list of gwas files
+        cols_map: a dict mapping standard colnames to provided colnames
+        cols_map2: a dict mapping provided colnames to standard colnames 
+        maf_min: the minumum of MAF
+        info_min: the minumum of INFO
 
-            
-    def _prune_snps(self, gwas, maf_min, info_min):
+        Returns:
+        ---------
+        a GWAS instance
+        
+        """
+        cls.logger = logging.getLogger(__name__)
+        
+        openfunc, compression = utils.check_compression(gwas_file)
+        cls._check_header(openfunc, compression, gwas_file, cols_map, cols_map2)
+        gwas_data = pd.read_csv(gwas_file, delim_whitespace=True, compression=compression, 
+                                usecols=list(cols_map2.keys()), na_values=[-9, 'NONE']) # TODO: read by block
+        gwas_data = gwas_data.rename(cols_map2, axis=1)
+        gwas_data['A1'] = gwas_data['A1'].str.upper()
+        gwas_data['A2'] = gwas_data['A2'].str.upper()
+        
+        if cols_map['N'] is None:
+            gwas_data['N'] = cols_map['n']
+
+        if cols_map['EFFECT'] is not None and cols_map['SE'] is not None:
+            cls._check_median(gwas_data, cols_map['null_value'])
+            if cols_map['null_value'] == 1:
+                gwas_data['EFFECT'] = np.log(gwas_data['EFFECT'])
+            gwas_data['Z'] = gwas_data['EFFECT'] / gwas_data['SE']
+        elif cols_map['null_value'] is not None and cols_map['P'] is not None:
+            abs_z_score = np.sqrt(chi2.pp(1 - gwas_data['P'], 1))
+            if cols_map['null_value'] == 0:
+                gwas_data['Z'] = (gwas_data['EFFECT'] > 0) * abs_z_score
+            else:
+                gwas_data['Z'] = (gwas_data['EFFECT'] > 1) * abs_z_score
+
+        cls.logger.info(f'Pruning SNPs for {gwas_file} ...')
+        gwas_data = cls._prune_snps(gwas_data, maf_min, info_min)
+        beta = None
+        se = None
+        z = gwas_data['Z'].reset_index(drop=True)
+        snpinfo = gwas_data[['SNP', 'A1', 'A2', 'N']].reset_index(drop=True)
+
+        return cls(beta, se, z, snpinfo)
+    
+
+    @classmethod        
+    def _prune_snps(cls, gwas, maf_min, info_min):
         """
         Prune SNPs with 
         1) any missing values in required columns
@@ -268,51 +332,85 @@ class GWAS:
         A pd.DataFrame of pruned summary statistics
 
         """
-        n_snps = self._check_ramaining_snps(gwas)
-        self.logger.info(f"{n_snps} SNPs in the raw data.")
+        n_snps = cls._check_ramaining_snps(gwas)
+        cls.logger.info(f"{n_snps} SNPs in the raw data.")
 
         gwas.drop_duplicates(subset=['SNP'], keep=False, inplace=True)
-        self.logger.info(f"Removed {n_snps - gwas.shape[0]} duplicated SNPs.")
-        n_snps = self._check_ramaining_snps(gwas)
+        cls.logger.info(f"Removed {n_snps - gwas.shape[0]} duplicated SNPs.")
+        n_snps = cls._check_ramaining_snps(gwas)
 
         gwas = gwas.loc[~gwas.isin([np.inf, -np.inf, np.nan]).any(axis=1)]
-        self.logger.info(f"Removed {n_snps - gwas.shape[0]} SNPs with any missing or infinite values.")
-        n_snps = self._check_ramaining_snps(gwas)
+        cls.logger.info(f"Removed {n_snps - gwas.shape[0]} SNPs with any missing or infinite values.")
+        n_snps = cls._check_ramaining_snps(gwas)
 
         not_strand_ambiguous = [True if len(a2_) == 1 and len(a1_) == 1 and 
-                                a2_ in self.complement and a1_ in self.complement and 
-                                self.complement[a2_] != a1_ else False 
+                                a2_ in cls.complement and a1_ in cls.complement and 
+                                cls.complement[a2_] != a1_ else False 
                                 for a2_, a1_ in zip(gwas['A2'], gwas['A1'])]
         gwas = gwas.loc[not_strand_ambiguous]
-        self.logger.info(f"Removed {n_snps - gwas.shape[0]} non SNPs and strand-ambiguous SNPs.")
-        n_snps = self._check_ramaining_snps(gwas)
+        cls.logger.info(f"Removed {n_snps - gwas.shape[0]} non SNPs and strand-ambiguous SNPs.")
+        n_snps = cls._check_ramaining_snps(gwas)
 
         n_thresh = int(gwas['N'].quantile(0.9) / 1.5)
         gwas = gwas.loc[gwas['N'] >= n_thresh]
-        self.logger.info(f"Removed {n_snps - gwas.shape[0]} SNPs with N < {n_thresh}.")
-        n_snps = self._check_ramaining_snps(gwas)
+        cls.logger.info(f"Removed {n_snps - gwas.shape[0]} SNPs with N < {n_thresh}.")
+        n_snps = cls._check_ramaining_snps(gwas)
 
         if maf_min is not None:
             gwas = gwas.loc[gwas['MAF'] >= maf_min]
-            self.logger.info(f"Removed {n_snps - gwas.shape[0]} SNPs with MAF < {maf_min}.")
-            n_snps = self._check_ramaining_snps(gwas)
+            cls.logger.info(f"Removed {n_snps - gwas.shape[0]} SNPs with MAF < {maf_min}.")
+            n_snps = cls._check_ramaining_snps(gwas)
 
         if info_min is not None:
             gwas = gwas.loc[gwas['INFO'] >= info_min]
-            self.logger.info(f"Removed {n_snps - gwas.shape[0]} SNPs with INFO < {info_min}.")
-            n_snps = self._check_ramaining_snps(gwas)
+            cls.logger.info(f"Removed {n_snps - gwas.shape[0]} SNPs with INFO < {info_min}.")
+            n_snps = cls._check_ramaining_snps(gwas)
         
-        self.logger.info(f"{n_snps} SNPs remaining after pruning.\n")
+        cls.logger.info(f"{n_snps} SNPs remaining after pruning.\n")
 
         return gwas
     
 
-    def _check_ramaining_snps(self, gwas):
+    @staticmethod
+    def _check_ramaining_snps(gwas):
         n_snps = gwas.shape[0]
         if n_snps == 0:
             raise ValueError('No SNP remaining. Check if misspecified columns.')
         return n_snps
 
+        
+    @classmethod
+    def _check_header(cls, openfunc, compression, dir, cols_map, cols_map2):
+        """
+        First round check: if all required columns exist
+        Second round check: if all provided columns exist
+
+        """
+        header = openfunc(dir).readline().split()
+        if compression is not None:
+            header[0] = str(header[0], 'UTF-8')
+            header[1] = str(header[1], 'UTF-8')
+        for col in cls.required_cols:
+            if cols_map[col] not in header:
+                raise ValueError(f'{cols_map[col]} (case sensitive) cannot be found in {dir}.')
+        for col, _ in cols_map2.items():
+            if col not in header:
+                raise ValueError(f'{col} (case sensitive) cannot be found in {dir}.')
+
+
+    @classmethod 
+    def _check_median(cls, gwas_data, effect, null_value):
+        median_beta = np.nanmedian(gwas_data[effect])
+        if np.abs(median_beta - null_value > 0.1):
+            raise ValueError((f"Median value of {effect} is {round(median_beta, 4)} (should be close to {null_value}). " 
+                              "This column may be mislabeled."))
+        else:
+            cls.logger.info(f"Median value of {effect} is {round(median_beta, 4)}, which is reasonable.")
+
+
+    def get_zscore(self):
+        self.z = self.beta / self.se
+        
 
     def extract_snps(self, keep_snps):
         if isinstance(keep_snps, pd.Series):
@@ -325,38 +423,7 @@ class GWAS:
 
     def df2array(self):
         self.z_df = np.array(self.z_df)
-        
 
-    def _check_header(self, openfunc, compression, dir, cols_map, cols_map2):
-        """
-        First round check: if all required columns exist
-        Second round check: if all provided columns exist
-
-        """
-        header = openfunc(dir).readline().split()
-        if compression is not None:
-            header[0] = str(header[0], 'UTF-8')
-            header[1] = str(header[1], 'UTF-8')
-        for col in self.required_cols:
-            if cols_map[col] not in header:
-                raise ValueError(f'{cols_map[col]} (case sensitive) cannot be found in {dir}.')
-        for col, _ in cols_map2.items():
-            if col not in header:
-                raise ValueError(f'{col} (case sensitive) cannot be found in {dir}.')
-
-        
-    def _check_median(self, gwas_data, effect, null_value):
-        median_beta = np.nanmedian(gwas_data[effect])
-        if np.abs(median_beta - null_value > 0.1):
-            raise ValueError((f"Median value of {effect} is {median_beta} (should be close to {null_value}). " 
-                              "This column may be mislabeled."))
-        else:
-            self.logger.info(f"Median value of {effect} is {median_beta}, which is reasonable.")
-
-
-    def get_zscore(self):
-        self.z = self.beta / self.se
-        
 
     def save(self, out):
         pickle.dump({'beta': self.beta, 'se': self.se}, open(f'{out}.sumstats', 'wb'), protocol=4)
@@ -369,7 +436,7 @@ def run(args, log):
     args = check_input(args)
     cols_map, cols_map2 = map_cols(args)
     
-    log.info(f'Reading and processing {len(args.gwas)} GWAS summary statistics ...')
+    log.info(f'Reading and processing {len(args.gwas)} GWAS summary statistics ...\n')
     sumstats = GWAS.from_rawdata(args.gwas, cols_map, cols_map2, args.maf_min, args.info_min)
     sumstats.save(args.out)
 

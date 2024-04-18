@@ -1,10 +1,17 @@
-import os, time, argparse, traceback
-import heig
+import os, time, argparse, traceback, numexpr
+import heig.sumstats as sumstats
+import heig.herigc as herigc
+import heig.ldr as ldr
+import heig.ldmatrix as ldmatrix
+import heig.voxelgwas as voxelgwas
 from heig.utils import GetLogger, sec_to_str
 
 
-VERSION = '1.0.0'
+os.environ['NUMEXPR_MAX_THREADS'] = '8'
+numexpr.set_num_threads(int(os.environ['NUMEXPR_MAX_THREADS']))
 
+
+VERSION = '1.0.0'
 MASTHEAD = "******************************************************************************\n"
 MASTHEAD += "* Highly-Efficient Imaging Genetics (HEIG)\n"
 MASTHEAD += f"* Version {VERSION}\n"
@@ -89,6 +96,8 @@ parser.add_argument('--ldr-gwas',
                     help='directory to LDR gwas files (prefix)')
 parser.add_argument('--y2-gwas', 
                     help='directory to gwas file of a single trait')
+parser.add_argument('--n', type=int, 
+                    help='sample size')
 parser.add_argument('--n-col', 
                     help='sample size column')
 parser.add_argument('--snp-col', 
@@ -97,12 +106,17 @@ parser.add_argument('--a1-col',
                     help='A1 column')
 parser.add_argument('--a2-col', 
                     help='A2 column')
-parser.add_argument('--beta-col', 
-                    help='beta column')
-parser.add_argument('--odds-ratio-col', 
-                    help='odds ratio column')
+parser.add_argument('--effect-col', 
+                    help=('genetic effect column, either beta or odds ratio, '
+                          'should be specified in this format `BETA,0` where '
+                          'BETA is the column name and 0 is the null value. '
+                          'For odds ratio, the null value is 1.'))
 parser.add_argument('--se-col', 
                     help='se column')
+parser.add_argument('--z-col', 
+                    help='z score column')
+parser.add_argument('--p-col', 
+                    help='p-value column')
 parser.add_argument('--maf-col', 
                     help='MAF column')
 parser.add_argument('--info-col', 
@@ -134,22 +148,22 @@ def main(args, log):
         raise ValueError(('You must specify one and only one of following arguments: '
                           '--heri-gc, --ldr, --ld-matrix, --sumstats, --voxel-gwas.'))
     if args.heri_gc:
-        heig.herigc.run(args, log)
+        herigc.run(args, log)
     elif args.ldr:
-        heig.ldr.run(args, log)
+        ldr.run(args, log)
     elif args.ld_matrix:
-        heig.ldmatrix.run(args, log)
+        ldmatrix.run(args, log)
     elif args.sumstats:
-        heig.sumstats.run(args, log)
+        sumstats.run(args, log)
     elif args.voxel_gwas:
-        heig.voxelgwas.run(args, log)
+        voxelgwas.run(args, log)
     
 
 
 if __name__ == '__main__':
     args = parser.parse_args()
 
-    logpath = os.path.join(f"{args.out}.heig")
+    logpath = os.path.join(f"{args.out}.log")
     log = GetLogger(logpath)
 
     log.info(MASTHEAD)
@@ -168,6 +182,6 @@ if __name__ == '__main__':
         log.info(traceback.format_exc())
         raise
     finally:
-        log.info(f"Analysis finished at {time.ctime()}")
+        log.info(f"\nAnalysis finished at {time.ctime()}")
         time_elapsed = round(time.time() - start_time, 2)
         log.info(f"Total time elapsed: {sec_to_str(time_elapsed)}")
