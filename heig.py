@@ -17,10 +17,11 @@ MASTHEAD += "*******************************************************************
 
 
 parser = argparse.ArgumentParser(description='\n Highly-Efficient Imaging Genetics (HEIG)')
-subparsers = parser.add_subparsers(dest='module', help='Choose an analysis module')
-
 ## global arguments
 parser.add_argument('--out', help='directory for output')
+
+# subparsers for each module
+subparsers = parser.add_subparsers(dest='module', help='Choose an analysis module')
 
 ## arguments for heri_gc.py
 parser_heri_gc = subparsers.add_parser('heri-gc', 
