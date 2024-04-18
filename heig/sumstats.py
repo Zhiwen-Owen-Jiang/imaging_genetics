@@ -36,13 +36,15 @@ def check_input(args):
     ## optional arguments
     if args.n_col is None and args.n is None:
         raise ValueError('Either --n-col or --n is required.')
-    if args.ldr_gwas is not None:
+    
+    if args.ldr_gwas is not None and args.y2_gwas is not None:
+        raise ValueError('Can only specify --ldr-gwas or --y2-gwas.')
+    elif args.ldr_gwas is not None:
         if args.effect_col is None:
             raise ValueError('--effect-col is required for LDR summary statistics.')
         if args.se_col is None:
             raise ValueError('--se-col is required for LDR summary statistics.')
-        
-    if args.y2_gwas is not None:
+    elif args.y2_gwas is not None:
         if not (args.z_col is not None or args.effect_col is not None and args.se_col is not None
                 or args.effect_col is not None and args.p_col is not None):
             raise ValueError(('Specify --z-col or --effect-col + --se-col or '
@@ -78,17 +80,15 @@ def check_input(args):
         raise ValueError('--n should be greater than 0.')
 
     ## processing some arguments
-    if args.ldr_gwas:
+    if args.ldr_gwas is not None:
         ldr_gwas_files = parse_gwas_input(args.ldr_gwas)
         for file in ldr_gwas_files:
             if not os.path.exists(file):
                 raise ValueError(f"{file} does not exist.")
-        args.gwas = ldr_gwas_files
-
-    if args.y2_gwas:
+        args.ldr_gwas = ldr_gwas_files
+    elif args.y2_gwas is not None:
         if not os.path.exists(args.y2_gwas):
             raise ValueError(f"{args.y2_gwas} does not exist.")
-        args.gwas = [args.y2_gwas]
 
     if args.effect_col is not None:
         try:
@@ -98,6 +98,8 @@ def check_input(args):
             raise ValueError('--effect-col should be specified as `BETA,0` or `OR,1`.')
         if args.null_value not in (0, 1):
             raise ValueError('The null value should be 0 for BETA (log OR) or 1 for OR.')
+    else:
+        args.effect, args.null_value = None, None
 
     return args
 
@@ -210,6 +212,7 @@ class GWAS:
         """
         cls.logger = logging.getLogger(__name__)
         r = len(gwas_files)
+        cls.logger.info(f'Reading and processing {r} LDR GWAS summary statistics files ...\n')
         
         for i, gwas_file in enumerate(gwas_files):
             openfunc, compression = utils.check_compression(gwas_file)
@@ -223,7 +226,7 @@ class GWAS:
             if cols_map['N'] is None:
                 gwas_data['N'] = cols_map['n']
 
-            cls._check_median(gwas_data, cols_map['null_value'])
+            cls._check_median(gwas_data['EFFECT'], 'EFFECT', cols_map['null_value'])
             if cols_map['null_value'] == 1:
                 gwas_data['EFFECT'] = np.log(gwas_data['EFFECT'])
             
@@ -276,6 +279,7 @@ class GWAS:
         
         """
         cls.logger = logging.getLogger(__name__)
+        cls.logger.info(f'Reading and processing the non-imaging GWAS summary statistics file ...\n')
         
         openfunc, compression = utils.check_compression(gwas_file)
         cls._check_header(openfunc, compression, gwas_file, cols_map, cols_map2)
@@ -289,16 +293,18 @@ class GWAS:
             gwas_data['N'] = cols_map['n']
 
         if cols_map['EFFECT'] is not None and cols_map['SE'] is not None:
-            cls._check_median(gwas_data, cols_map['null_value'])
+            cls._check_median(gwas_data['EFFECT'], 'EFFECT', cols_map['null_value'])
             if cols_map['null_value'] == 1:
                 gwas_data['EFFECT'] = np.log(gwas_data['EFFECT'])
             gwas_data['Z'] = gwas_data['EFFECT'] / gwas_data['SE']
         elif cols_map['null_value'] is not None and cols_map['P'] is not None:
-            abs_z_score = np.sqrt(chi2.pp(1 - gwas_data['P'], 1))
+            abs_z_score = np.sqrt(chi2.ppf(1 - gwas_data['P'], 1))
             if cols_map['null_value'] == 0:
-                gwas_data['Z'] = (gwas_data['EFFECT'] > 0) * abs_z_score
+                gwas_data['Z'] = ((gwas_data['EFFECT'] > 0) * 2 - 1) * abs_z_score
             else:
-                gwas_data['Z'] = (gwas_data['EFFECT'] > 1) * abs_z_score
+                gwas_data['Z'] = ((gwas_data['EFFECT'] > 1) * 2 - 1) * abs_z_score
+        else:
+            cls._check_median(gwas_data['Z'], 'Z', 0)
 
         cls.logger.info(f'Pruning SNPs for {gwas_file} ...')
         gwas_data = cls._prune_snps(gwas_data, maf_min, info_min)
@@ -399,8 +405,8 @@ class GWAS:
 
 
     @classmethod 
-    def _check_median(cls, gwas_data, effect, null_value):
-        median_beta = np.nanmedian(gwas_data[effect])
+    def _check_median(cls, data, effect, null_value):
+        median_beta = np.nanmedian(data)
         if np.abs(median_beta - null_value > 0.1):
             raise ValueError((f"Median value of {effect} is {round(median_beta, 4)} (should be close to {null_value}). " 
                               "This column may be mislabeled."))
@@ -426,7 +432,7 @@ class GWAS:
 
 
     def save(self, out):
-        pickle.dump({'beta': self.beta, 'se': self.se}, open(f'{out}.sumstats', 'wb'), protocol=4)
+        pickle.dump({'beta': self.beta, 'se': self.se, 'z': self.z}, open(f'{out}.sumstats', 'wb'), protocol=4)
         self.snpinfo.to_csv(f'{out}.snpinfo', sep='\t', index=None, na_rep='NA')
 
     
@@ -436,8 +442,10 @@ def run(args, log):
     args = check_input(args)
     cols_map, cols_map2 = map_cols(args)
     
-    log.info(f'Reading and processing {len(args.gwas)} GWAS summary statistics ...\n')
-    sumstats = GWAS.from_rawdata(args.gwas, cols_map, cols_map2, args.maf_min, args.info_min)
+    if args.ldr_gwas is not None:
+        sumstats = GWAS.from_rawdata_ldr(args.ldr_gwas, cols_map, cols_map2, args.maf_min, args.info_min)
+    elif args.y2_gwas is not None:
+        sumstats = GWAS.from_rawdata_y2(args.y2_gwas, cols_map, cols_map2, args.maf_min, args.info_min)
     sumstats.save(args.out)
 
     log.info(f'Save the processed summary statistics to {args.out}.sumstats and {args.out}.snpinfo')
