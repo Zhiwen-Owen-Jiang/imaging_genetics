@@ -9,10 +9,8 @@ class LDSC:
         self.lobo_ldsc = np.zeros((n_blocks, r))
         self.total_ldsc = np.zeros(r)
 
-        # y2_z_ldsc = self._remove_snps_chisq80(y2_z[:, 0])
         y2_z_ldsc = y2_z[:, 0]
         for j in range(r):
-            # z_ldsc = self._remove_snps_chisq80(z_mat[:, j])
             z_ldsc = z_mat[:, j]
             self.total_ldsc[j], self.lobo_ldsc[:, j] = self.ldsc(z_ldsc, y2_z_ldsc, n, n1, n2, ldr_heri[j], y2_heri, ld_rank, 
                              ldscore, block_ranges, merged_blocks)

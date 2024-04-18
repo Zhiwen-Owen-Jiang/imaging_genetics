@@ -1,2 +1,10 @@
 # old-version files
 old_version/
+
+# vscode
+.vscode/
+
+# test output
+test_output/
+
+heig/__pycache__
