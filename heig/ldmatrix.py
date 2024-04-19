@@ -7,17 +7,7 @@ from .parse import PlinkBIMFile, PlinkFAMFile, PlinkBEDFile
 
 
 """
-required arguments:
---partition
---bfile
---prop
---out
-
-"""
-
-
-"""
-TODO: debug
+TODO: align two bfiles on the same A1 and A2.
 
 """
 
@@ -64,19 +54,19 @@ class LDmatrix:
             ld_prefix_list = parse_ld_input(ld_prefix)
         else:
             ld_prefix_list = [ld_prefix]
-        self.ld_info = self._merge_ldinfo(ld_prefix_list)
+        self.ldinfo = self._merge_ldinfo(ld_prefix_list)
         self.data = self._read_as_generator(ld_prefix_list)
-        self.block_sizes, self.block_ranges = self._get_block_info(self.ld_info)
+        self.block_sizes, self.block_ranges = self._get_block_info(self.ldinfo)
         
 
     def _read_ldinfo(self, prefix):
-        ld_info = pd.read_csv(f"{prefix}.ldinfo", delim_whitespace=True, header=None, 
+        ldinfo = pd.read_csv(f"{prefix}.ldinfo", delim_whitespace=True, header=None, 
                                    names=['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2', 'MAF',
                                           'block_idx', 'block_idx2', 'ldscore'])
-        if not ld_info.groupby('CHR')['POS'].apply(lambda x: x.is_monotonic_increasing).all():
+        if not ldinfo.groupby('CHR')['POS'].apply(lambda x: x.is_monotonic_increasing).all():
             raise ValueError(f'The SNPs in each chromosome are not sorted or there are duplicated SNPs')
         
-        return ld_info
+        return ldinfo
         
 
     def _merge_ldinfo(self, prefix_list):
@@ -91,12 +81,12 @@ class LDmatrix:
         if len(prefix_list) == 0:
             raise ValueError('There is nothing in the ld list')
 
-        ld_info = self._read_ldinfo(prefix_list[0])
+        ldinfo = self._read_ldinfo(prefix_list[0])
         for prefix in prefix_list[1:]:
-            ld_info_i = self._read_ldinfo(prefix)
-            ld_info_i['block_idx'] += ld_info.loc[ld_info.index[-1], 'block_idx'] + 1
-            ld_info = pd.concat([ld_info, ld_info_i], axis=0, ignore_index=True)
-        return ld_info
+            ldinfo_i = self._read_ldinfo(prefix)
+            ldinfo_i['block_idx'] += ldinfo.loc[ldinfo.index[-1], 'block_idx'] + 1
+            ldinfo = pd.concat([ldinfo, ldinfo_i], axis=0, ignore_index=True)
+        return ldinfo
         
 
     def _read_as_generator(self, prefix_list):
@@ -109,8 +99,8 @@ class LDmatrix:
 
 
     @classmethod
-    def _get_block_info(cls, ld_info):
-        block_sizes = pd.value_counts(ld_info['block_idx']).sort_index().to_list()
+    def _get_block_info(cls, ldinfo):
+        block_sizes = pd.value_counts(ldinfo['block_idx']).sort_index().to_list()
         block_ranges = []
         begin, end = 0, 0
         for block_size in block_sizes:
@@ -133,9 +123,9 @@ class LDmatrix:
         Updated LD matrix and LD info
 
         """
-        self.ld_info = self.ld_info.loc[self.ld_info['SNP'].isin(snps)]
-        block_dict = {k: g["block_idx2"].tolist() for k,g in self.ld_info.groupby("block_idx")}
-        self.block_sizes, self.block_ranges = self._get_block_info(self.ld_info)
+        self.ldinfo = self.ldinfo.loc[self.ldinfo['SNP'].isin(snps)]
+        block_dict = {k: g["block_idx2"].tolist() for k,g in self.ldinfo.groupby("block_idx")}
+        self.block_sizes, self.block_ranges = self._get_block_info(self.ldinfo)
         self.data = (block[block_dict[i]] for i, block in enumerate(self.data) if i in block_dict)
 
     
@@ -178,14 +168,14 @@ class LDmatrix:
 
 
 class LDmatrixBED(LDmatrix):
-    def __init__(self, num_snps_part, ld_info, snp_getter, prop, inv=False):
+    def __init__(self, num_snps_part, ldinfo, snp_getter, prop, inv=False):
         """
         Making an LD matrix with selected subjects and SNPs with an MAF > 0.01
 
         Parameters:
         ------------
         num_snps_part: a list of number of SNPs in each LD block
-        ld_info: SNP information
+        ldinfo: SNP information
         snp_getter: a generator for getting SNPs
         prop: proportion of variance to keep for each LD block
         inv: if take inverse or not 
@@ -205,8 +195,8 @@ class LDmatrixBED(LDmatrix):
             else:
                 bases = bases * np.sqrt(values)
             self.data.append(bases)
-        ld_info['ldscore'] = np.concatenate(ldscore, axis=None)
-        self.ld_info = ld_info
+        ldinfo['ldscore'] = np.concatenate(ldscore, axis=None)
+        self.ldinfo = ldinfo
 
         
     def _truncate(self, block, prop):
@@ -254,7 +244,7 @@ class LDmatrixBED(LDmatrix):
 
         with open(f"{prefix}.ldmatrix", 'wb') as file:
             pickle.dump(self.data, file)
-        self.ld_info.to_csv(f"{prefix}.ldinfo", sep='\t', index=None, header=None, float_format='%.3f')
+        self.ldinfo.to_csv(f"{prefix}.ldinfo", sep='\t', index=None, header=None, float_format='%.3f')
         
         return prefix
     
@@ -458,15 +448,15 @@ def run(args, log):
     log.info(f"There are {genome_part.shape[0]} genome blocks to partition.")
 
     log.info(f"Doing genome partition ...")
-    num_snps_part, ld_info = partition_genome(ld_bim, genome_part, log)
+    num_snps_part, ldinfo = partition_genome(ld_bim, genome_part, log)
     log.info((f"There are {sum(num_snps_part)} SNPs partitioned into {len(num_snps_part)} blocks, "
               "with the biggest one {np.max(num_snps_part)} SNPs."))
 
     log.info('Making an LD matrix ...')
-    ld = LDmatrixBED(num_snps_part, ld_info, ld_snp_getter, ld_prop)
+    ld = LDmatrixBED(num_snps_part, ldinfo, ld_snp_getter, ld_prop)
 
     log.info('Making an LD inverse matrix ...')
-    ld_inv = LDmatrixBED(num_snps_part, ld_info, ld_inv_snp_getter, ld_inv_prop, inv=True)
+    ld_inv = LDmatrixBED(num_snps_part, ldinfo, ld_inv_snp_getter, ld_inv_prop, inv=True)
     
     ld_prefix = ld.save(args.out, False, ld_prop)
     log.info(f"Save LD matrix to {ld_prefix}.ldmatrix")

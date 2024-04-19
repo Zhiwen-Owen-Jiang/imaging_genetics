@@ -1,4 +1,3 @@
-import warnings
 import numpy as np
 import pandas as pd
 from scipy.stats import chi2
@@ -14,7 +13,7 @@ def recover_se(bases, inner_ldr, n, ldr_beta, ztz_inv):
     return se
 
 
-def check_input(args):
+def check_input(args, log):
     ## required arguments
     if args.ldr_sumstats is None:
         raise ValueError('--ldr-sumstats is required.')
@@ -25,7 +24,7 @@ def check_input(args):
     
     ## optional arguments
     if args.range is not None and args.snp is not None:
-        warnings.warn('--snp will be ignored if --range is provided.')
+        log.info('WARNING: --snp will be ignored if --range is provided.')
         args.snp = None
     if args.n_ldrs is not None and args.n_ldrs <= 0:
         raise ValueError('--n-ldrs should be greater than 0.')
@@ -59,7 +58,7 @@ def check_input(args):
 
 
 def run(args, log):
-    target_chr, start_pos, end_pos = check_input(args)
+    target_chr, start_pos, end_pos = check_input(args, log)
     
     log.info(f'Read inner product of LDR from {args.inner_ldr}')
     inner_ldr = np.load(args.inner_ldr)

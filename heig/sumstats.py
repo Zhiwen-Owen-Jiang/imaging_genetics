@@ -2,7 +2,6 @@ import os
 import re
 import pickle
 import logging
-import warnings
 import numpy as np
 import pandas as pd
 from scipy.stats import chi2
@@ -10,7 +9,7 @@ from . import utils
 
 
 
-def check_input(args):
+def check_input(args, log):
     """
     Checking that all requirements are provided.
     Checking all arguments are valid.
@@ -57,8 +56,8 @@ def check_input(args):
             raise ValueError('--maf-min should be a number.')
         if args.maf_min < 0 or args.maf_min > 1:
             raise ValueError('--maf-min should be between 0 and 1.')
-    elif args.maf_col is None and args.maf_min:
-        warnings.warn('No --maf-col is provided. Ignore --maf-min')
+    elif args.maf_col is None and args.maf_min is not None:
+        log.info('WARNING: No --maf-col is provided. Ignore --maf-min')
         args.maf_min = None
     elif args.maf_col and args.maf_min is None:
         args.maf_min = 0.01
@@ -71,7 +70,7 @@ def check_input(args):
         if args.info_min < 0 or args.info_min > 1:
             raise ValueError('--info-min should be between 0 and 1')
     elif args.info_col is None and args.info_min:
-        warnings.warn('No --info column is provided. Ignore --info-min')
+        log.info('WARNING: No --info column is provided. Ignore --info-min')
         args.info_min = None
     elif args.info_col and args.info_min is None:
         args.info_min = 0.9
@@ -173,9 +172,13 @@ def read_sumstats(dir):
     sumstats = pickle.load(open(sumstats_dir, 'rb'))
     snpinfo = pd.read_csv(snpinfo_dir, delim_whitespace=True)
     
-    if not snpinfo.shape[0] == sumstats.shape[0]:
+    if sumstats['beta'] is not None:
+        n_snps = sumstats['beta'].shape[0]
+    else:
+        n_snps = sumstats['z'].shape[0]
+    if snpinfo.shape[0] != n_snps:
         raise ValueError((f"Summary statistics and the meta data contain different number of SNPs, "
-                          "which means the files have been modified."))
+                      "which means the files have been modified."))
     
     return GWAS(sumstats['beta'], sumstats['se'], sumstats['z'], snpinfo)
 
@@ -238,7 +241,7 @@ class GWAS:
             else:
                 if not gwas_data['SNP'].equals(orig_snps_list['SNP']):
                     raise ValueError('There are different SNPs in the input LDR GWAS files.')
-            beta_mat[:, i] = np.array(gwas_data['BETA'])
+            beta_mat[:, i] = np.array(gwas_data['EFFECT'])
             se_mat[:, i] = np.array(gwas_data['SE'])
             cls.logger.info(f'Pruning SNPs for {gwas_file} ...')
             gwas_data = cls._prune_snps(gwas_data, maf_min, info_min)
@@ -250,14 +253,14 @@ class GWAS:
         se_mat = se_mat[is_common_snp]
         common_snp_info = orig_snps_list.loc[is_common_snp, ['SNP', 'A1', 'A2', 'N']]
 
-        beta = pd.DataFrame(beta_mat, columns=[f'BETA{i}' for i in range(1, beta_mat.shape[1] + 1)], 
-                            index=range(beta_mat.shape[0]))
-        se = pd.DataFrame(se_mat, columns=[f'SE{i}' for i in range(1, se_mat.shape[1] + 1)], 
-                            index=range(se_mat.shape[0]))
+        # beta = pd.DataFrame(beta_mat, columns=[f'BETA{i}' for i in range(1, beta_mat.shape[1] + 1)], 
+        #                     index=range(beta_mat.shape[0]))
+        # se = pd.DataFrame(se_mat, columns=[f'SE{i}' for i in range(1, se_mat.shape[1] + 1)], 
+        #                     index=range(se_mat.shape[0]))
         z = None
         snpinfo = common_snp_info.reset_index(drop=True)
 
-        return cls(beta, se, z, snpinfo)
+        return cls(beta_mat, se_mat, z, snpinfo)
 
     
     @classmethod
@@ -310,7 +313,8 @@ class GWAS:
         gwas_data = cls._prune_snps(gwas_data, maf_min, info_min)
         beta = None
         se = None
-        z = gwas_data['Z'].reset_index(drop=True)
+        # z = gwas_data['Z'].reset_index(drop=True)
+        z = gwas_data['Z'].to_numpy().reshape(-1,1)
         snpinfo = gwas_data[['SNP', 'A1', 'A2', 'N']].reset_index(drop=True)
 
         return cls(beta, se, z, snpinfo)
@@ -421,14 +425,14 @@ class GWAS:
     def extract_snps(self, keep_snps):
         if isinstance(keep_snps, pd.Series):
             keep_snps = pd.DataFrame(keep_snps, columns=['SNP'])
-        self.snp_info['id'] = self.snp_info.index # keep the index in df
-        self.snp_info = keep_snps.merge(self.snp_info, on='SNP')
-        self.z_df = self.z_df.loc[self.snp_info['id']]
-        del self.snp_info['id']
+        self.snpinfo['id'] = self.snpinfo.index # keep the index in df
+        self.snpinfo = keep_snps.merge(self.snpinfo, on='SNP')
+        self.z = self.z[self.snpinfo['id']]
+        del self.snpinfo['id']
         
 
-    def df2array(self):
-        self.z_df = np.array(self.z_df)
+    # def df2array(self):
+    #     self.z = np.array(self.z)
 
 
     def save(self, out):
@@ -439,7 +443,7 @@ class GWAS:
 
 
 def run(args, log):
-    args = check_input(args)
+    args = check_input(args, log)
     cols_map, cols_map2 = map_cols(args)
     
     if args.ldr_gwas is not None:

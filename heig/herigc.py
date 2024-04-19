@@ -7,21 +7,6 @@ from .ldsc import LDSC
 from . import sumstats
 
 
-MASTHEAD = "***********************************************************************************\n"
-MASTHEAD += "* Heritablity and genetic correlation for imaging genetic data analysis\n"
-MASTHEAD += "***********************************************************************************"
-
-"""
-update log:
-1. use preprocessed summary statistics
-2. read and process LD matrix block by block
-3. save LD block and its inverse as truncated eigenvalues and eigenvectors
-   allow reading LD matrix from a list
-4. use munge_sumstats2 
-5. removed the support for running multiple y2 traits
-6. add --heri-only option
-"""
-
 
 def align_alleles(ref, gwas):
     """
@@ -41,7 +26,7 @@ def align_alleles(ref, gwas):
 
     """
     if not (np.array(ref['SNP']) == np.array(gwas.snpinfo['SNP'])).all():
-         raise ValueError("The GWAS and the reference have different SNPs")
+         raise ValueError("The GWAS and the reference have different SNPs.")
     
     aligned_z = [-gwas.z[i] if a11 != a12  else gwas.z[i]
                 for i, (a11, a12) in enumerate(zip(ref['A1'], gwas.snpinfo['A1']))]
@@ -60,8 +45,8 @@ def check_input(args, log):
     
     """
     ## required arguments
-    if args.ldr_gwas is None:
-        raise ValueError('--ldr-gwas is required.')
+    if args.ldr_sumstats is None:
+        raise ValueError('--ldr-sumstats is required.')
     if args.bases is None:
         raise ValueError('--bases is required.')
     if args.inner_ldr is None:
@@ -73,28 +58,26 @@ def check_input(args, log):
     if args.out is None:
         raise ValueError('--out is required.')
 
-    if not os.path.exists(os.path.dirname(args.out)):
-        raise ValueError(f'{os.path.dirname(args.out)} does not exist')
-    if not os.path.exists(args.ldr_gwas):
-        raise ValueError(f"{args.ldr_gwas} does not exist")
+    dirname = os.path.dirname(args.out)
+    if dirname is not None and not os.path.exists(dirname):
+        raise ValueError(f'{os.path.dirname(args.out)} does not exist.')
+    if not os.path.exists(f"{args.ldr_sumstats}.snpinfo"):
+        raise ValueError(f"{args.ldr_sumstats}.snpinfo does not exist")
+    if not os.path.exists(f"{args.ldr_sumstats}.sumstats"):
+        raise ValueError(f"{args.ldr_sumstats}.sumstats does not exist")
     if not os.path.exists(args.bases):
         raise ValueError(f"{args.bases} does not exist")
     if not os.path.exists(args.inner_ldr):
         raise ValueError(f"{args.inner_ldr} does not exist")
-    if not os.path.exists(f"{args.ld}.ldmatrix"):
-        raise ValueError(f"{args.ld}.ldmatrix does not exist")
-    if not os.path.exists(f"{args.ld}.ldinfo"):
-        raise ValueError(f"{args.ld}.ldinfo does not exist")
-    if not os.path.exists(f"{args.ld_inv}.ldmatrix"):
-        raise ValueError(f"{args.ld_inv}.ldinfo does not exist")
-    if not os.path.exists(f"{args.ld_inv}.ldinfo"):
-        raise ValueError(f"{args.ld_inv}.ldinfo does not exist")
     if args.extract is not None and not os.path.exists(args.extract):
         raise ValueError(f"{args.extract} does not exist")
-    if args.overlap is not None and not args.y2_gwas:
-        log.info('WARNING: ignore --overlap as --y2 is not specified')
-    if args.y2_gwas is not None and not os.path.exists(args.y2_gwas):
-        raise ValueError(f"{args.y2_gwas} does not exist")
+    if args.overlap is not None and not args.y2_sumstats:
+        log.info('WARNING: ignore --overlap as --y2-sumstats is not specified')
+    if args.y2_sumstats is not None:
+        if not os.path.exists(f"{args.y2_sumstats}.snpinfo"):
+            raise ValueError(f"{args.y2_sumstats}.snpinfo does not exist")
+        if not os.path.exists(f"{args.y2_sumstats}.sumstats"):
+            raise ValueError(f"{args.y2_sumstats}.sumstats does not exist")
 
 
 
@@ -117,10 +100,10 @@ def get_common_snps(*snp_list):
 
     common_snps = None
     for i in range(len(snp_list)):
-        if hasattr(snp_list[i], 'ld_info'):
-            snp = snp_list[i].ld_info[['SNP', 'A1', 'A2']]
-        elif hasattr(snp_list[i], 'snp_info'):
-            snp = snp_list[i].snp_info[['SNP', 'A1', 'A2']]
+        if hasattr(snp_list[i], 'ldinfo'):
+            snp = snp_list[i].ldinfo[['SNP', 'A1', 'A2']]
+        elif hasattr(snp_list[i], 'snpinfo'):
+            snp = snp_list[i].snpinfo[['SNP', 'A1', 'A2']]
         elif hasattr(snp_list[i], 'SNP'):
             snp = snp_list[i]['SNP']
         if not isinstance(common_snps, pd.DataFrame):
@@ -143,87 +126,87 @@ def read_process_data(args, log):
     Reading and preprocessing gwas data
 
     """
+    # read LD matrices
+    log.info(f"Read LD matrix from {args.ld}.")
+    ld = LDmatrix(args.ld)
+    log.info(f"Read LD inverse matrix from {args.ld_inv}.")
+    ld_inv = LDmatrix(args.ld_inv)
+    if ld.ldinfo.shape[0] != ld_inv.ldinfo.shape[0]:
+        raise ValueError(('The LD matrix and LD inverse matrix have different number of SNPs. ',
+                          'It is highly likely that the files were misspecified or modified.'))
+    if (not (np.array(ld.ldinfo['A1']) == np.array(ld_inv.ldinfo['A1'])).all() 
+        or not (np.array(ld.ldinfo['A2']) == np.array(ld_inv.ldinfo['A2'])).all()):
+        raise ValueError('LD matrix and LD inverse matrix have different alleles for some SNPs.')
+    log.info(f'{ld.ldinfo.shape[0]} SNPs read from LD matrix (and its inverse).') 
+
+    # read bases and inner_ldr
+    bases = np.load(args.bases)
+    log.info(f'{bases.shape[1]} bases read from {args.bases}.')
+    if bases.shape[1] < args.n_ldrs:
+        raise ValueError('The number of bases is less than the number of LDR.')
+    bases = bases[:, :args.n_ldrs]
+
+    log.info(f'Read inner product of LDR from {args.inner_ldr}.')
+    inner_ldr = np.load(args.inner_ldr)
+    if inner_ldr.shape[0] < args.n_ldrs or inner_ldr.shape[1] < args.n_ldrs:
+        raise ValueError('The dimension of inner product of LDR is less than the number of LDR.')
+    inner_ldr = inner_ldr[:args.n_ldrs, :args.n_ldrs]
+    log.info(f'Keep the top {args.n_ldrs} components.\n')
+
     # read LDR gwas
-    log.info(f'Reading LDR gwas summary statistics from {args.ldr_gwas} ...')
-    ldr_gwas = sumstats.read_sumstats(args.ldr_gwas)
+    ldr_gwas = sumstats.read_sumstats(args.ldr_sumstats)
     ldr_gwas.get_zscore()
-    log.info(f'{ldr_gwas.z.shape[0]} SNPs read')
+    log.info(f'{ldr_gwas.snpinfo.shape[0]} SNPs read from LDR summary statistics {args.ldr_sumstats}.')
 
     # keep selected LDRs
     if args.n_ldrs:
         if args.n_ldrs > ldr_gwas.z.shape[1]:
-            raise ValueError('--n-ldrs is greater than LDRs in summary statistics')
+            raise ValueError('--n-ldrs is greater than LDRs in summary statistics.')
         else:
-            ldr_gwas.z = ldr_gwas.z.iloc[:, :args.n_ldrs]
-    r = ldr_gwas.z.shape[1]
+            ldr_gwas.z = ldr_gwas.z[:, :args.n_ldrs]
 
-    # read bases and inner_ldr
-    log.info(f'Read bases from {args.bases}')
-    bases = np.load(args.bases)
-    if bases.shape[1] < r:
-        raise ValueError('The number of bases is less than the number of LDR')
-    bases = bases[:, :r]
-
-    log.info(f'Read inner product of LDR from {args.inner_ldr}')
-    inner_ldr = np.load(args.inner_ldr)
-    if inner_ldr.shape[0] < r or inner_ldr.shape[1] < r:
-        raise ValueError('The dimension of inner product of LDR is less than the number of LDR')
-    inner_ldr = inner_ldr[:r, :r]
-    log.info(f'Keep the top {r} components\n')
+    # read y2 gwas
+    if args.y2_sumstats:
+        y2_gwas = sumstats.read_sumstats(args.y2_sumstats)
+        log.info(f'{y2_gwas.snpinfo.shape[0]} SNPs read from non-imaging summary statistics {args.y2_sumstats}.')
+    else:
+        y2_gwas = None
 
      # extract SNPs
     if args.extract: ## TODO: test
         try:
             header = open(args.extract).readline().split()
         except: 
-            raise ValueError('--extract should be an unzipped txt file')
+            raise ValueError('--extract should be an unzipped txt file.')
         if not header[0].startswith('rs'):
             raise ValueError(('--extract should not have a header and' 
-                             'the first column should be the rsID of SNP'))
+                             'the first column should be the rsID of SNP.'))
         # only the first column will be used
         keep_snps = pd.read_csv(args.extract, delim_whitespace=True, 
                                header=None, usecols=[0], names=['SNP']) 
-        log.info(f"{len(keep_snps)} SNPs are read from {args.extract}")
+        log.info(f"Extracting {len(keep_snps)} SNPs from {args.extract}.")
     else:
         keep_snps = None
 
-    # read LD matrices
-    log.info(f"Read LD matrix from {args.ld}")
-    ld = LDmatrix(args.ld)
-    log.info(f"Read LD inverse matrix from {args.ld_inv}\n")
-    ld_inv = LDmatrix(args.ld_inv)
-        
-    # read and prune y2 gwas
-    if args.y2_gwas:
-        log.info(f'Read gwas summary statistics for the second trait')
-        y2_gwas = sumstats.read_sumstats(args.y2_gwas)
-        y2_gwas.get_zscore()
-    else:
-        y2_gwas = None
-
+    
     # get common snps from gwas, LD matrices, and keep_snps
     common_snps = get_common_snps(ldr_gwas, ld, ld_inv, 
                                   y2_gwas, keep_snps) # TODO: be cautious make it faster
-    log.info(f"{len(common_snps)} SNPs are common in these files")
+    log.info((f"{len(common_snps)} SNPs are common in these files with identical alleles. "
+              "Extracting them from each file ..."))
 
     # extract common snps in LD matrix
     ld.extract(common_snps)
     ld_inv.extract(common_snps)
 
-    if (not (np.array(ld.ld_info['A1']) == np.array(ld_inv.ld_info['A1'])).all() 
-        or not (np.array(ld.ld_info['A2']) == np.array(ld_inv.ld_info['A2'])).all()):
-        raise ValueError('LD matrix and LD inverse matrix have different alleles for some SNPs.')
+    # extract common snps in summary statistics and do alignment
+    ldr_gwas.extract_snps(ld.ldinfo['SNP']) # TODO: speed up
+    ldr_gwas = align_alleles(ld.ldinfo, ldr_gwas)
 
-    ldr_gwas.extract_snps(ld.ld_info['SNP']) # TODO: speed up
-    ldr_gwas.df2array()
-
-    # align summary statistics
-    log.info(f"Align genetic effects of summary statistics")
-    ldr_gwas = align_alleles(ld.ld_info, ldr_gwas)
-    if args.y2_gwas:
-        y2_gwas.extract_snps(ld.ld_info['SNP']) 
-        y2_gwas.df2array()
-        y2_gwas = align_alleles(ld.ld_info, y2_gwas)
+    if args.y2_sumstats:
+        y2_gwas.extract_snps(ld.ldinfo['SNP']) 
+        y2_gwas = align_alleles(ld.ldinfo, y2_gwas)
+    log.info(f"Aligned genetic effects of summary statistics to the same allele.\n")
 
     return ldr_gwas, y2_gwas, bases, inner_ldr, ld, ld_inv
 
@@ -403,7 +386,7 @@ class TwoSample(Estimation):
                                                         self.ld_rank, self.nbar, self.n2bar)
         else:
             merged_blocks = ld.merge_blocks()
-            ldscore = ld.ld_info['ldscore'].values
+            ldscore = ld.ldinfo['ldscore'].values
             n_merged_blocks = len(merged_blocks)
 
             # compute left-one-block-out heritability
@@ -554,7 +537,7 @@ def format_heri(heri, heri_se, log):
     invalid_heri = (heri > 1) | (heri < 0) | (heri_se > 1) | (heri_se < 0)
     heri[invalid_heri] = np.nan
     heri_se[invalid_heri] = np.nan
-    log.info('Remove out-of-bound results (if any)\n')
+    log.info('Removed out-of-bound results (if any)\n')
 
     chisq = (heri / heri_se) ** 2
     pv = chi2.sf(chisq, 1)
@@ -564,6 +547,16 @@ def format_heri(heri, heri_se, log):
     return output
 
 
+def format_gene_cor(gene_cor, gene_cor_se):
+    gene_cor_tril = gene_cor[np.tril_indices(gene_cor.shape[0], k = -1)]
+    gene_cor_se_tril = gene_cor_se[np.tril_indices(gene_cor_se.shape[0], k = -1)]
+    invalid_gene_cor = (gene_cor_tril > 1) | (gene_cor_tril < -1) | (gene_cor_se_tril > 1) | (gene_cor_se_tril < 0)
+    gene_cor_tril[invalid_gene_cor] = np.nan
+    gene_cor_se_tril[invalid_gene_cor] = np.nan
+
+    return gene_cor_tril, gene_cor_se_tril
+
+
 def format_gene_cor_y2(heri, heri_se, gene_cor, gene_cor_se, log):
     invalid_heri = (heri > 1) | (heri < 0) | (heri_se > 1) | (heri_se < 0)
     heri[invalid_heri] = np.nan
@@ -571,7 +564,7 @@ def format_gene_cor_y2(heri, heri_se, gene_cor, gene_cor_se, log):
     invalid_gene_cor = (gene_cor > 1) | (gene_cor < -1) | (gene_cor_se > 1) | (gene_cor_se < 0)
     gene_cor[invalid_gene_cor] = np.nan
     gene_cor_se[invalid_gene_cor] = np.nan
-    log.info('Remove out-of-bound results (if any)\n')
+    log.info('Removed out-of-bound results (if any)\n')
 
     heri_chisq = (heri / heri_se) ** 2
     heri_pv = chi2.sf(heri_chisq, 1) 
@@ -586,7 +579,7 @@ def format_gene_cor_y2(heri, heri_se, gene_cor, gene_cor_se, log):
     return output
 
 
-def print_results_two(heri_gc, output, overlap, log):
+def print_results_two(heri_gc, output, overlap):
     msg = 'Heritability of the image\n'
     msg += '-------------------------\n'
     msg += f"Mean h^2: {round(np.nanmean(output['image_heri']), 4)} ({round(np.nanmean(output['image_heri_se']), 4)})\n"
@@ -597,10 +590,10 @@ def print_results_two(heri_gc, output, overlap, log):
 
     chisq_y2_heri = (heri_gc.y2_heri[0] / heri_gc.y2_heri_se[0]) ** 2
     pv_y2_heri = chi2.sf(chisq_y2_heri, 1) 
-    msg += 'Heritability of the second trait\n'
-    msg += '--------------------------------\n'
+    msg += 'Heritability of the non-imaging trait\n'
+    msg += '-------------------------------------\n'
     msg += f"Total observed scale h^2: {round(heri_gc.y2_heri[0], 4)} ({round(heri_gc.y2_heri_se[0], 4)})\n"
-    msg += f"Chisq: {round(chisq_y2_heri, 4)}\n"
+    msg += f"Chi^2: {round(chisq_y2_heri, 4)}\n"
     msg += f"P: {round(pv_y2_heri, 4)}\n"
     msg += '\n'
     
@@ -648,22 +641,23 @@ def run(args, log):
     # normalize summary statistics of LDR
     z_mat = ldr_gwas.z * np.sqrt(np.diagonal(inner_ldr)) / np.array(ldr_gwas.snpinfo['N']).reshape(-1, 1)
     
-    if not args.y2_gwas:
+    if not args.y2_sumstats:
         heri_gc = OneSample(z_mat, ldr_gwas.snpinfo['N'], ld, ld_inv, bases, inner_ldr, args.heri_only)
-        heri_output = format_heri(heri_gc.heri, heri_gc.heri_se)
+        heri_output = format_heri(heri_gc.heri, heri_gc.heri_se, log)
         msg = print_results_heri(heri_output)
         log.info(f'{msg}')
         heri_output.to_csv(f"{args.out}_heri.txt", sep='\t', index=None, float_format='%.5e', na_rep='NA')
         log.info(f'Save the heritability results to {args.out}_heri.txt')
         
         if not args.heri_only:
+            gene_cor_tril, gene_cor_se_tril = format_gene_cor(heri_gc.gene_cor, heri_gc.gene_cor_se)
             msg = print_results_gc(heri_gc.gene_cor, heri_gc.gene_cor_se)
             log.info(f'{msg}')
-            gene_cor_tril = heri_gc.gene_cor[np.tril_indices(heri_gc.gene_cor.shape[0], k = -1)]
-            gene_cor_se_tril = heri_gc.gene_cor_se[np.tril_indices(heri_gc.gene_cor_se.shape[0], k = -1)]
-            invalid_gene_cor = (gene_cor_tril > 1) | (gene_cor_tril < -1) | (gene_cor_se_tril > 1) | (gene_cor_se_tril < 0)
-            gene_cor_tril[invalid_gene_cor] = np.nan
-            gene_cor_se_tril[invalid_gene_cor] = np.nan
+            # gene_cor_tril = heri_gc.gene_cor[np.tril_indices(heri_gc.gene_cor.shape[0], k = -1)]
+            # gene_cor_se_tril = heri_gc.gene_cor_se[np.tril_indices(heri_gc.gene_cor_se.shape[0], k = -1)]
+            # invalid_gene_cor = (gene_cor_tril > 1) | (gene_cor_tril < -1) | (gene_cor_se_tril > 1) | (gene_cor_se_tril < 0)
+            # gene_cor_tril[invalid_gene_cor] = np.nan
+            # gene_cor_se_tril[invalid_gene_cor] = np.nan
             np.savez_compressed(f'{args.out}_gene_cor', gc=gene_cor_tril, se=gene_cor_se_tril)
             log.info(f'Save the genetic correlation results to {args.out}_gene_cor.npz')
     else:
@@ -671,10 +665,10 @@ def run(args, log):
         heri_gc = TwoSample(z_mat, ldr_gwas.snpinfo['N'], ld, ld_inv, bases, inner_ldr,
                             y2_z, y2_gwas.snpinfo['N'], args.overlap)
         gene_cor_y2_output = format_gene_cor_y2(heri_gc.heri, heri_gc.heri_se,
-                                                heri_gc.gene_cor_y2, heri_gc.gene_cor_y2_se)
-        msg = print_results_two(heri_gc, gene_cor_y2_output)
+                                                heri_gc.gene_cor_y2, heri_gc.gene_cor_y2_se, log)
+        msg = print_results_two(heri_gc, gene_cor_y2_output, args.overlap)
         log.info(f'{msg}')
         gene_cor_y2_output.to_csv(f"{args.out}_gene_cor_y2.txt", sep='\t', index=None, float_format='%.5e', na_rep='NA')
-        log.info(f'Save the genetic correlation results to {args.out}_gene_cor_y2.txt\n')
+        log.info(f'Save the genetic correlation results to {args.out}_gene_cor_y2.txt')
         
         
