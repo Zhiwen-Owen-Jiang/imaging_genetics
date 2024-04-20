@@ -269,21 +269,23 @@ def read_plink(dir, keep_snps=None, keep_indivs=None, maf=None):
 
 
 
-def partition_genome(bim, part, log):
+def partition_genome(ld_bim, ld_inv_bim, part, log):
     """
-    # TODO: update block, is it correct that begin = -1 at the beginning?
-
+    ld_bim: a pd Dataframe of LD matrix SNP information
+    ld_inv_bim: a pd Dataframe of LD inverse matrix SNP information
+    part: a pd Dataframe of LD block annotation
+    log: a logger
     """
     num_snps_part = []
     end = -1
-    bim['block_idx'] = None
-    bim['block_idx2'] = None
+    ld_bim['block_idx'] = None
+    ld_bim['block_idx2'] = None
     abs_begin = 0
     abs_end = 0
     n_skipped_blocks = 0
     block_idx = 0
     for i in range(part.shape[0]):
-        cand = list(bim.loc[bim['CHR'] == part.iloc[i, 0], 'POS'])
+        cand = list(ld_bim.loc[ld_bim['CHR'] == part.iloc[i, 0], 'POS'])
         begin = end
         end = find_loc(cand, part.iloc[i, 2])
         if end < begin:
@@ -306,14 +308,16 @@ def partition_genome(bim, part, log):
                 else:
                     abs_begin = abs_end
                     abs_end += sub_block_size
-                bim.loc[bim.index[abs_begin: abs_end], 'block_idx'] = block_idx
-                bim.loc[bim.index[abs_begin: abs_end], 'block_idx2'] = range(sub_block_size)
+                ld_bim.loc[ld_bim.index[abs_begin: abs_end], 'block_idx'] = block_idx
+                ld_bim.loc[ld_bim.index[abs_begin: abs_end], 'block_idx2'] = range(sub_block_size)
                 block_idx += 1
         else:
             n_skipped_blocks += 1
     log.info(f'{n_skipped_blocks} blocks with no SNP are skipped.')
+    ld_inv_bim['block_idx'] = ld_bim['block_idx'] 
+    ld_inv_bim['block_idx2'] = ld_bim['block_idx2'] 
     
-    return num_snps_part, bim
+    return num_snps_part, ld_bim, ld_inv_bim
 
 
 
@@ -383,7 +387,7 @@ def check_input(args):
     if not os.path.exists(args.partition):
         raise ValueError(f'{args.partition} does not exist')
     try:
-        header = open(dir).readline().split()
+        header = open(args.partition).readline().split()
     except:
         raise ValueError('The genome partition file should be an unzipped txt file')
     for x in header[:3]:
@@ -397,7 +401,7 @@ def check_input(args):
         ld_bfile, ld_inv_bfile = args.bfile.split(',')
     except:
         raise ValueError('Two bfiles should be provided with --bfile and separated with comma.')
-    for suffix in ['bed', 'fam', 'bim']:
+    for suffix in ['.bed', '.fam', '.bim']:
         if not os.path.exists(ld_bfile + suffix):
             raise ValueError(f'{ld_bfile + suffix} does not exist.')
         if not os.path.exists(ld_inv_bfile + suffix):
@@ -420,18 +424,20 @@ def run(args, log):
 
     log.info(f"Read SNP list from {ld_bfile}.bim and remove duplicated SNPs.")
     ld_bim = pd.read_csv(f'{ld_bfile}.bim', delim_whitespace=True, header=None,
-                         names=['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2'])
+                         names=['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2'],
+                         dtype={'A1': 'category', 'A2': 'category'})
     ld_bim.drop_duplicates(subset=['SNP'], keep=False, inplace=True)
     log.info(f'{ld_bim.shape[0]} SNPs remaining for LD matrix.')
 
     log.info(f"Read SNP list from {ld_inv_bfile}.bim and remove duplicated SNPs.")
     ld_inv_bim = pd.read_csv(f'{ld_inv_bfile}.bim', delim_whitespace=True, header=None,
-                             names=['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2'])
+                             names=['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2'],
+                             dtype={'A1': 'category', 'A2': 'category'})
     ld_inv_bim.drop_duplicates(subset=['SNP'], keep=False, inplace=True)
     log.info(f'{ld_inv_bim.shape[0]} SNPs remaining for LD inverse matrix.') 
 
     ld_merged = ld_bim.merge(ld_inv_bim, on='SNP')
-    log.info((f"Merging SNP lists of LD matrix and its inverse, "
+    log.info((f"Merged SNP lists of LD matrix and its inverse, "
               f"{ld_merged.shape[0]} SNPs are common."))   
     
     log.info(f"Reading bfile from {ld_bfile} and keeping merged SNPs ...")
@@ -442,26 +448,26 @@ def run(args, log):
     ld_inv_keep_snp_idx = ld_inv_bim.loc[ld_inv_bim['SNP'].isin(ld_merged['SNP'])].index.to_list()
     ld_inv_bim, ld_inv_snp_getter = read_plink(ld_inv_bfile, ld_inv_keep_snp_idx, )
 
-    log.info(f"Read genome partition info from {args.partition}.")
+    log.info(f"\nRead genome partition info from {args.partition}.")
     # check_partition(args.partition)
     genome_part = pd.read_csv(args.partition, header=None, delim_whitespace=True)
     log.info(f"There are {genome_part.shape[0]} genome blocks to partition.")
 
     log.info(f"Doing genome partition ...")
-    num_snps_part, ldinfo = partition_genome(ld_bim, genome_part, log)
+    num_snps_part, ld_info, ld_inv_info = partition_genome(ld_bim, ld_inv_bim, genome_part, log)
     log.info((f"There are {sum(num_snps_part)} SNPs partitioned into {len(num_snps_part)} blocks, "
-              "with the biggest one {np.max(num_snps_part)} SNPs."))
+              f"with the biggest one {np.max(num_snps_part)} SNPs."))
 
     log.info('Making an LD matrix ...')
-    ld = LDmatrixBED(num_snps_part, ldinfo, ld_snp_getter, ld_prop)
+    ld = LDmatrixBED(num_snps_part, ld_info, ld_snp_getter, ld_prop)
 
     log.info('Making an LD inverse matrix ...')
-    ld_inv = LDmatrixBED(num_snps_part, ldinfo, ld_inv_snp_getter, ld_inv_prop, inv=True)
+    ld_inv = LDmatrixBED(num_snps_part, ld_inv_info, ld_inv_snp_getter, ld_inv_prop, inv=True)
     
     ld_prefix = ld.save(args.out, False, ld_prop)
     log.info(f"Save LD matrix to {ld_prefix}.ldmatrix")
-    log.info(f"Save LD matrix info to {ld_inv_prefix}.ldinfo")
+    log.info(f"Save LD matrix info to {ld_prefix}.ldinfo")
     
     ld_inv_prefix = ld_inv.save(args.out, True, ld_inv_prop)
-    log.info(f"Save LD inverse matrix to {ld_prefix}.ldmatrix")
+    log.info(f"Save LD inverse matrix to {ld_inv_prefix}.ldmatrix")
     log.info(f"Save LD inverse matrix info to {ld_inv_prefix}.ldinfo")
