@@ -75,17 +75,17 @@ class KernelSmooth:
             if isvalid:
                 mse[cii] = np.mean(np.sum((self.data - y_sm) ** 2,
                            axis=1) / (1 - np.sum(csc_matrix.diagonal(sparse_sm_weight)) / self.N) ** 2)
-                log.info(f"The MSE for bandwidth {np.round(bw, 3)} is {round(mse[cii], 3)}")
+                log.info(f"The MSE for bandwidth {np.round(bw, 3)} is {round(mse[cii], 3)}.")
             else:
                 mse[cii] = np.Inf
         
         which_min = np.argmin(mse)
         if which_min == 0 or which_min == len(bw_list) - 1:
-            log.info("WARNING: the optimal bandwidth was obtained at the boundary, \
-                        which may not be the best one")
+            log.info(("WARNING: the optimal bandwidth was obtained at the boundary, "
+                      "which may not be the best one."))
         bw_opt = bw_list[which_min]
         min_mse = mse[which_min]
-        log.info(f"The optimal bandwidth is {np.round(bw_opt, 3)} with MSE {round(min_mse, 3)}")
+        log.info(f"The optimal bandwidth is {np.round(bw_opt, 3)} with MSE {round(min_mse, 3)}.")
 
         return bw_opt
     
@@ -148,7 +148,7 @@ class LocalLinear(KernelSmooth):
                                    large_weight_idxs), shape=(self.N, self.N))
         nonzero_weights = np.sum(sparse_sm_weight != 0, axis=0)
         if np.mean(nonzero_weights) > self.N // 10:
-            self.logger.info(f"On average, the non-zero weights are greater than #grid points // 10 ({self.N // 10}). Skip")
+            self.logger.info(f"On average, the non-zero weights are greater than #voxels // 10 ({self.N // 10}). Skip.")
             return False, None, None
         
         sm_data = self.data @ sparse_sm_weight.T
@@ -215,7 +215,7 @@ class LocalConstant(KernelSmooth):
         # sm_data = np.dot(self.data, sparse_sm_weight.T)
         nonzero_weights = np.sum(sparse_sm_weight != 0, axis=0)
         if np.mean(nonzero_weights) > self.N // 20:
-            self.logger.info(f"On average, the non-zero weights are greater than {self.N // 20}. Skip")
+            self.logger.info(f"On average, the non-zero weights are greater than {self.N // 20}. Skip.")
             return None, None
 
         sm_data = self.data @ sparse_sm_weight.T
@@ -235,18 +235,19 @@ class Dataset():
         if dir.endswith('dat'):
             self.data = pickle.load(open(dir, 'rb'))
             if not 'FID' in self.data.columns or not 'IID' in self.data.columns:
-                raise ValueError('FID and IID do not exist')
+                raise ValueError('FID and IID do not exist.')
         else:
             openfunc, compression = utils.check_compression(dir)
             self._check_header(openfunc, compression, dir)
             self.data = pd.read_csv(dir, delim_whitespace=True, compression=compression, 
-                                    na_values=[-9, 'NONE']) # -9.0 is not counted TODO: test it
+                                    na_values=[-9, 'NONE', '.']) # -9.0 is not counted TODO: test it
         if self.data[['FID', 'IID']].duplicated().any():
             first_dup = self.data.loc[self.data[['FID', 'IID']].duplicated(), ['FID', 'IID']]
-            raise ValueError(f'Subject {list(first_dup)} is duplicated')
+            raise ValueError(f'Subject {list(first_dup)} is duplicated.')
         self.data = self.data.set_index(['FID', 'IID'])
+        self.data = self.data.sort_index()
+        self.logger = logging.getLogger(__name__)
         self._remove_na_inf()
-        
 
     def _check_header(self, openfunc, compression, dir):
         """
@@ -260,12 +261,12 @@ class Dataset():
         """
         header = openfunc(dir).readline().split()
         if len(header) == 1:
-            raise ValueError('Only one column detected, check your input file and delimiter')
+            raise ValueError('Only one column detected, check your input file and delimiter.')
         if compression is not None:
             header[0] = str(header[0], 'UTF-8')
             header[1] = str(header[1], 'UTF-8')
         if header[0] != 'FID' or header[1] != 'IID':
-            raise ValueError('The first two column names must be FID and IID')
+            raise ValueError('The first two column names must be FID and IID.')
             
     
     def _remove_na_inf(self):
@@ -275,7 +276,7 @@ class Dataset():
         """
         bad_idxs = (self.data.isin([np.inf, -np.inf, np.nan])).any(axis=1)
         self.data = self.data.loc[~bad_idxs]
-        self.logger.info(f"{sum(bad_idxs)} row(s) with missing or infinite values were removed")
+        self.logger.info(f"{sum(bad_idxs)} row(s) with missing or infinite values were removed.")
     
 
     def keep(self, idx):
@@ -301,17 +302,16 @@ class Covar(Dataset):
 
         """
         super().__init__(dir)
-        self.logger = logging.getLogger(__name__)
 
         if cat_covar_list:
             catlist = cat_covar_list.split(',')
             self._check_validcatlist(catlist)
-            self.logger.info(f"There are {len(catlist)} categorical variables provided by --cat-covar-list")
+            self.logger.info(f"There are {len(catlist)} categorical variables provided by --cat-covar-list.")
             self._dummy_covar(catlist)
             
         self._add_intercept()
         if self._check_singularity():
-            raise ValueError('The covarite matrix is singular')
+            raise ValueError('The covarite matrix is singular.')
 
     def _check_validcatlist(self, catlist):
         """
@@ -324,7 +324,7 @@ class Covar(Dataset):
         """
         for cat in catlist:
             if cat not in self.data.columns:
-                raise ValueError(f"{cat} cannot be found in the covariates")
+                raise ValueError(f"{cat} cannot be found in the covariates.")
         
 
     def _dummy_covar(self, catlist):
@@ -342,7 +342,7 @@ class Covar(Dataset):
         for i in range(q):
             covar_dummy = pd.get_dummies(covar_df.iloc[:, 0], drop_first=True)
             if len(covar_dummy) == 0:
-                raise ValueError(f"{covar_df.columns[i]} have only one level")
+                raise ValueError(f"{covar_df.columns[i]} have only one level.")
             covar_df = pd.concat([covar_df, covar_dummy], axis=1)
             covar_df.drop(covar_df.columns[0], inplace=True, axis=1)
         self.data = pd.concat([covar_df, qcovar_df], axis=1)
@@ -386,8 +386,8 @@ def get_common_idxs(dataset1, dataset2):
     
     """
     if not isinstance(dataset1, Dataset) or not isinstance(dataset2, Dataset):
-        raise ValueError('The input should be an instance of Dataset')
-    common_idxs = dataset1.data.index.intersection(set(dataset2.data.index))
+        raise ValueError('The input should be an instance of Dataset.')
+    common_idxs = dataset1.data.index.intersection(dataset2.data.index)
     # sorted(common_idxs)
     return common_idxs
 
@@ -411,14 +411,14 @@ def do_kernel_smoothing(data, coord, bw_opt, log):
     ks = LocalLinear(data, coord)
     if not bw_opt:
         bw_list = ks.bw_cand()
-        log.info(f"Selecting the optimal bandwidth from\n{np.round(bw_list, 3)}")
+        log.info(f"Selecting the optimal bandwidth from\n{np.round(bw_list, 3)}.")
         bw_opt = ks.gcv(bw_list, log)
     else:
         bw_opt = np.repeat(bw_opt, coord.shape[1])
-    log.info(f"Doing kernel smoothing using the optimal bandwidth\n")
+    log.info(f"Doing kernel smoothing using the optimal bandwidth.\n")
     _, sm_data, _ = ks.smoother(bw_opt)
     if not isinstance(sm_data, np.ndarray):
-        raise ValueError('The bandwidth provided by --bw-opt may be problematic')
+        raise ValueError('The bandwidth provided by --bw-opt may be problematic.')
     
     return sm_data
 
@@ -484,7 +484,7 @@ def select_n_ldr(data, bases, log):
         log.info(f'The MSE of {n_cand} is {round(mse[-1], 3)}')
         
     n_opt = n_cand_list[np.argmin(mse)]
-    log.info(f'The optimal number of components is {n_opt}')
+    log.info(f'The optimal number of components is {n_opt}.')
     return n_opt
 
 
@@ -495,94 +495,94 @@ def determine_n_ldr(values, prop, log):
     n_idxs = np.sum(idxs) + 1
     n_opt = max(n_idxs, int(eff_num) + 1)
     var_prop = np.sum(values[:n_opt]) / np.sum(values)
-    log.info(f'Approximately {round(var_prop * 100, 1)}% variance is captured by the top {n_opt} LDR')
-    if n_opt == n_idxs:
-        log.info(f'The analysis indicates that the decay rate of eigenvalues is low, then the downstream heritability and genetic correlation analysis may be noisy')
+    log.info(f'Approximately {round(var_prop * 100, 1)}% variance is captured by the top {n_opt} LDRs.\n')
+    # if n_opt == n_idxs:
+    #     log.info((f'The analysis indicates that the decay rate of eigenvalues is low, '
+    #               'then the downstream heritability and genetic correlation analysis may be noisy.'))
     return n_opt
 
 
 def check_input(args, log):
     if not args.image:
-        raise ValueError('--image is required')
+        raise ValueError('--image is required.')
     if not args.coord:
-        raise ValueError('--coord is required')
+        raise ValueError('--coord is required.')
     if not args.covar:
-        raise ValueError('--covar is required')
+        raise ValueError('--covar is required.')
     if not args.out:
-        raise ValueError('--out is required')
+        raise ValueError('--out is required.')
     if not args.prop:
         args.prop = 0.8
-        log.info("By default, perserving 80% of variance")
+        log.info("By default, perserving 80% of variance.")
 
     if not os.path.exists(args.image):
-        raise ValueError(f"{args.image} does not exist") 
+        raise ValueError(f"{args.image} does not exist.") 
     if not os.path.exists(args.coord):
-        raise ValueError(f"{args.coord} does not exist") 
+        raise ValueError(f"{args.coord} does not exist.") 
     if not os.path.exists(args.covar):
-        raise ValueError(f"{args.covar} does not exist")
+        raise ValueError(f"{args.covar} does not exist.")
     if args.keep and not os.path.exists(args.keep):
-        raise ValueError(f"{args.covar} does not exist")
+        raise ValueError(f"{args.covar} does not exist.")
     if args.prop and (args.prop <= 0 or args.prop > 1):
-        raise ValueError('--var-keep should be between 0 and 1')
+        raise ValueError('--prop should be between 0 and 1.')
     if args.prop and args.prop < 0.8:
-        log.info('WARNING: keeping less than 80% of variance will have bad performance')
+        log.info('WARNING: keeping less than 80% of variance will have bad performance.')
     if args.bw_opt and args.bw_opt <= 0:
-        raise ValueError('--bw-opt should be positive')
+        raise ValueError('--bw-opt should be positive.')
         
 
 def run(args, log):
     # check input
-    check_input(args)
+    check_input(args, log)
 
     # read images
     log.info(f"Reading imaging data from {args.image}")
     image = Dataset(args.image)
-    log.info(f"{image.data.shape[0]} subjects and {image.data.shape[1]} grid points are included in the data")
+    log.info(f"{image.data.shape[0]} subjects and {image.data.shape[1]} voxels are included in the data.")
 
     # read coordinate
     log.info(f"Reading coordinate data from {args.coord}")
     coord = np.loadtxt(args.coord)
     if np.isnan(coord).any():
-        raise ValueError('Missing data is not allowed in the coordinate')
+        raise ValueError('Missing data is not allowed in the coordinate.')
     if image.data.shape[1] != coord.shape[0]:
-        raise ValueError('Data and coordinates have inconsistent grid points')
+        raise ValueError('Data and coordinates have inconsistent voxels.')
     
     # read covariates
     log.info(f"Reading covariates from {args.covar}")
-    covar = Covar(args.covar)
-    log.info(f"There are {covar.data.shape[1]} fixed effects in the covariates (including the intercept)")
+    covar = Covar(args.covar, args.cat_covar_list)
+    log.info(f"There are {covar.data.shape[1]} fixed effects in the covariates (including the intercept).")
 
     # extract common subjects
     common_idxs = get_common_idxs(image, covar)
     if args.keep:
         keep_ids = pd.read_csv(args.keep, delim_whitespace=True, header=None, usecols=[0, 1])
         keep_ids = list(zip(keep_ids[0], keep_ids[1]))
-        common_idxs = common_idxs.intersection(tuple(keep_ids))
+        common_idxs = common_idxs.intersection(tuple(keep_ids)) # slow
     image.keep(common_idxs)
     covar.keep(common_idxs)
-    log.info(f"{len(common_idxs)} subjects are common in images and covariates\n")
+    log.info(f"{len(common_idxs)} subjects are common in images and covariates.\n")
 
     # kernel smoothing
     log.info('Doing kernel smoothing using the local linear method ...')
     data = np.array(image.data)
-    sm_data = do_kernel_smoothing(data, coord)
+    sm_data = do_kernel_smoothing(data, coord, args.bw_opt, log)
         
     # eigen decomposion 
     n_points, dim = coord.shape
     if args.all:
         n_top = n_points
-        log.info(f"Computing all {n_top} components, which may take longer time")
+        log.info(f"Computing all {n_top} components, which may take longer time.")
     else:
         if dim == 1:
             n_top = int(n_points / 4)
         else:
             n_top = int(n_points ** ((dim - 1) / dim)) 
-        log.info(f"Computing only the first {n_top} components")
+        log.info(f"Computing only the first {n_top} components.")
     log.info(f'Adaptively determining the number of low-dimension representations (LDRs) ...')
     values, bases = functional_bases(sm_data, n_top)
     # n_opt = select_n_ldr(sm_data, bases)
-    n_opt = determine_n_ldr(values) # keep at least 80% variance
-    log.info('')
+    n_opt = determine_n_ldr(values, args.prop, log) # keep at least 80% variance
     bases = bases[:, :n_opt]
     eff_num = np.sum(values) ** 2 / np.sum(values ** 2)
 
@@ -596,9 +596,10 @@ def run(args, log):
     np.save(f"{args.out}_proj_innerldr_top{n_opt}.npy", proj_inner_ldr)
     np.save(f"{args.out}_bases_top{n_opt}.npy", bases)
     np.save(f"{args.out}_eigenvalues_top{n_top}.npy", values)
-    log.info(f"The effective number of independent voxels is {round(eff_num, 2)}, which can be used in the Bonferroni threshold across all voxels")
-    log.info(f"Save the LDR to {args.out}_ldr_top{n_opt}.txt")
-    log.info(f"Save the inner product of LDR to {args.out}_innerldr_top{n_opt}.npy")
+    log.info((f"The effective number of independent voxels is {round(eff_num, 3)}, "
+              "which can be used in the Bonferroni p-value threshold across all voxels."))
+    log.info(f"Save the LDRs to {args.out}_ldr_top{n_opt}.txt")
+    log.info(f"Save the inner product of LDRs to {args.out}_innerldr_top{n_opt}.npy")
     log.info(f"Save the top {n_opt} bases to {args.out}_bases_top{n_opt}.npy")
     log.info(f"Save the top {n_top} eigenvalues to {args.out}_eigenvalues_top{n_top}.npy")
     
