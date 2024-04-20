@@ -100,6 +100,10 @@ parser.add_argument('--n', type=int,
                     help='sample size')
 parser.add_argument('--n-col', 
                     help='sample size column')
+parser.add_argument('--chr-col', 
+                    help='chromosome column')
+parser.add_argument('--pos-col', 
+                    help='position column')
 parser.add_argument('--snp-col', 
                     help='SNP column')
 parser.add_argument('--a1-col', 
@@ -129,8 +133,8 @@ parser.add_argument('--info-min', type=float,
 ## arguments for voxel_gwas.py
 parser.add_argument('--voxel-gwas', action='store_true',
                     help='Recovering voxel-level GWAS results')
-parser.add_argument('--sig-thresh', 
-                    help='significance threshold for p-values, e.g. 0.00000005')
+parser.add_argument('--sig-thresh', type=float,
+                    help='significance threshold for p-values, e.g. 0.00000005 or 5e-08')
 parser.add_argument('--voxel', type=int, 
                     help='which voxel, 0 based index')
 parser.add_argument('--range',  
@@ -172,8 +176,8 @@ if __name__ == '__main__':
         defaults = vars(parser.parse_args(''))
         opts = vars(args)
         non_defaults = [x for x in opts.keys() if opts[x] != defaults[x]]
-        header = "./heig.py\n"
-        options = ['--'+x.replace('_','-')+' '+str(opts[x]) for x in non_defaults]
+        header = "heig.py\n"
+        options = ['--'+x.replace('_','-')+' '+str(opts[x])  for x in non_defaults]
         header += '\n'.join(options).replace('True','').replace('False','')
         header = header+'\n'
         log.info(header)

@@ -30,8 +30,8 @@ def check_input(args, log):
         raise ValueError('--n-ldrs should be greater than 0.')
     if args.voxel is not None and args.voxel < 0:
         raise ValueError('--voxel should be nonnegative.')
-    if args.range is None and args.voxel is None and args.sig_thresh is None:
-        raise ValueError(('Generating all voxelwise summary statistics will require large disk memory. ',
+    if args.range is None and args.voxel is None and args.sig_thresh is None and args.snp is None:
+        raise ValueError(('Generating all voxelwise summary statistics will require large disk memory. '
                           'Specify a p-value threshold by --sig-thresh to screen out insignificant results.'))
     if args.sig_thresh is not None and (args.sig_thresh <= 0 or args.sig_thresh >= 1):
         raise ValueError('--sig-thresh should be greater than 0 and less than 1.')
@@ -60,32 +60,31 @@ def check_input(args, log):
 def run(args, log):
     target_chr, start_pos, end_pos = check_input(args, log)
     
-    log.info(f'Read inner product of LDR from {args.inner_ldr}')
     inner_ldr = np.load(args.inner_ldr)
-    log.info(f'Read bases from {args.bases}')
+    log.info(f'Read inner product of LDR from {args.inner_ldr}')
     bases = np.load(args.bases)
-    log.info(f'Read LDR summary statistics from {args.ldr_sumstats}')
+    log.info(f'{bases.shape[1]} bases read from {args.bases}.')
     ldr_gwas = sumstats.read_sumstats(args.ldr_sumstats)
+    log.info(f'{ldr_gwas.snpinfo.shape[0]} SNPs read from LDR summary statistics {args.ldr_sumstats}.')
 
     if args.n_ldrs:
         if args.n_ldrs > ldr_gwas.beta.shape[1]:
             raise ValueError('--n-ldrs is greater than LDRs in summary statistics')
         else:
-            ldr_gwas.beta = ldr_gwas.beta.iloc[:, :args.n_ldrs]
-            ldr_gwas.se = ldr_gwas.se.iloc[:, :args.n_ldrs]
+            ldr_gwas.beta = ldr_gwas.beta[:, :args.n_ldrs]
+            ldr_gwas.se = ldr_gwas.se[:, :args.n_ldrs]
             bases = bases[:, :args.n_ldrs]
             inner_ldr = inner_ldr[:args.n_ldrs, :args.n_ldrs]
+            log.info(f'Keep the top {args.n_ldrs} components.\n')
 
-    ldr_beta = np.array(ldr_gwas.beta)
-    ldr_se = np.array(ldr_gwas.se)
     ldr_n = np.array(ldr_gwas.snpinfo['N']).reshape(-1, 1)
-
     outpath = args.out
 
     if args.voxel is not None: 
         if args.voxel < bases.shape[0]:
             voxel_list = [args.voxel]
             outpath += f"_voxel{args.voxel}"
+            log.info(f'Keep the voxel {args.voxel}.')
         else:
             raise ValueError('--voxel index out of range.')
     else:
@@ -93,22 +92,24 @@ def run(args, log):
 
     if target_chr:
         idx = ((ldr_gwas.snpinfo['POS'] > start_pos) & (ldr_gwas.snpinfo['POS'] < end_pos) & 
-               (ldr_gwas.snpinfo['CHR'] == target_chr))
-        outpath += f"_start{start_pos}_end{end_pos}.txt"
+               (ldr_gwas.snpinfo['CHR'] == target_chr)).to_numpy()
+        outpath += f"_chr{target_chr}_start{start_pos}_end{end_pos}.txt"
+        log.info(f'Keep SNPs on chromosome {target_chr} from {start_pos} to {end_pos}.')
     elif args.snp:
-        idx = (ldr_gwas.snpinfo['SNP'] == args.snp)
-        outpath += f"_snp{args.snp}.txt"
+        idx = (ldr_gwas.snpinfo['SNP'] == args.snp).to_numpy()
+        outpath += f"_{args.snp}.txt"
+        log.info(f'Keep SNP {args.snp}.')
     else:
-        idx = (ldr_gwas.snpinfo['SNP'] is not None)
+        idx = ~ldr_gwas.snpinfo['SNP'].isna().to_numpy()
         outpath += ".txt"
 
-    ldr_beta = ldr_beta[idx]
-    ldr_se = ldr_se[idx]
+    ldr_beta = ldr_gwas.beta[idx]
+    ldr_se = ldr_gwas.se[idx]
     ldr_n = ldr_n[idx]
     snp_info = ldr_gwas.snpinfo.loc[idx]
 
     if args.sig_thresh:
-        thresh_chisq = chi2.pp(1 - args.sig_thresh, 1)
+        thresh_chisq = chi2.ppf(1 - args.sig_thresh, 1)
     else:
         thresh_chisq = 0 
     
@@ -121,7 +122,7 @@ def run(args, log):
         if i % 100 == 1 and i > 1:
             log.info(f"Finished {i} voxels")
         voxel_beta = np.dot(ldr_beta, bases[i].T)
-        voxel_se = np.squeeze(recover_se(bases[i], inner_ldr, ldr_n, ldr_beta, ztz_inv))
+        voxel_se = recover_se(bases[i], inner_ldr, ldr_n, ldr_beta, ztz_inv).reshape(-1)
         voxel_z = voxel_beta / voxel_se
         sig_idxs = voxel_z ** 2 >= thresh_chisq
 
@@ -134,12 +135,14 @@ def run(args, log):
             sig_snps.insert(0, 'INDEX', [i] * np.sum(sig_idxs))
             
             if is_first_write:
-                sig_snps_output = sig_snps.to_csv(sep='\t', header=True, na_rep='NA')
+                sig_snps_output = sig_snps.to_csv(sep='\t', header=True, na_rep='NA', index=None, 
+                                                  float_format='%.5e')
                 is_first_write = False
                 with open(outpath, 'w') as file:
                     file.write(sig_snps_output)
             else:
-                sig_snps_output = sig_snps.to_csv(sep='\t', header=False, na_rep='NA')
+                sig_snps_output = sig_snps.to_csv(sep='\t', header=False, na_rep='NA', index=None,
+                                                  float_format='%.5e')
                 with open(outpath, 'a') as file:
                     file.write(sig_snps_output)
             

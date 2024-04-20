@@ -8,3 +8,6 @@ old_version/
 test_output/
 
 heig/__pycache__
+
+# slurm
+slurm*

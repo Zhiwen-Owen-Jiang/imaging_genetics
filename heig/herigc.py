@@ -653,11 +653,6 @@ def run(args, log):
             gene_cor_tril, gene_cor_se_tril = format_gene_cor(heri_gc.gene_cor, heri_gc.gene_cor_se)
             msg = print_results_gc(heri_gc.gene_cor, heri_gc.gene_cor_se)
             log.info(f'{msg}')
-            # gene_cor_tril = heri_gc.gene_cor[np.tril_indices(heri_gc.gene_cor.shape[0], k = -1)]
-            # gene_cor_se_tril = heri_gc.gene_cor_se[np.tril_indices(heri_gc.gene_cor_se.shape[0], k = -1)]
-            # invalid_gene_cor = (gene_cor_tril > 1) | (gene_cor_tril < -1) | (gene_cor_se_tril > 1) | (gene_cor_se_tril < 0)
-            # gene_cor_tril[invalid_gene_cor] = np.nan
-            # gene_cor_se_tril[invalid_gene_cor] = np.nan
             np.savez_compressed(f'{args.out}_gene_cor', gc=gene_cor_tril, se=gene_cor_se_tril)
             log.info(f'Save the genetic correlation results to {args.out}_gene_cor.npz')
     else:
