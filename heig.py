@@ -1,7 +1,7 @@
 import os, time, argparse, traceback, numexpr
 import heig.sumstats as sumstats
 import heig.herigc as herigc
-import heig.ldr as ldr
+import heig.ldr2 as ldr
 import heig.ldmatrix as ldmatrix
 import heig.voxelgwas as voxelgwas
 from heig.utils import GetLogger, sec_to_str

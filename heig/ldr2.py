@@ -3,10 +3,12 @@ import pickle
 import logging
 import numpy as np
 import pandas as pd
+import nibabel as nib
 from numpy.linalg import inv
 from sklearn.utils.extmath import randomized_svd
-from scipy.sparse import csc_matrix
+from scipy.sparse import csc_matrix, dok_matrix, csr_matrix, hstack
 from . import utils
+
 
 
 class KernelSmooth:
@@ -107,6 +109,8 @@ class LocalLinear(KernelSmooth):
         self.t_mat0, self.t_mat = self._initial_weight()
         self.logger = logging.getLogger(__name__)
 
+    
+
     def smoother(self, bw):
         """
         Local linear smoother. 
@@ -121,30 +125,54 @@ class LocalLinear(KernelSmooth):
         the smooothed data, and the sparse weights.
         
         """
-        sm_weight = np.ones((self.N, self.N))
-        k_mat = np.zeros((self.d, self.N, self.N))
-
-        bw = bw.reshape(self.d, 1, 1)
-        dis = self.t_mat0 / bw # d * N * N 
-        close_points = (dis < 4) & (dis > -4)
-        k_mat[close_points] = self._gau_kernel(dis[close_points])
-        k_mat = np.prod(k_mat / bw, axis=0) # N * N
-
+        # bw = bw.reshape(self.d, 1, 1)
+        sparse_sm_weight = dok_matrix((self.N, self.N), dtype=np.float32)
         for lii in range(self.N):
-            temp = np.repeat(k_mat[:, lii], self.d + 1).reshape(self.N, self.d + 1) # N * (d+1)
-            temp_nonzero_idxs = np.where(temp > 0)
-            k_mat_sparse = csc_matrix((temp[temp_nonzero_idxs], temp_nonzero_idxs), shape=(self.N, self.d + 1)) # N * (d+1)
-            kx = k_mat_sparse.multiply(self.t_mat[lii, :, :]).T # (d+1) * N
-            sm_weight[lii, ] = inv(kx @ self.t_mat[lii, :, :] + np.eye(self.d + 1) * 0.000001)[0, :] @ kx # N * 1
-
-        sparse_thresh = np.abs(np.max(sm_weight) / self.N)  # a threhold to make it sparse
-        large_weight_idxs = np.where(np.abs(sm_weight) > sparse_thresh)
-        sparse_sm_weight = csc_matrix((sm_weight[large_weight_idxs],
-                                   large_weight_idxs), shape=(self.N, self.N))
+            # k_mat = np.zeros((self.N, self.d))
+            t_mat0 = self.coord - self.coord[lii] # N * d
+            t_mat = np.hstack((np.ones(self.N).reshape(-1, 1), t_mat0))
+            dis = t_mat0 / bw
+            close_points = (dis < 4) & (dis > -4)
+            # k_mat[close_points] = self._gau_kernel(dis[close_points])
+            k_mat = csr_matrix((self._gau_kernel(dis[close_points]), np.where(close_points)), (self.N, self.d))
+            k_mat = csc_matrix(np.prod(k_mat / bw, axis=1)) # can be faster
+            # temp = np.repeat(k_mat, self.d + 1).reshape(self.N, self.d + 1)  # N * (d+1)
+            # temp_nonzero_idxs = np.where(temp > 0)
+            # k_mat_sparse = csc_matrix((temp[temp_nonzero_idxs], temp_nonzero_idxs), shape=(self.N, self.d + 1))  # N * (d+1)
+            k_mat_sparse = hstack([k_mat] * (self.d + 1))
+            kx = k_mat_sparse.multiply(t_mat).T # (d+1) * N
+            sm_weight = inv(kx @ t_mat + np.eye(self.d + 1) * 0.000001)[0, :] @ kx # N * 1
+            large_weight_idxs = np.where(np.abs(sm_weight) > 1 / self.N)
+            sparse_sm_weight[lii, large_weight_idxs] = sm_weight[large_weight_idxs]
         nonzero_weights = np.sum(sparse_sm_weight != 0, axis=0)
         if np.mean(nonzero_weights) > self.N // 10:
             self.logger.info(f"On average, the non-zero weights are greater than #voxels // 10 ({self.N // 10}). Skip.")
             return False, None, None
+
+        # sm_weight = np.ones((self.N, self.N))
+        # k_mat = np.zeros((self.d, self.N, self.N))
+
+        # bw = bw.reshape(self.d, 1, 1)
+        # dis = self.t_mat0 / bw # d * N * N 
+        # close_points = (dis < 4) & (dis > -4)
+        # k_mat[close_points] = self._gau_kernel(dis[close_points])
+        # k_mat = np.prod(k_mat / bw, axis=0) # N * N
+
+        # for lii in range(self.N):
+        #     temp = np.repeat(k_mat[:, lii], self.d + 1).reshape(self.N, self.d + 1) # N * (d+1)
+        #     temp_nonzero_idxs = np.where(temp > 0)
+        #     k_mat_sparse = csc_matrix((temp[temp_nonzero_idxs], temp_nonzero_idxs), shape=(self.N, self.d + 1)) # N * (d+1)
+        #     kx = k_mat_sparse.multiply(self.t_mat[lii, :, :]).T # (d+1) * N
+        #     sm_weight[lii, ] = inv(kx @ self.t_mat[lii, :, :] + np.eye(self.d + 1) * 0.000001)[0, :] @ kx # N * 1
+
+        # sparse_thresh = np.abs(np.max(sm_weight) / self.N)  # a threhold to make it sparse
+        # large_weight_idxs = np.where(np.abs(sm_weight) > sparse_thresh)
+        # sparse_sm_weight = csc_matrix((sm_weight[large_weight_idxs],
+        #                            large_weight_idxs), shape=(self.N, self.N))
+        # nonzero_weights = np.sum(sparse_sm_weight != 0, axis=0)
+        # if np.mean(nonzero_weights) > self.N // 10:
+        #     self.logger.info(f"On average, the non-zero weights are greater than #voxels // 10 ({self.N // 10}). Skip.")
+        #     return False, None, None
         
         sm_data = self.data @ sparse_sm_weight.T
         return True, sm_data, sparse_sm_weight
@@ -364,6 +392,36 @@ class Covar(Dataset):
             return self.data == 0
         else:
             return np.linalg.cond(self.data) >= 1/sys.float_info.epsilon
+
+
+def read_images(img_file, suffix,):
+    """
+    Reading a single image
+    
+    Parameters:
+    ------------
+    dir: folder containing all images with the name convension id.suffix
+    suffix: suffix of images
+    
+    Returns:
+    ---------
+    id: subject id
+    coord: coordinates of nonzero values 
+    data: nonzero values
+
+    """
+    # img_files = [img_file for img_file in os.listdir(dir) if img_file.endswith(suffix)]
+    # log.info(f"{len(img_files)} images with suffix {suffix} in folder {dir}.")
+    # keep_idv = set(keep_idv)
+    
+    id = img_file.replace(suffix, '')
+    img = nib.load(os.path.join(dir, img_file))
+    data = img.get_fdata()
+    coord = np.stack(np.nonzero(data))
+    data = data[data != 0]
+    
+    return id, coord, data
+    
 
 
 def get_common_idxs(dataset1, dataset2):
