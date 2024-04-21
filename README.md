@@ -7,30 +7,31 @@ First clone the repository using the commands
 git clone https://github.com/Zhiwen-Owen-Jiang/heig.git
 cd heig
 ```
-You can use `Anaconda` to build the environment and install all depedencies for `HEIG` using the commands
+You can use `Anaconda` to build the environment and install all dependencies for `HEIG` using the commands
 ```
 conda env create --file environment.yml
 source activate heig
 ```
-Or you can do it manually. Using the following command to test the enviroment was successfully built
+Or you can do it manually. Using the following command to test if the enviroment was successfully built
 ```
 python heig.py -h
 ```
-If it fails with an error, then go back to check if all requirements are installed and if the version is compatible.
+If it failed with an error, then go back to check if all requirements are installed and if the version is compatible.
 
 ## Updating `HEIG`
-`HEIG` is still under development and more functionalities will be added in the near future. To update `HEIG` using the command
+`HEIG` is still under development and more analyses will be added in the near future. To update `HEIG` using the command
 ```
 git pull
 ```
 
 ## How to use `HEIG`
-
+TBD.
 
 ## Citation
+TBD.
 
 ## Licence
 This project is licensed under GNU GPL v3.
 
 ## Authors
-Zhiwen (Owen) Jiang and Hongtu Zhu (UNC)
+Zhiwen (Owen) Jiang and Hongtu Zhu (University of North Carolina at Chapel Hill)
