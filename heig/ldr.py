@@ -3,9 +3,10 @@ import pickle
 import logging
 import numpy as np
 import pandas as pd
+import nibabel as nib
 from numpy.linalg import inv
 from sklearn.utils.extmath import randomized_svd
-from scipy.sparse import csc_matrix
+from scipy.sparse import csc_matrix, csr_matrix, dok_matrix, hstack
 from . import utils
 
 
@@ -68,13 +69,17 @@ class KernelSmooth:
             log.info(f"Doing generalized cross-validation (GCV) for bandwidth {np.round(bw, 3)} ...")
             isvalid, y_sm, sparse_sm_weight = self.smoother(bw)
             if isvalid:
-                mse[cii] = np.mean(np.sum((self.data - y_sm) ** 2,
-                           axis=1) / (1 - np.sum(csc_matrix.diagonal(sparse_sm_weight)) / self.N) ** 2)
+                # mse[cii] = np.mean(np.sum((self.data - y_sm) ** 2,
+                #            axis=1) / (1 - np.sum(csc_matrix.diagonal(sparse_sm_weight)) / self.N) ** 2)
+                dis = np.sum((self.data - y_sm) ** 2, axis=1)
+                mse[cii] = np.mean(dis) / (1 - np.sum(sparse_sm_weight.diagonal()) / self.N + 10**-10) ** 2
+                if mse[cii] == 0:
+                    mse[cii] = np.nan
                 log.info(f"The MSE for bandwidth {np.round(bw, 3)} is {round(mse[cii], 3)}.")
             else:
                 mse[cii] = np.Inf
         
-        which_min = np.argmin(mse)
+        which_min = np.nanargmin(mse)
         if which_min == 0 or which_min == len(bw_list) - 1:
             log.info(("WARNING: the optimal bandwidth was obtained at the boundary, "
                       "which may not be the best one."))
@@ -104,7 +109,6 @@ class KernelSmooth:
 class LocalLinear(KernelSmooth):
     def __init__(self, data, coord):
         super().__init__(data, coord)
-        self.t_mat0, self.t_mat = self._initial_weight()
         self.logger = logging.getLogger(__name__)
 
     def smoother(self, bw):
@@ -121,101 +125,28 @@ class LocalLinear(KernelSmooth):
         the smooothed data, and the sparse weights.
         
         """
-        sm_weight = np.ones((self.N, self.N))
-        k_mat = np.zeros((self.d, self.N, self.N))
-
-        bw = bw.reshape(self.d, 1, 1)
-        dis = self.t_mat0 / bw # d * N * N 
-        close_points = (dis < 4) & (dis > -4)
-        k_mat[close_points] = self._gau_kernel(dis[close_points])
-        k_mat = np.prod(k_mat / bw, axis=0) # N * N
-
+        sparse_sm_weight = dok_matrix((self.N, self.N), dtype=np.float64)
         for lii in range(self.N):
-            temp = np.repeat(k_mat[:, lii], self.d + 1).reshape(self.N, self.d + 1) # N * (d+1)
-            temp_nonzero_idxs = np.where(temp > 0)
-            k_mat_sparse = csc_matrix((temp[temp_nonzero_idxs], temp_nonzero_idxs), shape=(self.N, self.d + 1)) # N * (d+1)
-            kx = k_mat_sparse.multiply(self.t_mat[lii, :, :]).T # (d+1) * N
-            sm_weight[lii, ] = inv(kx @ self.t_mat[lii, :, :] + np.eye(self.d + 1) * 0.000001)[0, :] @ kx # N * 1
-
-        sparse_thresh = np.abs(np.max(sm_weight) / self.N)  # a threhold to make it sparse
-        large_weight_idxs = np.where(np.abs(sm_weight) > sparse_thresh)
-        sparse_sm_weight = csc_matrix((sm_weight[large_weight_idxs],
-                                   large_weight_idxs), shape=(self.N, self.N))
+            t_mat0 = self.coord - self.coord[lii] # N * d
+            t_mat = np.hstack((np.ones(self.N).reshape(-1, 1), t_mat0))
+            dis = t_mat0 / bw
+            close_points = (dis < 4) & (dis > -4)
+            k_mat = csr_matrix((self._gau_kernel(dis[close_points]), np.where(close_points)), 
+                               (self.N, self.d))
+            k_mat = csc_matrix(np.prod(k_mat / bw, axis=1)) # can be faster
+            k_mat_sparse = hstack([k_mat] * (self.d + 1))
+            kx = k_mat_sparse.multiply(t_mat).T # (d+1) * N
+            sm_weight = inv(kx @ t_mat + np.eye(self.d + 1) * 0.000001)[0, :] @ kx # N * 1
+            large_weight_idxs = np.where(np.abs(sm_weight) > 1 / self.N)
+            sparse_sm_weight[lii, large_weight_idxs] = sm_weight[large_weight_idxs]
         nonzero_weights = np.sum(sparse_sm_weight != 0, axis=0)
         if np.mean(nonzero_weights) > self.N // 10:
-            self.logger.info(f"On average, the non-zero weights are greater than #voxels // 10 ({self.N // 10}). Skip.")
+            self.logger.info((f"On average, the non-zero weight for each voxel are greater than {self.N // 10}. "
+                              "Skip this bandwidth."))
             return False, None, None
         
         sm_data = self.data @ sparse_sm_weight.T
         return True, sm_data, sparse_sm_weight
-    
-
-    def _initial_weight(self):
-        """
-        Generating initial weights 
-        
-        """
-        t_mat0 = np.zeros((self.d + 1, self.N, self.N))
-        t_mat0[0, :, :] = np.ones((self.N, self.N))
-
-        for dii in range(self.d):
-        # di * J_{Nv}.T - J_{Nv} * di.T -> Nv*Nv
-            temp_dii = np.repeat(self.coord[:, dii], self.N).reshape(self.N, self.N)
-            t_mat0[dii + 1, :, :] = temp_dii - temp_dii.T
-            
-        t_mat = np.transpose(t_mat0, [2, 1, 0])
-        t_mat0 = t_mat0[1:]
-
-        return t_mat0, t_mat
-    
-
-    
-class LocalConstant(KernelSmooth):
-    def smoother(self, bw):
-        """
-        Local linear smoother. 
-        idea of the algorithm:
-        1. compute pairwise distance once for the fisrt point
-        2. fill in only the upper triangle of the sm matrix by sliding right one index each time 
-        from the previous point
-        3. map the upper triangle to lower since it is a symmetric matrix
-        4. make it sparse to speed up matrix production
-
-        Parameters:
-        ------------
-        bw (d * 1): bandwidth for d dimension
-        
-        Returns:
-        ---------
-        If this bandwidth is valid to make the weight matrix sparse;
-        The smooothed data, and the sparse weights.
-
-        """
-        dis = [self.coord[0] - self.coord[i] for i in range(len(self.coord))]
-        sm_weight = np.zeros((self.N, self.N))
-
-        init_weight = np.ones((1, self.N))
-        for dii in range(self.d):
-            init_weight *= self._gau_kernel(dis / bw[dii], bw[dii])
-        sm_weight[0, :] = np.squeeze(init_weight)
-
-        for i in range(1, self.N):
-            sm_weight[i, i:] = sm_weight[0, i:]
-
-        sm_weight = (sm_weight + sm_weight.T - np.diag(np.diag(sm_weight))) / self.N
-
-        sparse_thresh = np.abs(np.max(sm_weight) / self.N)
-        sparse_sm_weight = csc_matrix((sm_weight[np.abs(sm_weight) > sparse_thresh],
-                                    np.where(np.abs(sm_weight) > sparse_thresh)), shape=(self.N, self.N))
-        # sm_data = np.dot(self.data, sparse_sm_weight.T)
-        nonzero_weights = np.sum(sparse_sm_weight != 0, axis=0)
-        if np.mean(nonzero_weights) > self.N // 20:
-            self.logger.info(f"On average, the non-zero weights are greater than {self.N // 20}. Skip.")
-            return None, None
-
-        sm_data = self.data @ sparse_sm_weight.T
-        
-        return sm_data, sparse_sm_weight
 
 
 
@@ -235,7 +166,7 @@ class Dataset():
             openfunc, compression = utils.check_compression(dir)
             self._check_header(openfunc, compression, dir)
             self.data = pd.read_csv(dir, delim_whitespace=True, compression=compression, 
-                                    na_values=[-9, 'NONE', '.']) # -9.0 is not counted TODO: test it
+                                    na_values=[-9, 'NONE', '.'], dtype={'FID': str, 'IID': str}) # -9.0 is not counted TODO: test it
         if self.data[['FID', 'IID']].duplicated().any():
             first_dup = self.data.loc[self.data[['FID', 'IID']].duplicated(), ['FID', 'IID']]
             raise ValueError(f'Subject {list(first_dup)} is duplicated.')
@@ -243,6 +174,7 @@ class Dataset():
         self.data = self.data.sort_index()
         self.logger = logging.getLogger(__name__)
         self._remove_na_inf()
+
 
     def _check_header(self, openfunc, compression, dir):
         """
@@ -301,12 +233,13 @@ class Covar(Dataset):
         if cat_covar_list:
             catlist = cat_covar_list.split(',')
             self._check_validcatlist(catlist)
-            self.logger.info(f"There are {len(catlist)} categorical variables provided by --cat-covar-list.")
+            self.logger.info(f"{len(catlist)} categorical variables provided by --cat-covar-list.")
             self._dummy_covar(catlist)
             
         self._add_intercept()
         if self._check_singularity():
             raise ValueError('The covarite matrix is singular.')
+
 
     def _check_validcatlist(self, catlist):
         """
@@ -366,25 +299,21 @@ class Covar(Dataset):
             return np.linalg.cond(self.data) >= 1/sys.float_info.epsilon
 
 
-def get_common_idxs(dataset1, dataset2):
-    """
-    Getting common indices of two Datasets
 
-    Parameters:
-    ------------
-    dataset1: an instance of class Dataset
-    dataset2: an instance of class Dataset
+def load_images(img_files, log):
+    for i, img_file in enumerate(img_files):
+        img = nib.load(img_file)
+        data = img.get_fdata()
+        if i == 0:
+            idxs = data != 0 
+            coord = np.stack(np.nonzero(data)).T
+            n_voxels = np.sum(idxs)
+            image = np.zeros((len(img_files), n_voxels), dtype=np.float64)
+        image[i] = data[idxs]
+        if i % 1000 == 1 and i > 0:
+            log.info(f'Read {i+1} images.')
 
-    Returns:
-    ---------
-    common_idxs: common indices
-    
-    """
-    if not isinstance(dataset1, Dataset) or not isinstance(dataset2, Dataset):
-        raise ValueError('The input should be an instance of Dataset.')
-    common_idxs = dataset1.data.index.intersection(dataset2.data.index)
-    # sorted(common_idxs)
-    return common_idxs
+    return image, coord
 
 
 
@@ -491,77 +420,102 @@ def determine_n_ldr(values, prop, log):
     n_opt = max(n_idxs, int(eff_num) + 1)
     var_prop = np.sum(values[:n_opt]) / np.sum(values)
     log.info(f'Approximately {round(var_prop * 100, 1)}% variance is captured by the top {n_opt} LDRs.\n')
-    # if n_opt == n_idxs:
-    #     log.info((f'The analysis indicates that the decay rate of eigenvalues is low, '
-    #               'then the downstream heritability and genetic correlation analysis may be noisy.'))
     return n_opt
 
 
 def check_input(args, log):
-    if not args.image:
-        raise ValueError('--image is required.')
-    if not args.coord:
-        raise ValueError('--coord is required.')
-    if not args.covar:
+    if (not (args.image_dir is not None and args.image_suffix is not None) and 
+        not (args.image is not None and args.coord is not None)):
+        raise ValueError('Either --image-dir + --image-suffix or --image + --coord is required.')
+    elif (args.image_dir is not None and args.image_suffix is not None and
+          args.image is not None and args.coord is not None):
+        log.info('WARNING: --image-dir and --image-suffix are ignored.')
+    if args.covar is None:
         raise ValueError('--covar is required.')
-    if not args.out:
+    if args.out is None:
         raise ValueError('--out is required.')
-    if not args.prop:
+    if args.prop is None:
         args.prop = 0.8
         log.info("By default, perserving 80% of variance.")
+    elif args.prop <= 0 or args.prop > 1:
+        raise ValueError('--prop should be between 0 and 1.')
+    elif args.prop < 0.8:   
+        log.info('WARNING: keeping less than 80% of variance will have bad performance.')
 
-    if not os.path.exists(args.image):
+    if args.image_dir is not None and not os.path.exists(args.image_dir):
+        raise ValueError(f"{args.image_dir} does not exist.") 
+    if args.image is not None and not os.path.exists(args.image):
         raise ValueError(f"{args.image} does not exist.") 
-    if not os.path.exists(args.coord):
+    if args.coord is not None and not os.path.exists(args.coord):
         raise ValueError(f"{args.coord} does not exist.") 
     if not os.path.exists(args.covar):
         raise ValueError(f"{args.covar} does not exist.")
-    if args.keep and not os.path.exists(args.keep):
+    if args.keep is not None and not os.path.exists(args.keep):
         raise ValueError(f"{args.covar} does not exist.")
-    if args.prop and (args.prop <= 0 or args.prop > 1):
-        raise ValueError('--prop should be between 0 and 1.')
-    if args.prop and args.prop < 0.8:
-        log.info('WARNING: keeping less than 80% of variance will have bad performance.')
     if args.bw_opt and args.bw_opt <= 0:
         raise ValueError('--bw-opt should be positive.')
         
+    
+def get_image_list(common_id, image_dir, suffix):
+    ids = []
+    img_files = []
+    
+    for img_file in os.listdir(image_dir):
+        image_id = img_file.replace(suffix, '')
+        if img_file.endswith(suffix) and image_id in common_id:
+            ids.append(image_id)
+            img_files.append(os.path.join(image_dir, img_file))
+    img_files.sort()
+    ids = pd.MultiIndex.from_arrays([ids, ids], names=['FID', 'IID'])
+    
+    return ids, img_files 
+    
 
 def run(args, log):
     # check input
     check_input(args, log)
-
-    # read images
-    log.info(f"Reading imaging data from {args.image}")
-    image = Dataset(args.image)
-    log.info(f"{image.data.shape[0]} subjects and {image.data.shape[1]} voxels are included in the data.")
-
-    # read coordinate
-    log.info(f"Reading coordinate data from {args.coord}")
-    coord = np.loadtxt(args.coord)
-    if np.isnan(coord).any():
-        raise ValueError('Missing data is not allowed in the coordinate.')
-    if image.data.shape[1] != coord.shape[0]:
-        raise ValueError('Data and coordinates have inconsistent voxels.')
     
     # read covariates
     log.info(f"Reading covariates from {args.covar}")
     covar = Covar(args.covar, args.cat_covar_list)
-    log.info(f"There are {covar.data.shape[1]} fixed effects in the covariates (including the intercept).")
+    log.info(f"{covar.data.shape[1]} fixed effects in the covariates (including the intercept).")
 
     # extract common subjects
-    common_idxs = get_common_idxs(image, covar)
     if args.keep:
-        keep_ids = pd.read_csv(args.keep, delim_whitespace=True, header=None, usecols=[0, 1])
+        keep_ids = pd.read_csv(args.keep, delim_whitespace=True, header=None, usecols=[0, 1],
+                               dtype={0: str, 1: str})
         keep_ids = list(zip(keep_ids[0], keep_ids[1]))
-        common_idxs = common_idxs.intersection(tuple(keep_ids)) # slow
-    image.keep(common_idxs)
-    covar.keep(common_idxs)
-    log.info(f"{len(common_idxs)} subjects are common in images and covariates.\n")
+        log.info(f'{len(keep_ids)} subjects are in {args.keep}')
+        common_idxs = covar.data.index.intersection(tuple(keep_ids)) # slow
+    else:
+        common_idxs = covar.data.index
+    # log.info(f"{len(common_idxs)} subjects are common in images and covariates.\n")
 
+    # read images
+    if args.image is not None and args.coord is not None:
+        log.info(f"Reading images from {args.image} ...")
+        image = Dataset(args.image)
+        log.info(f"Reading coordinate data from {args.coord}")
+        coord = np.loadtxt(args.coord)
+        if np.isnan(coord).any():
+            raise ValueError('Missing data is not allowed in the coordinate.')
+        if image.data.shape[1] != coord.shape[0]:
+            raise ValueError('Data and coordinates have inconsistent voxels.')
+        common_idxs = common_idxs.intersection(image.data.index)
+        image.keep(common_idxs)
+        image = np.array(image.data, dtype=np.float64)
+    else:
+        common_idxs = common_idxs.get_level_values(0)
+        common_idxs, img_files = get_image_list(common_idxs, args.image_dir, args.image_suffix)
+        log.info(f"{len(common_idxs)} subjects are common.\n")
+        log.info(f'Reading images from {args.image_dir} ...')
+        image, coord = load_images(img_files, log)
+    covar.keep(common_idxs)
+    log.info(f"{image.shape[0]} subjects and {image.shape[1]} voxels are included in the imaging data.")
+    
     # kernel smoothing
     log.info('Doing kernel smoothing using the local linear method ...')
-    data = np.array(image.data)
-    sm_data = do_kernel_smoothing(data, coord, args.bw_opt, log)
+    sm_data = do_kernel_smoothing(image, coord, args.bw_opt, log)
         
     # eigen decomposion 
     n_points, dim = coord.shape
@@ -582,9 +536,9 @@ def run(args, log):
     eff_num = np.sum(values) ** 2 / np.sum(values ** 2)
 
     # generate LDR
-    ldr = np.dot(data, bases)
+    ldr = np.dot(image, bases)
     proj_inner_ldr = projection_ldr(ldr, np.array(covar.data))
-    ldr_df = pd.DataFrame(ldr, index=image.data.index)
+    ldr_df = pd.DataFrame(ldr, index=covar.data.index)
 
     # save the output
     ldr_df.to_csv(f"{args.out}_ldr_top{n_opt}.txt", sep='\t')

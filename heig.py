@@ -1,7 +1,7 @@
 import os, time, argparse, traceback, numexpr
 import heig.sumstats as sumstats
 import heig.herigc as herigc
-import heig.ldr2 as ldr
+import heig.ldr as ldr
 import heig.ldmatrix as ldmatrix
 import heig.voxelgwas as voxelgwas
 from heig.utils import GetLogger, sec_to_str
@@ -59,7 +59,11 @@ parser.add_argument('--heri-only', action='store_true',
 parser.add_argument('--ldr', action='store_true',
                     help='LDR construction')
 parser.add_argument('--image', 
+                    help='imaging data')
+parser.add_argument('--image-dir', 
                     help='directory to the imaging data')
+parser.add_argument('--image-suffix', 
+                    help='suffix of imaging data')
 parser.add_argument('--covar', 
                     help='directory to covariates')
 parser.add_argument('--cat-covar-list', 
