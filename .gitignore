@@ -11,3 +11,5 @@ heig/__pycache__
 
 # slurm
 slurm*
+
+requirements_all.txt
