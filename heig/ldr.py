@@ -140,8 +140,8 @@ class LocalLinear(KernelSmooth):
             large_weight_idxs = np.where(np.abs(sm_weight) > 1 / self.N)
             sparse_sm_weight[lii, large_weight_idxs] = sm_weight[large_weight_idxs]
         nonzero_weights = np.sum(sparse_sm_weight != 0, axis=0)
-        if np.mean(nonzero_weights) > self.N // 20:
-            self.logger.info((f"On average, the non-zero weight for each voxel are greater than {self.N // 20}. "
+        if np.mean(nonzero_weights) > self.N // 10:
+            self.logger.info((f"On average, the non-zero weight for each voxel are greater than {self.N // 10}. "
                               "Skip this bandwidth."))
             return False, None, None
         
@@ -522,18 +522,15 @@ def run(args, log):
         
     # SVD 
     n_points, dim = coord.shape
-    n_subs = image.shape[0]
     if args.all:
         n_top = n_points
-        log.info(f"Computing all {n_top} components, which may take longer time.")
+        log.info(f"Computing all {n_top} components.")
     else:
-        # if dim == 1:
-        #     n_top = int(n_points / 4)
-        # else:
-        #     n_top = int(n_points ** ((dim - 1) / dim)) 
-        n_top = int(np.max(n_subs, n_points) / dim)
+        if dim == 1:
+            n_top = np.min(image.shape)
+        else:
+            n_top = int(np.min(image.shape) / (dim - 1))
         log.info(f"Computing only the first {n_top} components.")
-    log.info(f'Adaptively determining the number of low-dimension representations (LDRs) ...')
     values, bases = functional_bases(sm_data, n_top)
     # n_opt = select_n_ldr(sm_data, bases)
     n_opt = determine_n_ldr(values, args.prop, log) # keep at least 80% variance
