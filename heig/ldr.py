@@ -71,8 +71,8 @@ class KernelSmooth:
             if isvalid:
                 # mse[cii] = np.mean(np.sum((self.data - y_sm) ** 2,
                 #            axis=1) / (1 - np.sum(csc_matrix.diagonal(sparse_sm_weight)) / self.N) ** 2)
-                dis = np.sum((self.data - y_sm) ** 2, axis=1)
-                mse[cii] = np.mean(dis) / (1 - np.sum(sparse_sm_weight.diagonal()) / self.N + 10**-10) ** 2
+                # dis = np.sum((self.data - y_sm) ** 2, axis=1)
+                mse[cii] = np.mean(np.sum((self.data - y_sm) ** 2, axis=1)) / (1 - np.sum(sparse_sm_weight.diagonal()) / self.N + 10**-10) ** 2
                 if mse[cii] == 0:
                     mse[cii] = np.nan
                 log.info(f"The MSE for bandwidth {np.round(bw, 3)} is {round(mse[cii], 3)}.")
@@ -140,8 +140,8 @@ class LocalLinear(KernelSmooth):
             large_weight_idxs = np.where(np.abs(sm_weight) > 1 / self.N)
             sparse_sm_weight[lii, large_weight_idxs] = sm_weight[large_weight_idxs]
         nonzero_weights = np.sum(sparse_sm_weight != 0, axis=0)
-        if np.mean(nonzero_weights) > self.N // 10:
-            self.logger.info((f"On average, the non-zero weight for each voxel are greater than {self.N // 10}. "
+        if np.mean(nonzero_weights) > self.N // 20:
+            self.logger.info((f"On average, the non-zero weight for each voxel are greater than {self.N // 20}. "
                               "Skip this bandwidth."))
             return False, None, None
         
@@ -434,6 +434,8 @@ def check_input(args, log):
         raise ValueError('--covar is required.')
     if args.out is None:
         raise ValueError('--out is required.')
+    if args.all:
+        log.info('WARNING: computing all principal components might be very time and memory consuming.')
     if args.prop is None:
         args.prop = 0.8
         log.info("By default, perserving 80% of variance.")
@@ -510,6 +512,7 @@ def run(args, log):
         log.info(f"{len(common_idxs)} subjects are common.\n")
         log.info(f'Reading images from {args.image_dir} ...')
         image, coord = load_images(img_files, log)
+        np.save('/work/users/o/w/owenjf/image_genetics/methods/package_pub/test_output/ldr/FA_all_tracts.npy', image)
     covar.keep(common_idxs)
     log.info(f"{image.shape[0]} subjects and {image.shape[1]} voxels are included in the imaging data.")
     
@@ -517,16 +520,18 @@ def run(args, log):
     log.info('Doing kernel smoothing using the local linear method ...')
     sm_data = do_kernel_smoothing(image, coord, args.bw_opt, log)
         
-    # eigen decomposion 
+    # SVD 
     n_points, dim = coord.shape
+    n_subs = image.shape[0]
     if args.all:
         n_top = n_points
         log.info(f"Computing all {n_top} components, which may take longer time.")
     else:
-        if dim == 1:
-            n_top = int(n_points / 4)
-        else:
-            n_top = int(n_points ** ((dim - 1) / dim)) 
+        # if dim == 1:
+        #     n_top = int(n_points / 4)
+        # else:
+        #     n_top = int(n_points ** ((dim - 1) / dim)) 
+        n_top = int(np.max(n_subs, n_points) / dim)
         log.info(f"Computing only the first {n_top} components.")
     log.info(f'Adaptively determining the number of low-dimension representations (LDRs) ...')
     values, bases = functional_bases(sm_data, n_top)
