@@ -4,6 +4,7 @@ import h5py
 import numpy as np
 import pandas as pd
 import nibabel as nib
+from tqdm import tqdm
 from numpy.linalg import inv
 from scipy.sparse import csc_matrix, csr_matrix, dok_matrix, hstack
 
@@ -95,7 +96,7 @@ class KernelSmooth:
     
         """
         bw_raw = self.N ** (-1 / (4 + self.d))
-        weights = [0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10]
+        weights = [0.2, 0.5, 1, 2, 5, 10]
         bw_list = np.zeros((len(weights), self.d))
         
         for i, weight in enumerate(weights):
@@ -172,7 +173,7 @@ def load_nifti(img_files, log):
         raise ValueError(('Cannot read the image, did you provide FreeSurfer images '
                           'but forget to provide a Freesurfer surface mesh?'))
 
-    for i, img_file in enumerate(img_files):
+    for i, img_file in enumerate(tqdm(img_files, desc=f'Loading {len(img_files)} images')):
         img = nib.load(img_file)
         data = img.get_fdata()
         if i == 0:
@@ -188,7 +189,7 @@ def load_nifti(img_files, log):
 
 
 def load_freesurfer(img_files, geometry, log):
-    for i, img_file in enumerate(img_files):
+    for i, img_file in enumerate(tqdm(img_files, desc=f'Loading {len(img_files)} images')):
         data = nib.freesurfer.read_morph_data(img_file)
         if i == 0:
             images = np.zeros((len(img_files), len(data)), dtype=np.float32)
@@ -278,7 +279,6 @@ def run(args, log):
 
     # read images
     ids, img_files = get_image_list(args.image_dir, args.image_suffix, keep_idvs)
-    log.info(f'Reading {len(ids)} images ...')
     if args.surface_mesh is not None:
         images, coord = load_freesurfer(img_files, args.surface_mesh, log)
     else:

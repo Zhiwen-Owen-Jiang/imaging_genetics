@@ -7,7 +7,10 @@ from .parse import PlinkBIMFile, PlinkFAMFile, PlinkBEDFile
 
 
 """
-TODO: align two bfiles on the same A1 and A2.
+TODO: 
+align two bfiles on the same A1 and A2.
+support --keep.
+support --extract.
 
 """
 
@@ -18,7 +21,8 @@ def parse_ld_input(arg):
 
     Parameters:
     ------------
-    arg: the prefix with indices, seperated by a comma, e.g., `ldmatrix/ukb_white_exclude_phase123_25k_sub_chr{1:22}_LD1`
+    arg: the prefix with indices, seperated by a comma, 
+    e.g., `ldmatrix/ukb_white_exclude_phase123_25k_sub_chr{1:22}_LD1`
 
     Returns:
     ---------
@@ -31,8 +35,9 @@ def parse_ld_input(arg):
     if match:
         file_range = match.group(1)
     else:
-        raise ValueError('if multiple LD matrices are provided, --ld or --ld-inv should be specified using `{}`, \
-                         e.g. `prefix_chr{stard:end}`')
+        raise ValueError(('if multiple LD matrices are provided, '
+                          '--ld or --ld-inv should be specified using `{}`, ' 
+                          'e.g. `prefix_chr{stard:end}`'))
     start, end = [int(x) for x in file_range.split(":")]
     ld_files = [re.sub(p2, str(i), arg) for i in range(start, end + 1)]
 

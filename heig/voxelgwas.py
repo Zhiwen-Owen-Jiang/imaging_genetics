@@ -3,7 +3,9 @@ import pandas as pd
 from scipy.stats import chi2
 from . import sumstats
 
-
+"""
+TODO: change --snp to support --extract
+"""
 
 def recover_se(bases, inner_ldr, n, ldr_beta, ztz_inv):
     bases = np.atleast_2d(bases)
@@ -23,14 +25,14 @@ def check_input(args, log):
         raise ValueError('--inner-ldr is required.')
     
     ## optional arguments
-    if args.range is not None and args.snp is not None:
-        log.info('WARNING: --snp will be ignored if --range is provided.')
-        args.snp = None
+    if args.range is not None and args.extract is not None:
+        log.info('WARNING: --extract will be ignored if --range is provided.')
+        args.extract = None
     if args.n_ldrs is not None and args.n_ldrs <= 0:
         raise ValueError('--n-ldrs should be greater than 0.')
     if args.voxel is not None and args.voxel < 0:
         raise ValueError('--voxel should be nonnegative.')
-    if args.range is None and args.voxel is None and args.sig_thresh is None and args.snp is None:
+    if args.range is None and args.voxel is None and args.sig_thresh is None and args.extract is None:
         raise ValueError(('Generating all voxelwise summary statistics will require large disk memory. '
                           'Specify a p-value threshold by --sig-thresh to screen out insignificant results.'))
     if args.sig_thresh is not None and (args.sig_thresh <= 0 or args.sig_thresh >= 1):
@@ -52,13 +54,19 @@ def check_input(args, log):
                               'which is not allowed.'))
     else:
         start_chr, start_pos, end_chr, end_pos = None, None, None, None
+        
+    if args.extract is not None:
+        keep_snps = pd.read_csv(args.extract, delim_whitespace=True, header=None, usecols=[0],
+                               dtype={0: str})
+    else:
+        keep_snps = None
 
-    return start_chr, start_pos, end_pos
+    return start_chr, start_pos, end_pos, keep_snps
 
 
 
 def run(args, log):
-    target_chr, start_pos, end_pos = check_input(args, log)
+    target_chr, start_pos, end_pos, keep_snps = check_input(args, log)
     
     inner_ldr = np.load(args.inner_ldr)
     log.info(f'Read inner product of LDR from {args.inner_ldr}')
@@ -95,13 +103,14 @@ def run(args, log):
                (ldr_gwas.snpinfo['CHR'] == target_chr)).to_numpy()
         outpath += f"_chr{target_chr}_start{start_pos}_end{end_pos}.txt"
         log.info(f'Keep SNPs on chromosome {target_chr} from {start_pos} to {end_pos}.')
-    elif args.snp:
-        idx = (ldr_gwas.snpinfo['SNP'] == args.snp).to_numpy()
-        outpath += f"_{args.snp}.txt"
-        log.info(f'Keep SNP {args.snp}.')
+    elif keep_snps:
+        idx = (ldr_gwas.snpinfo['SNP'].isin(keep_snps)).to_numpy()
+        outpath += f".txt"
+        log.info(f'Keep {len(keep_snps)} SNP(s).')
     else:
         idx = ~ldr_gwas.snpinfo['SNP'].isna().to_numpy()
         outpath += ".txt"
+        log.info(f'Analyzing all SNPs.')
 
     ldr_beta = ldr_gwas.beta[idx]
     ldr_se = ldr_gwas.se[idx]

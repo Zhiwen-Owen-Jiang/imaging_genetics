@@ -223,13 +223,11 @@ def check_input(args, log):
                   'and memory consuming when images are huge.'))
     if args.n_ldrs is not None and args.n_ldrs <= 0:
         raise ValueError('--n-ldrs should be greater than 0.')
-    if args.prop is None:
-        args.prop = 0.8
-        log.info("By default, perserving 80% of variance.")
-    elif args.prop <= 0 or args.prop > 1:
-        raise ValueError('--prop should be between 0 and 1.')
-    elif args.prop < 0.8:   
-        log.info('WARNING: keeping less than 80% of variance will have bad performance.')
+    if args.prop is not None:
+        if args.prop <= 0 or args.prop > 1:
+            raise ValueError('--prop should be between 0 and 1.')
+        elif args.prop < 0.8:   
+            log.info('WARNING: keeping less than 80% of variance will have bad performance.')
 
     if not os.path.exists(args.image):
         raise ValueError(f"{args.image} does not exist.") 
@@ -295,24 +293,30 @@ def run(args, log):
             n_top = n_voxels
         elif args.n_ldrs:
             n_top = args.n_ldrs
-        else:
+        elif args.prop:
             if dim == 1:
                 n_top = np.min((n_sub, n_voxels))
             else:
                 n_top = int(np.min((n_sub, n_voxels)) / (dim - 1))
+        else:
+            n_top = int(np.min((n_sub, n_voxels)) / 10)
         log.info(f"Computing the top {n_top} components.")
         
-        ipca = IncrementalPCA(n_components=n_top, batch_size=500)
-        for i in range(0, n_sub, 500):
-            ipca.partial_fit(sm_images[i: i+500])
+        batch_size = np.max((n_top, 500))
+        ipca = IncrementalPCA(n_components=n_top, batch_size=batch_size)
+        max_avail_n_sub = n_sub // batch_size * batch_size
+        for i in range(0, max_avail_n_sub, batch_size):
+            ipca.partial_fit(sm_images[i: i+batch_size])
     values = ipca.singular_values_ ** 2
     eff_num = np.sum(values) ** 2 / np.sum(values ** 2)
 
     # generate LDR
     if args.n_ldrs:
         n_opt = args.n_ldrs
-    else:
+    elif args.prop:
         n_opt = determine_n_ldr(values, args.prop, log) # keep at least 80% variance
+    else:
+        n_opt = np.max((n_sub, n_voxels)) # an arbitrary large number
     # images, ids, coord = read_images_hdf5(args.image)
     with h5py.File(args.image, 'r') as file:
         images = file['images']
