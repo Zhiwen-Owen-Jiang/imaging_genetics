@@ -10,6 +10,14 @@ from scipy.sparse import csc_matrix, csr_matrix, dok_matrix, hstack
 from . import utils
 
 
+"""
+TODO: 
+add an option for n_ldrs
+add a function to read FreeSurfer data
+add a step that saves the large imaging matrix in disk and then do randomized svd
+
+"""
+
 class KernelSmooth:
     def __init__(self, data, coord):
         """
@@ -393,25 +401,6 @@ def projection_ldr(ldr, covar):
     return inner_ldr - part2
 
 
-def select_n_ldr(data, bases, log):
-    N, n_bases = bases.shape
-    step = int(n_bases / 5)
-    n_cand_list = list(range(step, n_bases, step))
-    
-    log.info(f'Selecting the optimal number of components from {n_cand_list} ...')
-    mse = []
-    for n_cand in n_cand_list:
-        bases_n = bases[:, :n_cand]
-        y_hat = np.dot(np.dot(data, bases_n), bases_n.T)
-        mse.append(np.mean(np.sum((data - y_hat) ** 2,
-                       axis=1) / (1 - np.sum(bases_n ** 2) / N) ** 2))
-        log.info(f'The MSE of {n_cand} is {round(mse[-1], 3)}')
-        
-    n_opt = n_cand_list[np.argmin(mse)]
-    log.info(f'The optimal number of components is {n_opt}.')
-    return n_opt
-
-
 def determine_n_ldr(values, prop, log):
     eff_num = np.sum(values) ** 2 / np.sum(values ** 2)
     prop_var = np.cumsum(values) / np.sum(values)
@@ -436,6 +425,8 @@ def check_input(args, log):
         raise ValueError('--out is required.')
     if args.all:
         log.info('WARNING: computing all principal components might be very time and memory consuming.')
+    if args.n_ldrs is not None and args.n_ldrs <= 0:
+        raise ValueError('--n-ldrs should be greater than 0.')
     if args.prop is None:
         args.prop = 0.8
         log.info("By default, perserving 80% of variance.")
@@ -443,6 +434,8 @@ def check_input(args, log):
         raise ValueError('--prop should be between 0 and 1.')
     elif args.prop < 0.8:   
         log.info('WARNING: keeping less than 80% of variance will have bad performance.')
+    if args.bw_opt and args.bw_opt <= 0:
+        raise ValueError('--bw-opt should be positive.')
 
     if args.image_dir is not None and not os.path.exists(args.image_dir):
         raise ValueError(f"{args.image_dir} does not exist.") 
@@ -454,8 +447,7 @@ def check_input(args, log):
         raise ValueError(f"{args.covar} does not exist.")
     if args.keep is not None and not os.path.exists(args.keep):
         raise ValueError(f"{args.covar} does not exist.")
-    if args.bw_opt and args.bw_opt <= 0:
-        raise ValueError('--bw-opt should be positive.')
+    
         
     
 def get_image_list(common_id, image_dir, suffix):
@@ -486,9 +478,9 @@ def run(args, log):
     if args.keep:
         keep_ids = pd.read_csv(args.keep, delim_whitespace=True, header=None, usecols=[0, 1],
                                dtype={0: str, 1: str})
-        keep_ids = list(zip(keep_ids[0], keep_ids[1]))
+        keep_ids = tuple(zip(keep_ids[0], keep_ids[1]))
         log.info(f'{len(keep_ids)} subjects are in {args.keep}')
-        common_idxs = covar.data.index.intersection(tuple(keep_ids)) # slow
+        common_idxs = covar.data.index.intersection(keep_ids) # slow
     else:
         common_idxs = covar.data.index
     # log.info(f"{len(common_idxs)} subjects are common in images and covariates.\n")
@@ -504,36 +496,44 @@ def run(args, log):
         if image.data.shape[1] != coord.shape[0]:
             raise ValueError('Data and coordinates have inconsistent voxels.')
         common_idxs = common_idxs.intersection(image.data.index)
+        covar.keep(common_idxs)
+        covar._check_singularity()
         image.keep(common_idxs)
         image = np.array(image.data, dtype=np.float64)
     else:
         common_idxs = common_idxs.get_level_values(0)
         common_idxs, img_files = get_image_list(common_idxs, args.image_dir, args.image_suffix)
+        covar.keep(common_idxs)
+        covar._check_singularity()
         log.info(f"{len(common_idxs)} subjects are common.\n")
         log.info(f'Reading images from {args.image_dir} ...')
         image, coord = load_images(img_files, log)
-        np.save('/work/users/o/w/owenjf/image_genetics/methods/package_pub/test_output/ldr/FA_all_tracts.npy', image)
-    covar.keep(common_idxs)
     log.info(f"{image.shape[0]} subjects and {image.shape[1]} voxels are included in the imaging data.")
     
     # kernel smoothing
     log.info('Doing kernel smoothing using the local linear method ...')
     sm_data = do_kernel_smoothing(image, coord, args.bw_opt, log)
+    np.save(f"{args.out}_sm_images.npy", sm_data)
+    log.info(f'Save the smoothed images to {args.out}_sm_images.npy')
         
     # SVD 
     n_points, dim = coord.shape
     if args.all:
         n_top = n_points
-        log.info(f"Computing all {n_top} components.")
+    elif args.n_ldrs:
+        n_top = args.n_ldrs
     else:
         if dim == 1:
             n_top = np.min(image.shape)
         else:
             n_top = int(np.min(image.shape) / (dim - 1))
-        log.info(f"Computing only the first {n_top} components.")
+    log.info(f"Computing the top {n_top} components.")
     values, bases = functional_bases(sm_data, n_top)
     # n_opt = select_n_ldr(sm_data, bases)
-    n_opt = determine_n_ldr(values, args.prop, log) # keep at least 80% variance
+    if args.n_ldrs:
+        n_opt = args.n_ldrs
+    else:
+        n_opt = determine_n_ldr(values, args.prop, log) # keep at least 80% variance
     bases = bases[:, :n_opt]
     eff_num = np.sum(values) ** 2 / np.sum(values ** 2)
 

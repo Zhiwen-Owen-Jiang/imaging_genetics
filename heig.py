@@ -1,7 +1,9 @@
 import os, time, argparse, traceback, numexpr
 import heig.sumstats as sumstats
 import heig.herigc as herigc
-import heig.ldr as ldr
+# import heig.ldr as ldr
+import heig.ksm as ksm
+import heig.fpca as fpca
 import heig.ldmatrix as ldmatrix
 import heig.voxelgwas as voxelgwas
 from heig.utils import GetLogger, sec_to_str
@@ -56,20 +58,28 @@ parser.add_argument('--heri-only', action='store_true',
                     help='only compute heritability')
 
 ## arguments for ldr.py
-parser.add_argument('--ldr', action='store_true',
-                    help='LDR construction')
+# parser.add_argument('--ldr', action='store_true',
+#                     help='LDR construction')
+parser.add_argument('--kernel-smooth', action='store_true',
+                    help='kernel smooth')
+parser.add_argument('--fpca', action='store_true',
+                    help='functional PCA')
 parser.add_argument('--image', 
                     help='imaging data')
+parser.add_argument('--sm-image', 
+                    help='smoothed imaging data')
 parser.add_argument('--image-dir', 
                     help='directory to the imaging data')
 parser.add_argument('--image-suffix', 
                     help='suffix of imaging data')
+parser.add_argument('--surface-mesh', 
+                    help='surface mesh data of FreeSurfer')
 parser.add_argument('--covar', 
                     help='directory to covariates')
 parser.add_argument('--cat-covar-list', 
                     help='comma separated list of covariates to include in the analysis')
-parser.add_argument('--coord', 
-                    help='directory to coordinates')
+# parser.add_argument('--coord', 
+#                     help='directory to coordinates')
 parser.add_argument('--prop', type=float, 
                     help='proportion of variance to keep, should be a number between 0 and 1.')
 parser.add_argument('--all', action='store_true',
@@ -152,13 +162,17 @@ parser.add_argument('--snp',
 def main(args, log):
     if args.out is None:
         raise ValueError('--out is required.')
-    if args.heri_gc + args.ldr + args.ld_matrix + args.sumstats + args.voxel_gwas != 1:
+    if args.heri_gc + args.kernel_smooth + args.fpca + args.ld_matrix + args.sumstats + args.voxel_gwas != 1:
         raise ValueError(('You must specify one and only one of following arguments: '
-                          '--heri-gc, --ldr, --ld-matrix, --sumstats, --voxel-gwas.'))
+                          '--heri-gc, --kernel-smooth, --fpca, --ld-matrix, --sumstats, --voxel-gwas.'))
     if args.heri_gc:
         herigc.run(args, log)
-    elif args.ldr:
-        ldr.run(args, log)
+    # elif args.ldr:
+    #     ldr.run(args, log)
+    elif args.kernel_smooth:
+        ksm.run(args, log)
+    elif args.fpca:
+        fpca.run(args, log)
     elif args.ld_matrix:
         ldmatrix.run(args, log)
     elif args.sumstats:
@@ -180,8 +194,8 @@ if __name__ == '__main__':
         defaults = vars(parser.parse_args(''))
         opts = vars(args)
         non_defaults = [x for x in opts.keys() if opts[x] != defaults[x]]
-        header = "heig.py\n"
-        options = ['--'+x.replace('_','-')+' '+str(opts[x])  for x in non_defaults]
+        header = "heig.py \\\n"
+        options = ['--'+x.replace('_','-')+' '+str(opts[x]) + ' \\'  for x in non_defaults]
         header += '\n'.join(options).replace('True','').replace('False','')
         header = header+'\n'
         log.info(header)
