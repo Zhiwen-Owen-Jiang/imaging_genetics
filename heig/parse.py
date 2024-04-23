@@ -80,12 +80,8 @@ class __GenotypeArrayInMemory__():
             if np.any(keep_indivs > self.n):
                 raise ValueError('keep_indivs indices out of bounds')
 
-            (self.geno, self.m, self.n) = self.__filter_indivs__(self.geno, keep_indivs, self.m,
-                self.n)
-
-            if self.n > 0:
-                print(f'After filtering, {self.n} individuals remain')
-            else:
+            (self.geno, self.m, self.n) = self.__filter_indivs__(self.geno, keep_indivs, self.m)
+            if self.n <= 0:
                 raise ValueError('After filtering, no individuals remain')
             
         # filter SNPs
@@ -97,9 +93,7 @@ class __GenotypeArrayInMemory__():
         (self.geno, self.m, self.n, self.kept_snps, self.freq) = self.__filter_snps_maf__(
             self.geno, self.m, self.n, self.mafMin, keep_snps)
 
-        if self.m > 0:
-            print(f'After filtering, {self.m} SNPs remain')
-        else:
+        if self.m <= 0:
             raise ValueError('After filtering, no SNPs remain')
 
         self.df = self.df[self.kept_snps, :]

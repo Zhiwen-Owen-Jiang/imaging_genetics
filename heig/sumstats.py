@@ -230,7 +230,7 @@ class GWAS:
                                     usecols=list(cols_map2.keys()), na_values=[-9, 'NONE', '.'],
                                     dtype={'A1': 'category', 'A2': 'category'}) # TODO: read by block
             gwas_data = gwas_data.rename(cols_map2, axis=1)
-            gwas_data['A1'] = gwas_data['A1'].str.upper().astype('category') # increase memory usage from 1k to 2k
+            gwas_data['A1'] = gwas_data['A1'].str.upper().astype('category') 
             gwas_data['A2'] = gwas_data['A2'].str.upper().astype('category')
 
             if cols_map['N'] is None:
@@ -248,7 +248,7 @@ class GWAS:
             else:
                 if not gwas_data['SNP'].equals(orig_snps_list['SNP']):
                     raise ValueError('There are different SNPs in the input LDR GWAS files.')
-            beta_mat[:, i] = np.array(gwas_data['EFFECT']) # increased memory usage a lot
+            beta_mat[:, i] = np.array(gwas_data['EFFECT'])
             se_mat[:, i] = np.array(gwas_data['SE'])
             cls.logger.info(f'Pruning SNPs for {gwas_file} ...')
             gwas_data = cls._prune_snps(gwas_data, maf_min, info_min)

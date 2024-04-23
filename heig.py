@@ -27,12 +27,12 @@ MASTHEAD += "*******************************************************************
 parser = argparse.ArgumentParser(description='\n Highly-Efficient Imaging Genetics (HEIG)')
 
 common_parser = parser.add_argument_group(title="Common arguments")
-herigc_parser = parser.add_argument_group(title="Arguments for heritability and (cross-trait) genetic correlation analysis")
-ksm_parser = parser.add_argument_group(title="Kernel smoothing arguments")
-fpca_parser = parser.add_argument_group(title="Functional PCA arguments")
-makeld_parser = parser.add_argument_group(title="Arguments for making an LD matrix and its inverse")
-sumstats_parser = parser.add_argument_group(title="Arguments for organizing and preprocessing GWAS summary statistics")
-voxelgwas_parser = parser.add_argument_group(title="Arguments for recovering voxel-level GWAS results")
+herigc_parser = parser.add_argument_group(title="Arguments specific to heritability and (cross-trait) genetic correlation analysis")
+ksm_parser = parser.add_argument_group(title="Arguments specific to Kernel smoothing")
+fpca_parser = parser.add_argument_group(title="Arguments specific to functional PCA")
+makeld_parser = parser.add_argument_group(title="Arguments specific to making an LD matrix and its inverse")
+sumstats_parser = parser.add_argument_group(title="Arguments specific to organizing and preprocessing GWAS summary statistics")
+voxelgwas_parser = parser.add_argument_group(title="Arguments specific to recovering voxel-level GWAS results")
 
 ## module arguments
 herigc_parser.add_argument('--heri-gc', action='store_true',
@@ -67,13 +67,16 @@ common_parser.add_argument('--keep',
                                  'Other columns in the file will be ignored. '
                                  'Each row contains only one subject. '
                                  'Supported modules: --kernel-smooth, --fpca, --make-ld.'))
-herigc_parser.add_argument('--extract', 
+common_parser.add_argument('--extract', 
                            help=('File with SNPs to include in the LD matrix and its inverse and in voxelwise GWAS. '
                                  'The file should be tab or space delimited without header, '
                                  'with the first column being rsID. '
                                  'Other columns in the file will be ignored. '
                                  'Each row contains only one subject. '
                                  'Supported modules: --heri-gc, --make-ld, --voxel-gwas.'))
+common_parser.add_argument('--maf-min', type=float, 
+                             help=('Minimum minor allele frequency for screening SNPs. '
+                                   'Supported modules: --make-ld, --sumstats.'))
 
 ## arguments for heri_gc.py
 herigc_parser.add_argument('--ld-inv', 
@@ -131,7 +134,7 @@ fpca_parser.add_argument('--all', action='store_true',
 ## arguments for make_ld.py
 makeld_parser.add_argument('--bfile', 
                            help=('Prefix of PLINK bfile triplets for LD matrix and its inverse. '
-                                 'Two prefices should be seperated by a comma, e.g., `file1,file2`'))
+                                 'Two prefices should be seperated by a comma, e.g., `file1,file2` .'))
 makeld_parser.add_argument('--partition', 
                            help=('Genome partition file. '
                                  'The file should be tab or space delimited without header, '
@@ -179,8 +182,6 @@ sumstats_parser.add_argument('--maf-col',
                              help='Minor allele frequency column.')
 sumstats_parser.add_argument('--info-col', 
                              help='INFO score column.')
-sumstats_parser.add_argument('--maf-min', type=float, 
-                             help='Minimum minor allele frequency for screening SNPs.')
 sumstats_parser.add_argument('--info-min', type=float, 
                              help='Minimum INFO score for screening SNPs.')
 
