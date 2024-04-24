@@ -62,22 +62,22 @@ def check_input(args, log):
     if dirname is not None and not os.path.exists(dirname):
         raise ValueError(f'{os.path.dirname(args.out)} does not exist.')
     if not os.path.exists(f"{args.ldr_sumstats}.snpinfo"):
-        raise ValueError(f"{args.ldr_sumstats}.snpinfo does not exist")
+        raise ValueError(f"{args.ldr_sumstats}.snpinfo does not exist.")
     if not os.path.exists(f"{args.ldr_sumstats}.sumstats"):
-        raise ValueError(f"{args.ldr_sumstats}.sumstats does not exist")
+        raise ValueError(f"{args.ldr_sumstats}.sumstats does not exist.")
     if not os.path.exists(args.bases):
-        raise ValueError(f"{args.bases} does not exist")
+        raise ValueError(f"{args.bases} does not exist.")
     if not os.path.exists(args.inner_ldr):
-        raise ValueError(f"{args.inner_ldr} does not exist")
+        raise ValueError(f"{args.inner_ldr} does not exist.")
     if args.extract is not None and not os.path.exists(args.extract):
-        raise ValueError(f"{args.extract} does not exist")
-    if args.overlap is not None and not args.y2_sumstats:
-        log.info('WARNING: ignore --overlap as --y2-sumstats is not specified')
+        raise ValueError(f"{args.extract} does not exist.")
+    if args.overlap and not args.y2_sumstats:
+        log.info('WARNING: ignore --overlap as --y2-sumstats is not specified.')
     if args.y2_sumstats is not None:
         if not os.path.exists(f"{args.y2_sumstats}.snpinfo"):
-            raise ValueError(f"{args.y2_sumstats}.snpinfo does not exist")
+            raise ValueError(f"{args.y2_sumstats}.snpinfo does not exist.")
         if not os.path.exists(f"{args.y2_sumstats}.sumstats"):
-            raise ValueError(f"{args.y2_sumstats}.sumstats does not exist")
+            raise ValueError(f"{args.y2_sumstats}.sumstats does not exist.")
 
 
 
@@ -96,7 +96,7 @@ def get_common_snps(*snp_list):
     """
     n_snp_list = len(snp_list)
     if n_snp_list == 0:
-        raise ValueError('No snp list provided')
+        raise ValueError('No snp list provided.')
 
     common_snps = None
     for i in range(len(snp_list)):
@@ -112,13 +112,15 @@ def get_common_snps(*snp_list):
             common_snps = common_snps.merge(snp, on='SNP')
                 
     if common_snps is None:
-        raise ValueError('All the input snp lists are None or do not have a SNP column')
+        raise ValueError('All the input snp lists are None or do not have a SNP column.')
     
     common_snps.drop_duplicates(subset=['SNP'], keep=False, inplace=True)
-    matched_alleles_set = common_snps[[col for col in common_snps.columns if col.startswith('A')]].apply(lambda x: len(set(x)) == 2, axis=1)
+    matched_alleles_set = common_snps[[col for col in common_snps.columns 
+                                       if col.startswith('A')]].apply(lambda x: len(set(x)) == 2, axis=1)
     common_snps = common_snps.loc[matched_alleles_set]
 
     return common_snps['SNP']
+
 
 
 def read_process_data(args, log):
@@ -127,9 +129,9 @@ def read_process_data(args, log):
 
     """
     # read LD matrices
-    log.info(f"Read LD matrix from {args.ld}.")
+    log.info(f"Read LD matrix from {args.ld}")
     ld = LDmatrix(args.ld)
-    log.info(f"Read LD inverse matrix from {args.ld_inv}.")
+    log.info(f"Read LD inverse matrix from {args.ld_inv}")
     ld_inv = LDmatrix(args.ld_inv)
     if ld.ldinfo.shape[0] != ld_inv.ldinfo.shape[0]:
         raise ValueError(('The LD matrix and LD inverse matrix have different number of SNPs. ',
@@ -141,12 +143,12 @@ def read_process_data(args, log):
 
     # read bases and inner_ldr
     bases = np.load(args.bases)
-    log.info(f'{bases.shape[1]} bases read from {args.bases}.')
+    log.info(f'{bases.shape[1]} bases read from {args.bases}')
     if bases.shape[1] < args.n_ldrs:
         raise ValueError('The number of bases is less than the number of LDR.')
     bases = bases[:, :args.n_ldrs]
 
-    log.info(f'Read inner product of LDR from {args.inner_ldr}.')
+    log.info(f'Read inner product of LDR from {args.inner_ldr}')
     inner_ldr = np.load(args.inner_ldr)
     if inner_ldr.shape[0] < args.n_ldrs or inner_ldr.shape[1] < args.n_ldrs:
         raise ValueError('The dimension of inner product of LDR is less than the number of LDR.')
@@ -156,7 +158,7 @@ def read_process_data(args, log):
     # read LDR gwas
     ldr_gwas = sumstats.read_sumstats(args.ldr_sumstats)
     ldr_gwas.get_zscore()
-    log.info(f'{ldr_gwas.snpinfo.shape[0]} SNPs read from LDR summary statistics {args.ldr_sumstats}.')
+    log.info(f'{ldr_gwas.snpinfo.shape[0]} SNPs read from LDR summary statistics {args.ldr_sumstats}')
 
     # keep selected LDRs
     if args.n_ldrs:
@@ -168,23 +170,15 @@ def read_process_data(args, log):
     # read y2 gwas
     if args.y2_sumstats:
         y2_gwas = sumstats.read_sumstats(args.y2_sumstats)
-        log.info(f'{y2_gwas.snpinfo.shape[0]} SNPs read from non-imaging summary statistics {args.y2_sumstats}.')
+        log.info(f'{y2_gwas.snpinfo.shape[0]} SNPs read from non-imaging summary statistics {args.y2_sumstats}')
     else:
         y2_gwas = None
 
      # extract SNPs
     if args.extract: ## TODO: test
-        try:
-            header = open(args.extract).readline().split()
-        except: 
-            raise ValueError('--extract should be an unzipped txt file.')
-        if not header[0].startswith('rs'):
-            raise ValueError(('--extract should not have a header and' 
-                             'the first column should be the rsID of SNP.'))
-        # only the first column will be used
         keep_snps = pd.read_csv(args.extract, delim_whitespace=True, 
                                header=None, usecols=[0], names=['SNP']) 
-        log.info(f"Extracting {len(keep_snps)} SNPs from {args.extract}.")
+        log.info(f"Extract {len(keep_snps)} SNPs from {args.extract}")
     else:
         keep_snps = None
 

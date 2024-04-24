@@ -12,4 +12,13 @@ heig/__pycache__
 # slurm
 slurm*
 
+# all dependent packages
 requirements_all.txt
+
+# data for tutorial
+example/
+
+# shared data
+shared_data/
+
+

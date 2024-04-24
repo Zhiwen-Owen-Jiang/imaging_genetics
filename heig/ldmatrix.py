@@ -168,7 +168,7 @@ class LDmatrix:
 class LDmatrixBED(LDmatrix):
     def __init__(self, num_snps_part, ldinfo, snp_getter, prop, inv=False):
         """
-        Making an LD matrix with selected subjects and SNPs with an MAF > 0.01
+        Making an LD matrix from a bed file
 
         Parameters:
         ------------
@@ -278,6 +278,7 @@ def partition_genome(ld_bim, ld_inv_bim, part, log):
     ld_inv_bim: a pd Dataframe of LD inverse matrix SNP information
     part: a pd Dataframe of LD block annotation
     log: a logger
+
     """
     num_snps_part = []
     end = -1

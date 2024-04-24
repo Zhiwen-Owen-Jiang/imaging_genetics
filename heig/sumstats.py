@@ -7,7 +7,12 @@ import pandas as pd
 from scipy.stats import chi2
 from . import utils
 
+"""
+TODO: 
+add a parallel option for preprocessing LDR GWAS summary statistics
+add a fast option that skips prune_snps()
 
+"""
 
 def check_input(args, log):
     """
@@ -228,7 +233,7 @@ class GWAS:
             cls._check_header(openfunc, compression, gwas_file, cols_map, cols_map2, True)
             gwas_data = pd.read_csv(gwas_file, delim_whitespace=True, compression=compression, 
                                     usecols=list(cols_map2.keys()), na_values=[-9, 'NONE', '.'],
-                                    dtype={'A1': 'category', 'A2': 'category'}) # TODO: read by block
+                                    dtype={'A1': 'category', 'A2': 'category'})
             gwas_data = gwas_data.rename(cols_map2, axis=1)
             gwas_data['A1'] = gwas_data['A1'].str.upper().astype('category') 
             gwas_data['A2'] = gwas_data['A2'].str.upper().astype('category')
@@ -402,8 +407,7 @@ class GWAS:
         """
         header = openfunc(dir).readline().split()
         if compression is not None:
-            header[0] = str(header[0], 'UTF-8')
-            header[1] = str(header[1], 'UTF-8')
+            header = [str(x, 'UTF-8') for x in header]
         if ldr: 
             for col in cls.required_cols_ldr:
                 if cols_map[col] not in header:

@@ -1,10 +1,12 @@
 import numpy as np
 import pandas as pd
 from scipy.stats import chi2
+from tqdm import tqdm
 from . import sumstats
 
 """
-TODO: change --snp to support --extract
+TODO: 
+
 """
 
 def recover_se(bases, inner_ldr, n, ldr_beta, ztz_inv):
@@ -127,9 +129,7 @@ def run(args, log):
 
     log.info(f"Recovering voxel-level GWAS results ...")
     is_first_write = True
-    for i in voxel_list:
-        if i % 100 == 1 and i > 1:
-            log.info(f"Finished {i} voxels")
+    for i in tqdm(voxel_list, desc=f"Doing GWAS for {len(voxel_list)} voxels"):
         voxel_beta = np.dot(ldr_beta, bases[i].T)
         voxel_se = recover_se(bases[i], inner_ldr, ldr_n, ldr_beta, ztz_inv).reshape(-1)
         voxel_z = voxel_beta / voxel_se
