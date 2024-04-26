@@ -29,6 +29,8 @@ class Dataset():
         if self.data[['FID', 'IID']].duplicated().any():
             first_dup = self.data.loc[self.data[['FID', 'IID']].duplicated(), ['FID', 'IID']]
             raise ValueError(f'Subject {list(first_dup)} is duplicated.')
+        if len(self.data.columns) != len(set(self.data.columns)):
+            raise ValueError('Duplicated columns are not allowed.')
         self.data = self.data.set_index(['FID', 'IID'])
         self.data = self.data.sort_index()
         self.logger = logging.getLogger(__name__)
