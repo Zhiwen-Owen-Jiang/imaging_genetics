@@ -421,8 +421,6 @@ def check_input(args, log):
         log.info('WARNING: --image-dir and --image-suffix are ignored.')
     if args.covar is None:
         raise ValueError('--covar is required.')
-    if args.out is None:
-        raise ValueError('--out is required.')
     if args.all:
         log.info('WARNING: computing all principal components might be very time and memory consuming.')
     if args.n_ldrs is not None and args.n_ldrs <= 0:

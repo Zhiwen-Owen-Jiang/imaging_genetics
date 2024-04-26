@@ -55,12 +55,7 @@ def check_input(args, log):
         raise ValueError('--ld-inv is required.')
     if args.ld is None:
         raise ValueError('--ld is required.')
-    if args.out is None:
-        raise ValueError('--out is required.')
 
-    dirname = os.path.dirname(args.out)
-    if dirname is not None and not os.path.exists(dirname):
-        raise ValueError(f'{os.path.dirname(args.out)} does not exist.')
     if not os.path.exists(f"{args.ldr_sumstats}.snpinfo"):
         raise ValueError(f"{args.ldr_sumstats}.snpinfo does not exist.")
     if not os.path.exists(f"{args.ldr_sumstats}.sumstats"):
@@ -148,12 +143,12 @@ def read_process_data(args, log):
         raise ValueError('The number of bases is less than the number of LDR.')
     bases = bases[:, :args.n_ldrs]
 
-    log.info(f'Read inner product of LDR from {args.inner_ldr}')
+    log.info(f'Read inner product of LDRs from {args.inner_ldr}')
     inner_ldr = np.load(args.inner_ldr)
     if inner_ldr.shape[0] < args.n_ldrs or inner_ldr.shape[1] < args.n_ldrs:
         raise ValueError('The dimension of inner product of LDR is less than the number of LDR.')
     inner_ldr = inner_ldr[:args.n_ldrs, :args.n_ldrs]
-    log.info(f'Keep the top {args.n_ldrs} components.\n')
+    log.info(f'Keep the top {args.n_ldrs} LDRs.\n')
 
     # read LDR gwas
     ldr_gwas = sumstats.read_sumstats(args.ldr_sumstats)
@@ -535,8 +530,8 @@ def format_heri(heri, heri_se, log):
 
     chisq = (heri / heri_se) ** 2
     pv = chi2.sf(chisq, 1)
-    data = {'index': range(1, len(heri) + 1), 'heri': heri, 'se': heri_se, 
-                           'chisq': chisq, 'pv': pv}
+    data = {'INDEX': range(1, len(heri) + 1), 'H2': heri, 'SE': heri_se, 
+                           'CHISQ': chisq, 'P': pv}
     output = pd.DataFrame(data)
     return output
 
@@ -564,11 +559,11 @@ def format_gene_cor_y2(heri, heri_se, gene_cor, gene_cor_se, log):
     heri_pv = chi2.sf(heri_chisq, 1) 
     gene_cor_chisq = (gene_cor / gene_cor_se) ** 2
     gene_cor_pv = chi2.sf(gene_cor_chisq, 1)
-    data = {'index': range(1, len(gene_cor) + 1), 
-            'image_heri': heri, 'image_heri_se': heri_se, 
-            'image_heri_chisq': heri_chisq, 'image_heri_pv': heri_pv, 
-            'image_y2_gc': gene_cor, 'image_y2_gc_se': gene_cor_se, 
-            'image_y2_gc_chisq': gene_cor_chisq, 'image_y2_gc_pv': gene_cor_pv}
+    data = {'INDEX': range(1, len(gene_cor) + 1), 
+            'H2': heri, 'H2_SE': heri_se, 
+            'H2_CHISQ': heri_chisq, 'H2_P': heri_pv, 
+            'GC': gene_cor, 'GC_SE': gene_cor_se, 
+            'GC_CHISQ': gene_cor_chisq, 'GC_P': gene_cor_pv}
     output = pd.DataFrame(data)
     return output
 
@@ -576,10 +571,10 @@ def format_gene_cor_y2(heri, heri_se, gene_cor, gene_cor_se, log):
 def print_results_two(heri_gc, output, overlap):
     msg = 'Heritability of the image\n'
     msg += '-------------------------\n'
-    msg += f"Mean h^2: {round(np.nanmean(output['image_heri']), 4)} ({round(np.nanmean(output['image_heri_se']), 4)})\n"
-    msg += f"Median h^2: {round(np.nanmedian(output['image_heri']), 4)}\n"
-    msg += f"Max h^2: {round(np.nanmax(output['image_heri']), 4)}\n"
-    msg += f"Min h^2: {round(np.nanmin(output['image_heri']), 4)}\n"
+    msg += f"Mean h^2: {round(np.nanmean(output['H2']), 4)} ({round(np.nanmean(output['H2_SE']), 4)})\n"
+    msg += f"Median h^2: {round(np.nanmedian(output['H2']), 4)}\n"
+    msg += f"Max h^2: {round(np.nanmax(output['H2']), 4)}\n"
+    msg += f"Min h^2: {round(np.nanmin(output['H2']), 4)}\n"
     msg += '\n'
 
     chisq_y2_heri = (heri_gc.y2_heri[0] / heri_gc.y2_heri_se[0]) ** 2
@@ -596,10 +591,10 @@ def print_results_two(heri_gc, output, overlap):
     else:
         msg += 'Genetic correlation (without sample overlap)\n'
     msg += '--------------------------------------------\n'
-    msg += f"Mean genetic correlation: {round(np.nanmean(output['image_y2_gc']), 4)} ({round(np.nanmean(output['image_y2_gc_se']), 4)})\n"
-    msg += f"Median genetic correlation: {round(np.nanmedian(output['image_y2_gc']), 4)}\n"
-    msg += f"Max genetic correlation: {round(np.nanmax(output['image_y2_gc']), 4)}\n"
-    msg += f"Min genetic correlation: {round(np.nanmin(output['image_y2_gc']), 4)}\n"
+    msg += f"Mean genetic correlation: {round(np.nanmean(output['GC']), 4)} ({round(np.nanmean(output['GC_SE']), 4)})\n"
+    msg += f"Median genetic correlation: {round(np.nanmedian(output['GC']), 4)}\n"
+    msg += f"Max genetic correlation: {round(np.nanmax(output['GC']), 4)}\n"
+    msg += f"Min genetic correlation: {round(np.nanmin(output['GC']), 4)}\n"
     
     return msg
 
@@ -607,10 +602,10 @@ def print_results_two(heri_gc, output, overlap):
 def print_results_heri(heri_output):
     msg = 'Heritability of the image\n'
     msg += '-------------------------\n'
-    msg += f"Mean h^2: {round(np.nanmean(heri_output['heri']), 4)} ({round(np.nanmean(heri_output['se']), 4)})\n"
-    msg += f"Median h^2: {round(np.nanmedian(heri_output['heri']), 4)}\n"
-    msg += f"Max h^2: {round(np.nanmax(heri_output['heri']), 4)}\n"
-    msg += f"Min h^2: {round(np.nanmin(heri_output['heri']), 4)}\n"
+    msg += f"Mean h^2: {round(np.nanmean(heri_output['H2']), 4)} ({round(np.nanmean(heri_output['SE']), 4)})\n"
+    msg += f"Median h^2: {round(np.nanmedian(heri_output['H2']), 4)}\n"
+    msg += f"Max h^2: {round(np.nanmax(heri_output['H2']), 4)}\n"
+    msg += f"Min h^2: {round(np.nanmin(heri_output['H2']), 4)}\n"
 
     return msg
 
@@ -647,8 +642,8 @@ def run(args, log):
             gene_cor_tril, gene_cor_se_tril = format_gene_cor(heri_gc.gene_cor, heri_gc.gene_cor_se)
             msg = print_results_gc(heri_gc.gene_cor, heri_gc.gene_cor_se)
             log.info(f'{msg}')
-            np.savez_compressed(f'{args.out}_gene_cor', gc=gene_cor_tril, se=gene_cor_se_tril)
-            log.info(f'Save the genetic correlation results to {args.out}_gene_cor.npz')
+            np.savez_compressed(f'{args.out}_gc', gc=gene_cor_tril, se=gene_cor_se_tril)
+            log.info(f'Save the genetic correlation results to {args.out}_gc.npz')
     else:
         y2_z = y2_gwas.z / np.sqrt(np.array(y2_gwas.snpinfo['N'])).reshape(-1, 1)
         heri_gc = TwoSample(z_mat, ldr_gwas.snpinfo['N'], ld, ld_inv, bases, inner_ldr,
@@ -657,7 +652,7 @@ def run(args, log):
                                                 heri_gc.gene_cor_y2, heri_gc.gene_cor_y2_se, log)
         msg = print_results_two(heri_gc, gene_cor_y2_output, args.overlap)
         log.info(f'{msg}')
-        gene_cor_y2_output.to_csv(f"{args.out}_gene_cor_y2.txt", sep='\t', index=None, float_format='%.5e', na_rep='NA')
-        log.info(f'Save the genetic correlation results to {args.out}_gene_cor_y2.txt')
+        gene_cor_y2_output.to_csv(f"{args.out}_gc.txt", sep='\t', index=None, float_format='%.5e', na_rep='NA')
+        log.info(f'Save the genetic correlation results to {args.out}_gc.txt')
         
         

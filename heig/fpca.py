@@ -4,6 +4,7 @@ import pickle
 import logging
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 from sklearn.decomposition import IncrementalPCA
 from . import utils
 
@@ -87,13 +88,20 @@ class Covar(Dataset):
 
         """
         super().__init__(dir)
+        self.cat_covar_list = cat_covar_list
 
-        if cat_covar_list:
-            catlist = cat_covar_list.split(',')
-            self._check_validcatlist(catlist)
+
+    def cat_covar_intercept(self):
+        """
+        Convert categorical covariates to dummy variables,
+        and add the intercept.
+
+        """
+        if self.cat_covar_list is not None:
+            catlist = self.cat_covar_list.split(',')
             self.logger.info(f"{len(catlist)} categorical variables provided by --cat-covar-list.")
+            self._check_validcatlist(catlist)
             self._dummy_covar(catlist)
-            
         self._add_intercept()
         if self._check_singularity():
             raise ValueError('The covarite matrix is singular.')
@@ -150,7 +158,6 @@ class Covar(Dataset):
         True means singular
 
         """
-
         if len(self.data.shape) == 1:
             return self.data == 0
         else:
@@ -168,8 +175,6 @@ class Covar(Dataset):
 
         """
         self.data = self.data.loc[idx]
-        if self._check_singularity():
-            raise ValueError('The covarite matrix is singular.')
         
 
 
@@ -200,6 +205,7 @@ def projection_ldr(ldr, covar):
     return inner_ldr - part2
 
 
+
 def determine_n_ldr(values, prop, log):
     eff_num = np.sum(values) ** 2 / np.sum(values ** 2)
     prop_var = np.cumsum(values) / np.sum(values)
@@ -207,8 +213,9 @@ def determine_n_ldr(values, prop, log):
     n_idxs = np.sum(idxs) + 1
     n_opt = max(n_idxs, int(eff_num) + 1)
     var_prop = np.sum(values[:n_opt]) / np.sum(values)
-    log.info(f'Approximately {round(var_prop * 100, 1)}% variance is captured by the top {n_opt} LDRs.\n')
+    log.info(f'Approximately {round(var_prop * 100, 1)}% variance is captured by the top {n_opt} components.\n')
     return n_opt
+
 
 
 def check_input(args, log):
@@ -223,6 +230,9 @@ def check_input(args, log):
                   'and memory consuming when images are huge.'))
     if args.n_ldrs is not None and args.n_ldrs <= 0:
         raise ValueError('--n-ldrs should be greater than 0.')
+    if args.all and args.n_ldrs is not None:
+        log.info('--all is ignored as --n-ldrs specified.')
+        args.all = False
     if args.prop is not None:
         if args.prop <= 0 or args.prop > 1:
             raise ValueError('--prop should be between 0 and 1.')
@@ -250,80 +260,107 @@ def read_images_hdf5(dir):
 
 
 
+def get_batch_size(n_top, n_sub, n_voxels):
+    """
+    The rule to get batch size:
+    if the maximum #PC < 10000, then use all subjects in one batch
+    else if n_top > 5000, use n_top as the batch size
+        else use n_sub.
+
+    """
+    max_n_pc = np.min((n_sub, n_voxels))
+    if max_n_pc <= 10000:
+        if n_sub <= 50000:
+            return n_sub
+        else:
+            return n_sub // (n_sub // 50000 + 1) 
+    else:
+        if n_top >= 5000:
+            return n_top
+        else:
+            return n_sub
+    
+
+
 def run(args, log):
     # check input
     check_input(args, log)
-    
-    # read covariates
-    log.info(f"Reading covariates from {args.covar}")
-    covar = Covar(args.covar, args.cat_covar_list)
-    log.info(f"{covar.data.shape[1]} fixed effects in the covariates (including the intercept).")
-    common_idxs = covar.data.index
 
-    # extract common subjects
-    if args.keep:
-        keep_ids = pd.read_csv(args.keep, delim_whitespace=True, header=None, usecols=[0, 1],
-                               dtype={0: str, 1: str})
-        keep_ids = tuple(zip(keep_ids[0], keep_ids[1]))
-        log.info(f'{len(keep_ids)} subjects are in {args.keep}')
-        common_idxs = covar.data.index.intersection(keep_ids) # slow
-    # log.info(f"{len(common_idxs)} subjects are common in images and covariates.\n")
-
-    # read images
-    # coord = pd.read_csv(args.coord, delim_whitespace=True, header=None)
-    # ids = pd.read_csv(args.id, delim_whitespace=True, header=None)
-    # n_voxels, dim = coord.shape
-    # n_sub = len(ids)
-    # mm = np.memmap(args.sm_image, dtype='float32', mode='r', shape=(n_sub, n_voxels))
-    
     # read smoothed images
-    # sm_images, ids, coord = read_images_hdf5(args.sm_image)
+    log.info(f'Read smoothed images from {args.sm_image}')
     with h5py.File(args.sm_image, 'r') as file:
         sm_images = file['images']
-        ids = file['id'][:]
         coord = file['coord'][:]
-        ids = pd.MultiIndex.from_arrays(ids.astype(str).T, names=['FID', 'IID'])
+        ids = file['id'][:] # this id is only used to determine max n_components
         n_voxels, dim = coord.shape
         n_sub = len(ids)
-        common_idxs = common_idxs.intersection(ids)
-        covar.keep(common_idxs)
 
         # incremental PCA 
+        log.info(f'Doing functional PCA ...')
+        max_n_pc = np.min((n_sub, n_voxels))
         if args.all:
-            n_top = n_voxels
+            n_top = max_n_pc
         elif args.n_ldrs:
-            n_top = args.n_ldrs
-        elif args.prop:
-            if dim == 1:
-                n_top = np.min((n_sub, n_voxels))
+            if args.n_ldrs > max_n_pc:
+                n_top = max_n_pc
+                log.info('WARNING: --n-ldrs is greater than the maximum #components.')
             else:
-                n_top = int(np.min((n_sub, n_voxels)) / (dim - 1))
-        else:
-            n_top = int(np.min((n_sub, n_voxels)) / 10)
+                n_top = args.n_ldrs
+        else: 
+            if dim == 1:
+                n_top = max_n_pc
+            else:
+                n_top = int(max_n_pc / (dim - 1))
         log.info(f"Computing the top {n_top} components.")
         
-        batch_size = np.max((n_top, 500))
+        batch_size = get_batch_size(n_top, n_sub, n_voxels)
         ipca = IncrementalPCA(n_components=n_top, batch_size=batch_size)
         max_avail_n_sub = n_sub // batch_size * batch_size
-        for i in range(0, max_avail_n_sub, batch_size):
+        log.info((f'The smoothed images are split into {n_sub // batch_size} batch(es), '
+                  f'with batch size {batch_size}.'))
+
+        for i in tqdm(range(0, max_avail_n_sub, batch_size), desc=f"{n_sub // batch_size} batch(es)"):
             ipca.partial_fit(sm_images[i: i+batch_size])
     values = ipca.singular_values_ ** 2
     eff_num = np.sum(values) ** 2 / np.sum(values ** 2)
 
     # generate LDR
-    if args.n_ldrs:
-        n_opt = args.n_ldrs
-    elif args.prop:
-        n_opt = determine_n_ldr(values, args.prop, log) # keep at least 80% variance
+    if args.prop:
+        n_opt = determine_n_ldr(values, args.prop, log)
     else:
-        n_opt = np.max((n_sub, n_voxels)) # an arbitrary large number
-    # images, ids, coord = read_images_hdf5(args.image)
+        n_opt = n_top
+
+    log.info(f'Read raw images from {args.image} and construct {n_opt} LDRs.')
     with h5py.File(args.image, 'r') as file:
         images = file['images']
-        ldr = ipca.transform(images)[ids.isin(common_idxs), :n_opt]
+        ids = file['id'][:] # this id is used to take intersection with --covar and --keep
+        ids = pd.MultiIndex.from_arrays(ids.astype(str).T, names=['FID', 'IID'])
+        ldr = ipca.transform(images)[:, :n_opt]
+        
+    # read covariates
+    log.info(f"Read covariates from {args.covar}")
+    covar = Covar(args.covar, args.cat_covar_list)
+    common_idxs = covar.data.index.intersection(ids)
 
+    # extract subjects
+    if args.keep:
+        keep_ids = pd.read_csv(args.keep, delim_whitespace=True, header=None, usecols=[0, 1],
+                               dtype={0: str, 1: str})
+        keep_ids = tuple(zip(keep_ids[0], keep_ids[1]))
+        log.info(f'{len(keep_ids)} subjects in {args.keep}')
+        common_idxs = common_idxs.intersection(keep_ids) # slow
+
+    # keep common subjects
+    log.info(f'{len(common_idxs)} common subjects in these files.')
+    covar.keep(common_idxs)
+    covar.cat_covar_intercept()
+    log.info(f"{covar.data.shape[1]} fixed effects in the covariates (including the intercept).")
+    ldr = ldr[ids.isin(common_idxs)]
+
+    # var-cov matrix of projected LDRs
     proj_inner_ldr = projection_ldr(ldr, np.array(covar.data))
-    ldr_df = pd.DataFrame(ldr, index=covar.data.index)
+    log.info(f"Removed covariate effects from LDRs and computed inner product.\n")
+    ldr_df = pd.DataFrame(ldr, index=common_idxs)
 
     # save the output
     ldr_df.to_csv(f"{args.out}_ldr_top{n_opt}.txt", sep='\t')
@@ -331,8 +368,9 @@ def run(args, log):
     np.save(f"{args.out}_bases_top{n_opt}.npy", ipca.components_)
     np.save(f"{args.out}_eigenvalues_top{n_top}.npy", values)
     log.info((f"The effective number of independent voxels is {round(eff_num, 3)}, "
-              "which can be used in the Bonferroni p-value threshold across all voxels."))
-    log.info(f"Save the LDRs to {args.out}_ldr_top{n_opt}.txt")
-    log.info(f"Save the inner product of LDRs to {args.out}_innerldr_top{n_opt}.npy")
+              f"which can be used in the Bonferroni p-value threshold (e.g., 0.05/{round(eff_num, 3)}) "
+              "across all voxels."))
+    log.info(f"Save the raw LDRs to {args.out}_ldr_top{n_opt}.txt")
+    log.info(f"Save the projected inner product of LDRs to {args.out}_innerldr_top{n_opt}.npy")
     log.info(f"Save the top {n_opt} bases to {args.out}_bases_top{n_opt}.npy")
     log.info(f"Save the top {n_top} eigenvalues to {args.out}_eigenvalues_top{n_top}.npy")

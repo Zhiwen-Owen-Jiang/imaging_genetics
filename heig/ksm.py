@@ -62,7 +62,7 @@ class KernelSmooth:
         The optimal bandwidth
        
         """
-        mse = np.zeros(len(bw_list))
+        score = np.zeros(len(bw_list))
 
         for cii, bw in enumerate(bw_list):
             log.info(f"Doing generalized cross-validation (GCV) for bandwidth {np.round(bw, 3)} ...")
@@ -71,21 +71,21 @@ class KernelSmooth:
                 # mse[cii] = np.mean(np.sum((self.data - y_sm) ** 2,
                 #            axis=1) / (1 - np.sum(csc_matrix.diagonal(sparse_sm_weight)) / self.N) ** 2)
                 # dis = np.sum((self.data - y_sm) ** 2, axis=1)
-                mse[cii] = (np.mean(np.sum((self.data - y_sm) ** 2, axis=1)) / 
+                score[cii] = (np.mean(np.sum((self.data - y_sm) ** 2, axis=1)) / 
                             (1 - np.sum(sparse_sm_weight.diagonal()) / self.N + 10**-10) ** 2)
-                if mse[cii] == 0:
-                    mse[cii] = np.nan
-                log.info(f"The MSE for bandwidth {np.round(bw, 3)} is {round(mse[cii], 3)}.")
+                if score[cii] == 0:
+                    score[cii] = np.nan
+                log.info(f"The GCV score for bandwidth {np.round(bw, 3)} is {round(score[cii], 3)}.")
             else:
-                mse[cii] = np.Inf
+                score[cii] = np.Inf
         
-        which_min = np.nanargmin(mse)
+        which_min = np.nanargmin(score)
         if which_min == 0 or which_min == len(bw_list) - 1:
             log.info(("WARNING: the optimal bandwidth was obtained at the boundary, "
                       "which may not be the best one."))
         bw_opt = bw_list[which_min]
-        min_mse = mse[which_min]
-        log.info(f"The optimal bandwidth is {np.round(bw_opt, 3)} with MSE {round(min_mse, 3)}.")
+        min_mse = score[which_min]
+        log.info(f"The optimal bandwidth is {np.round(bw_opt, 3)} with GCV score {round(min_mse, 3)}.")
 
         return bw_opt
     
@@ -150,10 +150,10 @@ class LocalLinear(KernelSmooth):
     
 
 
-def get_image_list(img_dirs, suffix, keep_idvs=None):
+def get_image_list(img_dirs, suffixes, keep_idvs=None):
     img_files = {}
     
-    for img_dir in img_dirs:
+    for img_dir, suffix in zip(img_dirs, suffixes):
         for img_file in os.listdir(img_dir):
             img_id = img_file.replace(suffix, '')
             if (img_file.endswith(suffix) and ((keep_idvs is not None and img_id in keep_idvs) or
@@ -166,7 +166,7 @@ def get_image_list(img_dirs, suffix, keep_idvs=None):
 
 
 
-def load_nifti(img_files, log):
+def load_nifti(img_files):
     try:
         img = nib.load(img_files[0])
     except:
@@ -182,23 +182,19 @@ def load_nifti(img_files, log):
             n_voxels = np.sum(idxs)
             images = np.zeros((len(img_files), n_voxels), dtype=np.float32)
         images[i] = data[idxs]
-        if i % 1000 == 0 and i > 0:
-            log.info(f'Read {i+1} images.')
 
     return images, coord
 
 
-def load_freesurfer(img_files, geometry, log):
+def load_freesurfer(img_files, geometry):
     for i, img_file in enumerate(tqdm(img_files, desc=f'Loading {len(img_files)} images')):
         data = nib.freesurfer.read_morph_data(img_file)
         if i == 0:
             images = np.zeros((len(img_files), len(data)), dtype=np.float32)
         images[i] = data
-        if i % 1000 == 0 and i > 0:
-            log.info(f'Read {i+1} images.')
     coord = nib.freesurfer.read_geometry(geometry)[0]
     if coord.shape[0] != images.shape[1]:
-        raise ValueError('The FreeSurfer geometry data and morphometry data have inconsistent coordinates.') 
+        raise ValueError('The FreeSurfer surface mesh data and morphometry data have inconsistent coordinates.') 
 
     return images, coord
 
@@ -253,6 +249,9 @@ def check_input(args):
         raise ValueError('--bw-opt should be positive.')
 
     args.image_dir = args.image_dir.split(',')
+    args.image_suffix = args.image_suffix.split(',')
+    if len(args.image_dir) != len(args.image_suffix):
+        raise ValueError('--image-dir and --image-suffix do not match.')
     for image_dir in args.image_dir:
         if not os.path.exists(image_dir):
             raise ValueError(f"{image_dir} does not exist.") 
@@ -280,9 +279,9 @@ def run(args, log):
     # read images
     ids, img_files = get_image_list(args.image_dir, args.image_suffix, keep_idvs)
     if args.surface_mesh is not None:
-        images, coord = load_freesurfer(img_files, args.surface_mesh, log)
+        images, coord = load_freesurfer(img_files, args.surface_mesh)
     else:
-        images, coord = load_nifti(img_files, log)
+        images, coord = load_nifti(img_files)
     log.info(f"{images.shape[0]} subjects and {images.shape[1]} voxels are included in the imaging data.")
     # np.savez(f"{args.out}_raw_images.npz", id = ids, coord = coord, images = images)
     

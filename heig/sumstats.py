@@ -30,17 +30,10 @@ def check_input(args, log):
         raise ValueError('--a1-col is required.')
     if args.a2_col is None:
         raise ValueError('--a2-col is required.')
-    if args.out is None:
-        raise ValueError('--out is required.')
-    
-    dirname = os.path.dirname(args.out)
-    if dirname is not None and not os.path.exists(dirname):
-        raise ValueError(f'{os.path.dirname(args.out)} does not exist.')
-    
+
     ## optional arguments
     if args.n_col is None and args.n is None:
         raise ValueError('Either --n-col or --n is required.')
-    
     if args.ldr_gwas is not None and args.y2_gwas is not None:
         raise ValueError('Can only specify --ldr-gwas or --y2-gwas.')
     elif args.ldr_gwas is not None:

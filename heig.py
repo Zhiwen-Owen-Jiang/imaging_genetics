@@ -98,6 +98,7 @@ herigc_parser.add_argument('--heri-only', action='store_true',
 ksm_parser.add_argument('--image-dir', 
                         help=('Directory to images. All images in the directory with matched suffix '
                               '(see --image-suffix) and will be loaded. '
+                              'Multiple directories can be specified and separated by comma. '
                               '--keep can be used to load a subset of images. '
                               'The supported formats include all those that can be loaded by '
                               'nibabel.load(), such as .nii, .nii.gz, .mgh, .mgz, etc. '
@@ -106,7 +107,8 @@ ksm_parser.add_argument('--image-suffix',
                         help=('Suffix of images. HEIG requires the name of each image being <ID><suffix>, '
                               'e.g., `1000001_masked_FAskel.nii.gz`, where `1000001` is the ID '
                               'and `_masked_FAskel.nii.gz` is the suffix. '
-                              'HEIG will collect ID for each image.'))
+                              'HEIG will collect ID for each image. '
+                              'Multiple suffixes can be specified and separated by comma.'))
 ksm_parser.add_argument('--surface-mesh',
                         help=('Directory to FreeSurfer surface mesh data. '
                               'Required if loading FreeSurfer morphometry data files.'))
@@ -202,13 +204,15 @@ voxelgwas_parser.add_argument('--range',
 def main(args, log):
     if args.out is None:
         args.out = 'heig'
+    else:
+        dirname = os.path.dirname(args.out)
+        if dirname != '' and not os.path.exists(dirname):
+            raise ValueError(f'{os.path.dirname(args.out)} does not exist.')
     if args.heri_gc + args.kernel_smooth + args.fpca + args.ld_matrix + args.sumstats + args.voxel_gwas != 1:
         raise ValueError(('You must specify one and only one of following arguments: '
                           '--heri-gc, --kernel-smooth, --fpca, --ld-matrix, --sumstats, --voxel-gwas.'))
     if args.heri_gc:
         herigc.run(args, log)
-    # elif args.ldr:
-    #     ldr.run(args, log)
     elif args.kernel_smooth:
         ksm.run(args, log)
     elif args.fpca:

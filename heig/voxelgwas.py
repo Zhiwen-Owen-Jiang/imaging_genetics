@@ -71,11 +71,11 @@ def run(args, log):
     target_chr, start_pos, end_pos, keep_snps = check_input(args, log)
     
     inner_ldr = np.load(args.inner_ldr)
-    log.info(f'Read inner product of LDR from {args.inner_ldr}')
+    log.info(f'Read inner product of LDRs from {args.inner_ldr}')
     bases = np.load(args.bases)
-    log.info(f'{bases.shape[1]} bases read from {args.bases}.')
+    log.info(f'{bases.shape[1]} bases read from {args.bases}')
     ldr_gwas = sumstats.read_sumstats(args.ldr_sumstats)
-    log.info(f'{ldr_gwas.snpinfo.shape[0]} SNPs read from LDR summary statistics {args.ldr_sumstats}.')
+    log.info(f'{ldr_gwas.snpinfo.shape[0]} SNPs read from LDR summary statistics {args.ldr_sumstats}')
 
     if args.n_ldrs:
         if args.n_ldrs > ldr_gwas.beta.shape[1]:
@@ -91,8 +91,8 @@ def run(args, log):
     outpath = args.out
 
     if args.voxel is not None: 
-        if args.voxel < bases.shape[0]:
-            voxel_list = [args.voxel]
+        if args.voxel <= bases.shape[0]: # one-based index
+            voxel_list = [args.voxel - 1]
             outpath += f"_voxel{args.voxel}"
             log.info(f'Keep the voxel {args.voxel}.')
         else:
@@ -141,7 +141,7 @@ def run(args, log):
             sig_snps['SE'] = voxel_se[sig_idxs]
             sig_snps['Z'] = voxel_z[sig_idxs]
             sig_snps['P'] = chi2.sf(sig_snps['Z']**2, 1)
-            sig_snps.insert(0, 'INDEX', [i] * np.sum(sig_idxs))
+            sig_snps.insert(0, 'INDEX', [i+1] * np.sum(sig_idxs))
             
             if is_first_write:
                 sig_snps_output = sig_snps.to_csv(sep='\t', header=True, na_rep='NA', index=None, 

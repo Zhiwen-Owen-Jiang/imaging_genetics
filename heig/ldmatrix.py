@@ -239,11 +239,12 @@ class LDmatrixBED(LDmatrix):
             prefix = f"{out}_ld_regu{int(prop*100)}"
         else:
             prefix = f"{out}_ld_inv_regu{int(prop*100)}"
-
+        
         with open(f"{prefix}.ldmatrix", 'wb') as file:
             pickle.dump(self.data, file)
+        self.ldinfo['MAF'] = self.ldinfo['MAF'].astype(np.float)
         self.ldinfo.to_csv(f"{prefix}.ldinfo", sep='\t', index=None, 
-                           header=None, float_format='%.3f')
+                           header=None, float_format='%.4f')
         
         return prefix
     
@@ -363,13 +364,11 @@ def check_input(args):
         raise ValueError('--partition is required.')
     if args.ld_regu is None:
         raise ValueError('--ld-regu is required.')
-    if args.maf_min is not None and args.maf_min >= 1 or args.maf_min <= 0:
-        raise ValueError('--maf must be greater than 0 and less than 1.')
+    if args.maf_min is not None:
+        if args.maf_min >= 1 or args.maf_min <= 0:
+            raise ValueError('--maf must be greater than 0 and less than 1.')
     
     ## check file/directory exists
-    dirname = os.path.dirname(args.out)
-    if dirname is not None and not os.path.exists(os.path.dirname(args.out)):
-        raise ValueError(f'{os.path.dirname(args.out)} does not exist.')
     if args.keep is not None and not os.path.exists(args.keep):
         raise ValueError(f'{args.keep} does not exist.')
     if args.extract is not None and not os.path.exists(args.extract):
@@ -491,7 +490,7 @@ def run(args, log):
     # reading bfiles 
     log.info(f"Read bfile from {ld_bfile} with selected SNPs and individuals.")
     ld_bim, ld_snp_getter = read_plink(ld_bfile, ld_keep_snp_idx, ld_keep_idv_idx)
-    log.info(f"Read bfile from {ld_inv_bfile} and selected SNPs and individuals.")
+    log.info(f"Read bfile from {ld_inv_bfile} with selected SNPs and individuals.")
     ld_inv_bim, ld_inv_snp_getter = read_plink(ld_inv_bfile, ld_inv_keep_snp_idx, ld_inv_keep_idv_idx)
 
     # reading and doing genome partition
@@ -503,6 +502,8 @@ def run(args, log):
               f"with the biggest one {np.max(num_snps_part)} SNPs."))
 
     # making LD matrix and its inverse
+    log.info(f"Regularization {ld_regu} for LD matrix, and {ld_inv_regu} for LD inverse matrix.")
+    log.info(f"Making LD matrix and its inverse ...\n")
     ld = LDmatrixBED(num_snps_part, ld_info, ld_snp_getter, ld_regu)
     ld_inv = LDmatrixBED(num_snps_part, ld_inv_info, ld_inv_snp_getter, ld_inv_regu, inv=True)
     
