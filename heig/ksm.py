@@ -7,6 +7,8 @@ import nibabel as nib
 from tqdm import tqdm
 from numpy.linalg import inv
 from scipy.sparse import csc_matrix, csr_matrix, dok_matrix, hstack
+from . import utils
+
 
 
 class KernelSmooth:
@@ -68,9 +70,6 @@ class KernelSmooth:
             log.info(f"Doing generalized cross-validation (GCV) for bandwidth {np.round(bw, 3)} ...")
             isvalid, y_sm, sparse_sm_weight = self.smoother(bw)
             if isvalid:
-                # mse[cii] = np.mean(np.sum((self.data - y_sm) ** 2,
-                #            axis=1) / (1 - np.sum(csc_matrix.diagonal(sparse_sm_weight)) / self.N) ** 2)
-                # dis = np.sum((self.data - y_sm) ** 2, axis=1)
                 score[cii] = (np.mean(np.sum((self.data - y_sm) ** 2, axis=1)) / 
                             (1 - np.sum(sparse_sm_weight.diagonal()) / self.N + 10**-10) ** 2)
                 if score[cii] == 0:
@@ -141,7 +140,8 @@ class LocalLinear(KernelSmooth):
             sparse_sm_weight[lii, large_weight_idxs] = sm_weight[large_weight_idxs]
         nonzero_weights = np.sum(sparse_sm_weight != 0, axis=0)
         if np.mean(nonzero_weights) > self.N // 10:
-            self.logger.info((f"On average, the non-zero weight for each voxel are greater than {self.N // 10}. "
+            self.logger.info((f"On average, the non-zero weight for each voxel "
+                              "are greater than {self.N // 10}. "
                               "Skip this bandwidth."))
             return False, None, None
         
@@ -156,6 +156,7 @@ def get_image_list(img_dirs, suffixes, keep_idvs=None):
     for img_dir, suffix in zip(img_dirs, suffixes):
         for img_file in os.listdir(img_dir):
             img_id = img_file.replace(suffix, '')
+            img_id = (img_id, img_id)
             if (img_file.endswith(suffix) and ((keep_idvs is not None and img_id in keep_idvs) or
                 (keep_idvs is None))):
                 img_files[img_id] = os.path.join(img_dir, img_file)
@@ -186,17 +187,19 @@ def load_nifti(img_files):
     return images, coord
 
 
-def load_freesurfer(img_files, geometry):
+
+def load_freesurfer(img_files, coord):
     for i, img_file in enumerate(tqdm(img_files, desc=f'Loading {len(img_files)} images')):
         data = nib.freesurfer.read_morph_data(img_file)
         if i == 0:
             images = np.zeros((len(img_files), len(data)), dtype=np.float32)
         images[i] = data
-    coord = nib.freesurfer.read_geometry(geometry)[0]
     if coord.shape[0] != images.shape[1]:
-        raise ValueError('The FreeSurfer surface mesh data and morphometry data have inconsistent coordinates.') 
+        raise ValueError(('The FreeSurfer surface mesh data and morphometry data '
+                          'have inconsistent coordinates.')) 
 
     return images, coord
+
 
 
 def do_kernel_smoothing(data, coord, bw_opt, log):
@@ -225,6 +228,7 @@ def do_kernel_smoothing(data, coord, bw_opt, log):
     _, sm_data, _ = ks.smoother(bw_opt)
     if not isinstance(sm_data, np.ndarray):
         raise ValueError('The bandwidth provided by --bw-opt may be problematic.')
+    sm_data = sm_data - np.mean(sm_data, axis=0)
     
     return sm_data
 
@@ -255,8 +259,6 @@ def check_input(args):
     for image_dir in args.image_dir:
         if not os.path.exists(image_dir):
             raise ValueError(f"{image_dir} does not exist.") 
-    if args.keep is not None and not os.path.exists(args.keep):
-        raise ValueError(f"{args.covar} does not exist.")
     if args.surface_mesh is not None and not os.path.exists(args.surface_mesh):
         raise ValueError(f"{args.surface_mesh} does not exist.")
 
@@ -268,27 +270,24 @@ def run(args, log):
     args = check_input(args)
     
     # subjects to keep
-    if args.keep:
-        keep_idvs = pd.read_csv(args.keep, delim_whitespace=True, header=None, usecols=[0, 1],
-                               dtype={0: str, 1: str})
-        keep_idvs = keep_idvs.set_index(0).index # use only the first ID
-        log.info(f'{len(keep_idvs)} subjects are in {args.keep}')
+    if args.keep is not None:
+        keep_idvs = utils.read_keep(args.keep)
+        log.info(f'{len(keep_idvs)} subjects are common in --keep.')
     else:
         keep_idvs = None
 
     # read images
     ids, img_files = get_image_list(args.image_dir, args.image_suffix, keep_idvs)
     if args.surface_mesh is not None:
-        images, coord = load_freesurfer(img_files, args.surface_mesh)
+        coord = nib.freesurfer.read_geometry(args.surface_mesh)[0]
+        images = load_freesurfer(img_files, coord)
     else:
         images, coord = load_nifti(img_files)
     log.info(f"{images.shape[0]} subjects and {images.shape[1]} voxels are included in the imaging data.")
-    # np.savez(f"{args.out}_raw_images.npz", id = ids, coord = coord, images = images)
     
     # kernel smoothing
     log.info('Doing kernel smoothing using the local linear method ...')
     sm_images = do_kernel_smoothing(images, coord, args.bw_opt, log)
-    # np.savez(f"{args.out}_sm_images.npz", id = ids, coord = coord, images = sm_data)
     
     # save images
     save_images(args.out + '_raw_images', images, coord, ids)

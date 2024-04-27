@@ -5,6 +5,7 @@ from scipy.stats import chi2
 from .ldmatrix import LDmatrix
 from .ldsc import LDSC
 from . import sumstats
+from . import utils
 
 
 
@@ -64,8 +65,6 @@ def check_input(args, log):
         raise ValueError(f"{args.bases} does not exist.")
     if not os.path.exists(args.inner_ldr):
         raise ValueError(f"{args.inner_ldr} does not exist.")
-    if args.extract is not None and not os.path.exists(args.extract):
-        raise ValueError(f"{args.extract} does not exist.")
     if args.overlap and not args.y2_sumstats:
         log.info('WARNING: ignore --overlap as --y2-sumstats is not specified.')
     if args.y2_sumstats is not None:
@@ -170,10 +169,12 @@ def read_process_data(args, log):
         y2_gwas = None
 
      # extract SNPs
-    if args.extract: ## TODO: test
-        keep_snps = pd.read_csv(args.extract, delim_whitespace=True, 
-                               header=None, usecols=[0], names=['SNP']) 
-        log.info(f"Extract {len(keep_snps)} SNPs from {args.extract}")
+    if args.extract is not None: ## TODO: test
+        # keep_snps = pd.read_csv(args.extract, delim_whitespace=True, 
+        #                        header=None, usecols=[0], names=['SNP']) 
+        # log.info(f"Extract {len(keep_snps)} SNPs from {args.extract}")
+        keep_snps = utils.read_extract(args.extract)
+        log.info(f"{len(keep_snps)} SNPs are common in --extract.")
     else:
         keep_snps = None
 

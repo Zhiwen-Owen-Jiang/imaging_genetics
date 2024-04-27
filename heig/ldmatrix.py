@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 from .parse import PlinkBIMFile, PlinkFAMFile, PlinkBEDFile
+from . import utils
 
 
 
@@ -267,7 +268,7 @@ def read_plink(dir, keep_snps=None, keep_indivs=None, maf=None):
     
     if keep_snps is not None:
         array_snps.df = array_snps.df.loc[keep_snps]
-    array_snps.df['MAF'] = geno_array.df[:, 4]
+    array_snps.df['MAF'] = geno_array.df[:, 4].astype(np.float64)
 
     return array_snps.df, snp_getter
 
@@ -369,10 +370,6 @@ def check_input(args):
             raise ValueError('--maf must be greater than 0 and less than 1.')
     
     ## check file/directory exists
-    if args.keep is not None and not os.path.exists(args.keep):
-        raise ValueError(f'{args.keep} does not exist.')
-    if args.extract is not None and not os.path.exists(args.extract):
-        raise ValueError(f'{args.extract} does not exist.')
     if not os.path.exists(args.partition):
         raise ValueError(f'{args.partition} does not exist.')
     try:
@@ -458,23 +455,25 @@ def run(args, log):
     
     # extracting SNPs
     if args.extract is not None:
-        keep_snps = pd.read_csv(args.extract, delim_whitespace=True, header=None, usecols=[0])
-        ld_merged = ld_merged.loc[ld_merged['SNP'].isin(keep_snps[0])]
-        log.info(f"{ld_merged.shape[0]} SNPs are extracted from {args.extract}")
+        # keep_snps = pd.read_csv(args.extract, delim_whitespace=True, header=None, usecols=[0], names=['SNP'])
+        keep_snps = utils.read_extract(args.extract)
+        ld_merged = ld_merged.loc[ld_merged['SNP'].isin(keep_snps['SNP'])]
+        log.info(f"{ld_merged.shape[0]} SNPs are common in --extract.")
     ld_keep_snp_idx = ld_bim.index[ld_bim['SNP'].isin(ld_merged['SNP'])].to_list()
     ld_inv_keep_snp_idx = ld_inv_bim.index[ld_inv_bim['SNP'].isin(ld_merged['SNP'])].to_list()
 
     # keeping individuals
     if args.keep is not None:
-        keep_idvs = pd.read_csv(args.keep, delim_whitespace=True, header=None, usecols=[0, 1])
-        keep_idvs = tuple(zip(keep_idvs[0], keep_idvs[1]))
-        log.info(f'{len(keep_idvs)} subjects are in {args.keep}')
+        # keep_idvs = pd.read_csv(args.keep, delim_whitespace=True, header=None, usecols=[0, 1])
+        # keep_idvs = tuple(zip(keep_idvs[0], keep_idvs[1]))
+        keep_idvs = utils.read_keep(args.keep)
+        log.info(f'{len(keep_idvs)} subjects are common in --keep.')
         ld_fam = read_process_idvs(ld_bfile + '.fam')
         ld_keep_idv_idx = np.array(range(len(ld_fam)))[ld_fam.index.isin(keep_idvs)]
-        log.info(f'{len(ld_keep_idv_idx)} subjects are common for {ld_bfile}')
+        log.info(f'{len(ld_keep_idv_idx)} subjects are common in {ld_bfile}')
         ld_inv_fam = read_process_idvs(ld_inv_bfile + '.fam')
         ld_inv_keep_idv_idx = np.array(range(len(ld_inv_fam)))[ld_inv_fam.index.isin(keep_idvs)]
-        log.info(f'{len(ld_inv_keep_idv_idx)} subjects are common for {ld_inv_bfile}')
+        log.info(f'{len(ld_inv_keep_idv_idx)} subjects are common in {ld_inv_bfile}')
     else:
         ld_keep_idv_idx, ld_inv_keep_idv_idx = None, None
         

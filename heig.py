@@ -61,18 +61,18 @@ common_parser.add_argument('--bases',
 common_parser.add_argument('--inner-ldr', 
                            help='Directory to inner product of LDRs. Supported modules: --heri-gc, --voxel-gwas.')
 common_parser.add_argument('--keep', 
-                           help=('File with individual IDs to keep in the kernel smoothing and functional PCA. '
-                                 'The file should be tab or space delimited without header, '
+                           help=('Individual file(s). Multiple files are separated by comma. '
+                                 'Each file should be tab or space delimited, '
                                  'with the first column being FID and the second column being IID. '
-                                 'Other columns in the file will be ignored. '
+                                 'Other columns will be ignored. '
                                  'Each row contains only one subject. '
                                  'Supported modules: --kernel-smooth, --fpca, --make-ld.'))
 common_parser.add_argument('--extract', 
-                           help=('File with SNPs to include in the LD matrix and its inverse and in voxelwise GWAS. '
-                                 'The file should be tab or space delimited without header, '
+                           help=('SNP file(s). Multiple files are separated by comma. '
+                                 'Each file should be tab or space delimited, '
                                  'with the first column being rsID. '
-                                 'Other columns in the file will be ignored. '
-                                 'Each row contains only one subject. '
+                                 'Other columns will be ignored. '
+                                 'Each row contains only one SNP. '
                                  'Supported modules: --heri-gc, --make-ld, --voxel-gwas.'))
 common_parser.add_argument('--maf-min', type=float, 
                              help=('Minimum minor allele frequency for screening SNPs. '
@@ -155,7 +155,7 @@ sumstats_parser.add_argument('--ldr-gwas',
                                    'Multiple files can be speficied using {:}, e.g., `ldr_gwas{1:10}.txt`'))
 sumstats_parser.add_argument('--y2-gwas', 
                              help='Raw non-imaging GWAS summary statistics.')
-sumstats_parser.add_argument('--n', type=int, 
+sumstats_parser.add_argument('--n', type=float, 
                              help='Sample size. A positive number.')
 sumstats_parser.add_argument('--n-col', 
                              help='Sample size column.')
@@ -200,6 +200,14 @@ voxelgwas_parser.add_argument('--range',
                                     'Cross chromosome is not allowed.'))
 
 
+def split_files(arg):
+    files = arg.split(',')
+    for file in files:
+        if not os.path.exists(file):
+            raise ValueError(f"{file} does not exist.")
+    return files
+
+
 
 def main(args, log):
     if args.out is None:
@@ -209,8 +217,13 @@ def main(args, log):
         if dirname != '' and not os.path.exists(dirname):
             raise ValueError(f'{os.path.dirname(args.out)} does not exist.')
     if args.heri_gc + args.kernel_smooth + args.fpca + args.ld_matrix + args.sumstats + args.voxel_gwas != 1:
-        raise ValueError(('You must specify one and only one of following arguments: '
+        raise ValueError(('You must raise one and only one of following flags: '
                           '--heri-gc, --kernel-smooth, --fpca, --ld-matrix, --sumstats, --voxel-gwas.'))
+    if args.keep is not None:
+        args.keep = split_files(args.keep)
+    if args.extract is not None:
+        args.extract = split_files(args.extract)
+
     if args.heri_gc:
         herigc.run(args, log)
     elif args.kernel_smooth:

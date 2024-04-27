@@ -1,5 +1,5 @@
-import sys
 import gzip, bz2
+import pandas as pd
 import logging
 from functools import reduce
 
@@ -56,3 +56,31 @@ def check_compression(dir):
         compression = None
 
     return openfunc, compression
+
+
+
+def read_keep(keep_files):
+    for i, keep_file in enumerate(keep_files):
+        keep_idvs = pd.read_csv(keep_file, delim_whitespace=True, header=None, usecols=[0, 1],
+                               dtype={0: str, 1: str})
+        keep_idvs = pd.MultiIndex.from_arrays([keep_idvs[0], keep_idvs[1]], names=['FID', 'IID'])
+        if i == 0:
+            keep_idvs_ = keep_idvs.copy()
+        else:
+            keep_idvs_ = keep_idvs_.intersection(keep_idvs)
+    
+    return keep_idvs_ 
+
+
+
+def read_extract(extract_files):
+    for i, extract_file in enumerate(extract_files):
+        keep_snps = pd.read_csv(extract_file, delim_whitespace=True, 
+                               header=None, usecols=[0], names=['SNP']) 
+        if i == 0:
+            keep_snps_ = keep_snps.copy()
+        else:
+            keep_snps_ = keep_snps_.merge(keep_snps)
+
+    return keep_snps_
+        

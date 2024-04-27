@@ -25,7 +25,7 @@ class Dataset():
             openfunc, compression = utils.check_compression(dir)
             self._check_header(openfunc, compression, dir)
             self.data = pd.read_csv(dir, delim_whitespace=True, compression=compression, 
-                                    na_values=[-9, 'NONE', '.'], dtype={'FID': str, 'IID': str}) # -9.0 is not counted TODO: test it
+                                    na_values=[-9, 'NONE', '.'], dtype={'FID': str, 'IID': str}) 
         if self.data[['FID', 'IID']].duplicated().any():
             first_dup = self.data.loc[self.data[['FID', 'IID']].duplicated(), ['FID', 'IID']]
             raise ValueError(f'Subject {list(first_dup)} is duplicated.')
@@ -247,8 +247,6 @@ def check_input(args, log):
         raise ValueError(f"{args.sm_image} does not exist.") 
     if not os.path.exists(args.covar):
         raise ValueError(f"{args.covar} does not exist.")
-    if args.keep is not None and not os.path.exists(args.keep):
-        raise ValueError(f"{args.keep} does not exist.")
     
     
 
@@ -345,12 +343,14 @@ def run(args, log):
     common_idxs = covar.data.index.intersection(ids)
 
     # extract subjects
-    if args.keep:
-        keep_ids = pd.read_csv(args.keep, delim_whitespace=True, header=None, usecols=[0, 1],
-                               dtype={0: str, 1: str})
-        keep_ids = tuple(zip(keep_ids[0], keep_ids[1]))
-        log.info(f'{len(keep_ids)} subjects in {args.keep}')
-        common_idxs = common_idxs.intersection(keep_ids) # slow
+    if args.keep is not None:
+        # keep_ids = pd.read_csv(args.keep, delim_whitespace=True, header=None, usecols=[0, 1],
+        #                        dtype={0: str, 1: str})
+        # keep_ids = tuple(zip(keep_ids[0], keep_ids[1]))
+        # log.info(f'{len(keep_ids)} subjects in {args.keep}')
+        keep_idvs = utils.read_keep(args.keep)
+        log.info(f'{len(keep_idvs)} subjects are common in --keep.')
+        common_idxs = common_idxs.intersection(keep_idvs) # slow
 
     # keep common subjects
     log.info(f'{len(common_idxs)} common subjects in these files.')

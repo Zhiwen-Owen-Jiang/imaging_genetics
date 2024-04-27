@@ -3,11 +3,9 @@ import pandas as pd
 from scipy.stats import chi2
 from tqdm import tqdm
 from . import sumstats
+from . import utils
 
-"""
-TODO: 
 
-"""
 
 def recover_se(bases, inner_ldr, n, ldr_beta, ztz_inv):
     bases = np.atleast_2d(bases)
@@ -58,8 +56,7 @@ def check_input(args, log):
         start_chr, start_pos, end_chr, end_pos = None, None, None, None
         
     if args.extract is not None:
-        keep_snps = pd.read_csv(args.extract, delim_whitespace=True, header=None, usecols=[0],
-                               dtype={0: str})
+        keep_snps = utils.read_extract(args.extract)
     else:
         keep_snps = None
 
@@ -105,10 +102,10 @@ def run(args, log):
                (ldr_gwas.snpinfo['CHR'] == target_chr)).to_numpy()
         outpath += f"_chr{target_chr}_start{start_pos}_end{end_pos}.txt"
         log.info(f'Keep SNPs on chromosome {target_chr} from {start_pos} to {end_pos}.')
-    elif keep_snps:
-        idx = (ldr_gwas.snpinfo['SNP'].isin(keep_snps)).to_numpy()
+    elif keep_snps is not None:
+        idx = (ldr_gwas.snpinfo['SNP'].isin(keep_snps['SNP'])).to_numpy()
         outpath += f".txt"
-        log.info(f'Keep {len(keep_snps)} SNP(s).')
+        log.info(f"Keep {len(keep_snps['SNP'])} SNP(s).")
     else:
         idx = ~ldr_gwas.snpinfo['SNP'].isna().to_numpy()
         outpath += ".txt"

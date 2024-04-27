@@ -17,8 +17,11 @@ requirements_all.txt
 
 # data for tutorial
 example/
+example.tar.gz
+simulate*
 
 # shared data
 shared_data/
 
+zenodo-upload/
 
