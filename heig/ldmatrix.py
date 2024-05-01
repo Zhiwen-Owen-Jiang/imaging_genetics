@@ -4,8 +4,9 @@ import re
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
-from .parse import PlinkBIMFile, PlinkFAMFile, PlinkBEDFile
+# from .parse import PlinkBIMFile, PlinkFAMFile, PlinkBEDFile
 from . import utils
+from . import parse
 
 
 
@@ -251,33 +252,32 @@ class LDmatrixBED(LDmatrix):
     
 
 
-def read_plink(dir, keep_snps=None, keep_indivs=None, maf=None):
-    array_file, array_obj = f"{dir}.bed", PlinkBEDFile
-    snp_file, snp_obj = f"{dir}.bim", PlinkBIMFile
-    ind_file, ind_obj = f"{dir}.fam", PlinkFAMFile
+# def read_plink(dir, keep_snps=None, keep_indivs=None, maf=None):
+#     array_file, array_obj = f"{dir}.bed", PlinkBEDFile
+#     snp_file, snp_obj = f"{dir}.bim", PlinkBIMFile
+#     ind_file, ind_obj = f"{dir}.fam", PlinkFAMFile
 
-    array_snps = snp_obj(snp_file)
-    array_indivs = ind_obj(ind_file)
-    # if keep_indivs is not None:
-    #     array_indivs.IDList = array_indivs.IDList.loc[keep_indivs]
-    n = len(array_indivs.IDList)
+#     array_snps = snp_obj(snp_file)
+#     array_indivs = ind_obj(ind_file)
+#     # if keep_indivs is not None:
+#     #     array_indivs.IDList = array_indivs.IDList.loc[keep_indivs]
+#     n = len(array_indivs.IDList)
 
-    geno_array = array_obj(array_file, n, array_snps, keep_snps=keep_snps,
-                           keep_indivs=keep_indivs, mafMin=maf)
-    snp_getter = geno_array.nextSNPs
+#     geno_array = array_obj(array_file, n, array_snps, keep_snps=keep_snps,
+#                            keep_indivs=keep_indivs, mafMin=maf)
+#     snp_getter = geno_array.nextSNPs
     
-    if keep_snps is not None:
-        array_snps.df = array_snps.df.loc[keep_snps]
-    array_snps.df['MAF'] = geno_array.df[:, 4].astype(np.float64)
+#     if keep_snps is not None:
+#         array_snps.df = array_snps.df.loc[keep_snps]
+#     array_snps.df['MAF'] = geno_array.df[:, 4].astype(np.float64)
 
-    return array_snps.df, snp_getter
+#     return array_snps.df, snp_getter
 
 
 
-def partition_genome(ld_bim, ld_inv_bim, part, log):
+def partition_genome(ld_bim, part, log):
     """
     ld_bim: a pd Dataframe of LD matrix SNP information
-    ld_inv_bim: a pd Dataframe of LD inverse matrix SNP information
     part: a pd Dataframe of LD block annotation
     log: a logger
 
@@ -320,10 +320,8 @@ def partition_genome(ld_bim, ld_inv_bim, part, log):
         else:
             n_skipped_blocks += 1
     log.info(f'{n_skipped_blocks} blocks with no SNP are skipped.')
-    ld_inv_bim['block_idx'] = ld_bim['block_idx'] 
-    ld_inv_bim['block_idx2'] = ld_bim['block_idx2'] 
     
-    return num_snps_part, ld_bim, ld_inv_bim
+    return num_snps_part, ld_bim
 
 
 
@@ -431,8 +429,8 @@ def read_process_idvs(fam_dir):
 
 def filter_maf(ld_bfile, ld_bim, ld_keep_snp_idx, ld_keep_idv_idx, 
                ld_inv_bfile, ld_inv_bim, ld_inv_keep_snp_idx, ld_inv_keep_idv_idx, min_maf):
-    ld_bim2, _ = read_plink(ld_bfile, ld_keep_snp_idx, ld_keep_idv_idx)
-    ld_inv_bim2, _ = read_plink(ld_inv_bfile, ld_inv_keep_snp_idx, ld_inv_keep_idv_idx)
+    ld_bim2, _ = parse.read_plink(ld_bfile, ld_keep_snp_idx, ld_keep_idv_idx)
+    ld_inv_bim2, _ = parse.read_plink(ld_inv_bfile, ld_inv_keep_snp_idx, ld_inv_keep_idv_idx)
     common_snps = ld_bim2.loc[(ld_bim2['MAF'] >= min_maf) & (ld_inv_bim2['MAF'] >= min_maf), 'SNP']
     ld_keep_snp_idx = ld_bim.index[ld_bim['SNP'].isin(common_snps)].to_list()
     ld_inv_keep_snp_idx = ld_inv_bim.index[ld_inv_bim['SNP'].isin(common_snps)].to_list()
@@ -488,23 +486,25 @@ def run(args, log):
     
     # reading bfiles 
     log.info(f"Read bfile from {ld_bfile} with selected SNPs and individuals.")
-    ld_bim, ld_snp_getter = read_plink(ld_bfile, ld_keep_snp_idx, ld_keep_idv_idx)
+    ld_bim, ld_snp_getter = parse.read_plink(ld_bfile, ld_keep_snp_idx, ld_keep_idv_idx)
     log.info(f"Read bfile from {ld_inv_bfile} with selected SNPs and individuals.")
-    ld_inv_bim, ld_inv_snp_getter = read_plink(ld_inv_bfile, ld_inv_keep_snp_idx, ld_inv_keep_idv_idx)
+    ld_inv_bim, ld_inv_snp_getter = parse.read_plink(ld_inv_bfile, ld_inv_keep_snp_idx, ld_inv_keep_idv_idx)
 
     # reading and doing genome partition
     log.info(f"\nRead genome partition from {args.partition}")
     genome_part = pd.read_csv(args.partition, header=None, delim_whitespace=True, usecols=[0, 1, 2])
     log.info(f"{genome_part.shape[0]} genome blocks to partition.")
-    num_snps_part, ld_info, ld_inv_info = partition_genome(ld_bim, ld_inv_bim, genome_part, log)
+    num_snps_part, ld_bim = partition_genome(ld_bim, genome_part, log)
+    ld_inv_bim['block_idx'] = ld_bim['block_idx'] 
+    ld_inv_bim['block_idx2'] = ld_bim['block_idx2'] 
     log.info((f"{sum(num_snps_part)} SNPs partitioned into {len(num_snps_part)} blocks, "
               f"with the biggest one {np.max(num_snps_part)} SNPs."))
 
     # making LD matrix and its inverse
     log.info(f"Regularization {ld_regu} for LD matrix, and {ld_inv_regu} for LD inverse matrix.")
     log.info(f"Making LD matrix and its inverse ...\n")
-    ld = LDmatrixBED(num_snps_part, ld_info, ld_snp_getter, ld_regu)
-    ld_inv = LDmatrixBED(num_snps_part, ld_inv_info, ld_inv_snp_getter, ld_inv_regu, inv=True)
+    ld = LDmatrixBED(num_snps_part, ld_bim, ld_snp_getter, ld_regu)
+    ld_inv = LDmatrixBED(num_snps_part, ld_inv_bim, ld_inv_snp_getter, ld_inv_regu, inv=True)
     
     ld_prefix = ld.save(args.out, False, ld_regu)
     log.info(f"Save LD matrix to {ld_prefix}.ldmatrix")

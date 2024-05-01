@@ -342,7 +342,7 @@ def run(args, log):
     covar = Covar(args.covar, args.cat_covar_list)
     common_idxs = covar.data.index.intersection(ids)
 
-    # extract subjects
+    # keep subjects
     if args.keep is not None:
         # keep_ids = pd.read_csv(args.keep, delim_whitespace=True, header=None, usecols=[0, 1],
         #                        dtype={0: str, 1: str})

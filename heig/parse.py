@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import bitarray as ba
+from . import utils
 
 
 """
@@ -11,20 +12,9 @@ https://github.com/bulik/ldsc
 
 
 
-def get_compression(fh):
-    if fh.endswith('gz'):
-        compression = 'gzip'
-    elif fh.endswith('bz2'):
-        compression = 'bz2'
-    else:
-        compression = None
-
-    return compression
-
-
 def __ID_List_Factory__(colnames, keepcol, id_dtypes, fname_end, header=None, usecols=None):
     
-    class IDContainer():
+    class IDContainer:
         def __init__(self, fname):
             self.__usecols__ = usecols
             self.__colnames__ = colnames
@@ -40,7 +30,7 @@ def __ID_List_Factory__(colnames, keepcol, id_dtypes, fname_end, header=None, us
             if end and not fname.endswith(end):
                 raise ValueError(f"{fname} must end in {end}")
 
-            comp = get_compression(fname)
+            _, comp = utils.check_compression(fname)
             self.df = pd.read_csv(fname, header=self.__header__, usecols=self.__usecols__,
                                   delim_whitespace=True, compression=comp, dtype=self.__id_dtypes)
 
@@ -59,7 +49,7 @@ PlinkFAMFile = __ID_List_Factory__(['FID', 'IID', 'SEX'], [0, 1], {0: str, 1: st
 FilterFile = __ID_List_Factory__(['ID'], 0, {0: str}, None, usecols=[0])
 
 
-class __GenotypeArrayInMemory__():
+class __GenotypeArrayInMemory__:
     '''
     Parent class for various classes containing inferences for files with genotype
     matrices, e.g., plink .bed files, etc
@@ -228,21 +218,32 @@ class PlinkBEDFile(__GenotypeArrayInMemory__):
 
         return (y, m_poly, n, kept_snps, freq)
 
-    def nextSNPs(self, num):
+    def nextSNPs(self, num, nona=False):
         '''
         Unpacks the binary array of genotypes and returns an n x num matrix of 
         genotypes for the next SNP, where n := number of samples.
         '''
+        nona_map = {
+            2: ba.bitarray('11'),
+            0: ba.bitarray('10'), # na is mapped to 0
+            1: ba.bitarray('01'),
+            0: ba.bitarray('00')
+        }
+        if nona:
+            mapping = nona_map
+        else:
+            mapping = self._bedcode
 
         if self._currentSNP + num > self.m:
             raise ValueError(f"{num} SNPs requested, {self.m - self._currentSNP} SNPs remain")
 
         slice = self.geno[2*self._currentSNP*self.nru: 2*(self._currentSNP+num)*self.nru]
-        snps = np.array(slice.decode(self._bedcode), dtype=float).reshape((num, self.nru)).T
+        snps = np.array(slice.decode(mapping), dtype=float).reshape((num, self.nru)).T
         snps = snps[0:self.n, :]
         self._currentSNP += num
 
         return snps
+    
 
     def gen_SNPs(self):
         for c in range(self.m):
@@ -251,3 +252,24 @@ class PlinkBEDFile(__GenotypeArrayInMemory__):
             X = X[0:self.n]
 
             yield c, X
+            
+
+
+def read_plink(dir, keep_snps=None, keep_indivs=None, maf=None):
+    array_file, array_obj = f"{dir}.bed", PlinkBEDFile
+    snp_file, snp_obj = f"{dir}.bim", PlinkBIMFile
+    ind_file, ind_obj = f"{dir}.fam", PlinkFAMFile
+
+    array_snps = snp_obj(snp_file)
+    array_indivs = ind_obj(ind_file)
+    n = len(array_indivs.IDList)
+
+    geno_array = array_obj(array_file, n, array_snps, keep_snps=keep_snps,
+                           keep_indivs=keep_indivs, mafMin=maf)
+    snp_getter = geno_array.nextSNPs
+    
+    if keep_snps is not None:
+        array_snps.df = array_snps.df.loc[keep_snps]
+    array_snps.df['MAF'] = geno_array.df[:, 4].astype(np.float64)
+
+    return array_snps.df, snp_getter
