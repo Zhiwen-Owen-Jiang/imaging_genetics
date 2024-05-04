@@ -1,3 +1,4 @@
+import os
 import gzip, bz2
 import pandas as pd
 import logging
@@ -45,12 +46,15 @@ def check_compression(dir):
     compression: type of compression
     
     """
-    if dir.endswith('gz'):
+    if dir.endswith('gz') or dir.endswith('bgz'):
         compression = 'gzip'
         openfunc = gzip.open
     elif dir.endswith('bz2'):
         compression = 'bz2'
         openfunc = bz2.BZ2File
+    elif (dir.endswith('zip') or dir.endswith('tar') or
+          dir.endswith('tar.gz') or dir.endswith('tar.bz2')):
+        raise ValueError('files with suffix .zip, .tar, .tar.gz, .tar.bz2 are not supported')
     else:
         openfunc = open
         compression = None
@@ -59,28 +63,5 @@ def check_compression(dir):
 
 
 
-def read_keep(keep_files):
-    for i, keep_file in enumerate(keep_files):
-        keep_idvs = pd.read_csv(keep_file, delim_whitespace=True, header=None, usecols=[0, 1],
-                               dtype={0: str, 1: str})
-        keep_idvs = pd.MultiIndex.from_arrays([keep_idvs[0], keep_idvs[1]], names=['FID', 'IID'])
-        if i == 0:
-            keep_idvs_ = keep_idvs.copy()
-        else:
-            keep_idvs_ = keep_idvs_.intersection(keep_idvs)
-    
-    return keep_idvs_ 
 
-
-
-def read_extract(extract_files):
-    for i, extract_file in enumerate(extract_files):
-        keep_snps = pd.read_csv(extract_file, delim_whitespace=True, 
-                               header=None, usecols=[0], names=['SNP']) 
-        if i == 0:
-            keep_snps_ = keep_snps.copy()
-        else:
-            keep_snps_ = keep_snps_.merge(keep_snps)
-
-    return keep_snps_
         

@@ -6,8 +6,7 @@ from collections import defaultdict
 from sklearn.model_selection import KFold
 
 import input.dataset as ds
-from . import parse
-from . import utils
+import input.genotype as gt
 from ldmatrix import partition_genome
 
 
@@ -252,19 +251,19 @@ def run(args, log):
     ldrs = ds.Dataset(args.ldrs)
 
     if args.keep is not None:
-        keep_idvs = utils.read_keep(args.keep)
+        keep_idvs = ds.read_keep(args.keep)
         log.info(f'{len(keep_idvs)} subjects are common in --keep.')
     else:
         keep_idvs = None
     common_idxs = ds.get_common_idxs([covar.index, ldrs.index, keep_idvs])
         
     if args.extract is not None:
-        keep_snps = utils.read_extract(args.extract)
+        keep_snps = ds.read_extract(args.extract)
     else:
         keep_snps = None
     
     # TODO: internally transfer idxs/snps to numbers
-    bim, fam, snp_getter = parse.read_plink(args.bfile, common_idxs, keep_snps, args.maf_min)
+    bim, fam, snp_getter = gt.read_plink(args.bfile, common_idxs, keep_snps, args.maf_min)
     covar.keep(fam[['FID', 'IID']]) # make sure subjects aligned
     ldrs.keep(fam[['FID', 'IID']])
     

@@ -6,7 +6,8 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from sklearn.decomposition import IncrementalPCA
-from . import utils
+import heig.input.dataset as ds
+import utils
 
 
 class Dataset():
@@ -344,11 +345,7 @@ def run(args, log):
 
     # keep subjects
     if args.keep is not None:
-        # keep_ids = pd.read_csv(args.keep, delim_whitespace=True, header=None, usecols=[0, 1],
-        #                        dtype={0: str, 1: str})
-        # keep_ids = tuple(zip(keep_ids[0], keep_ids[1]))
-        # log.info(f'{len(keep_ids)} subjects in {args.keep}')
-        keep_idvs = utils.read_keep(args.keep)
+        keep_idvs = ds.read_keep(args.keep)
         log.info(f'{len(keep_idvs)} subjects are common in --keep.')
         common_idxs = common_idxs.intersection(keep_idvs) # slow
 

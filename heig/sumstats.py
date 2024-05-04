@@ -5,7 +5,7 @@ import logging
 import numpy as np
 import pandas as pd
 from scipy.stats import chi2
-from . import utils
+import utils
 
 """
 TODO: 

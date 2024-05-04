@@ -129,7 +129,7 @@ class LocalLinear(KernelSmooth):
             t_mat0 = self.coord - self.coord[lii] # N * d
             t_mat = np.hstack((np.ones(self.N).reshape(-1, 1), t_mat0))
             dis = t_mat0 / bw
-            close_points = (dis < 4) & (dis > -4)
+            close_points = (dis < 4) & (dis > -4) # keep only nearby voxels
             k_mat = csr_matrix((self._gau_kernel(dis[close_points]), np.where(close_points)), 
                                (self.N, self.d))
             k_mat = csc_matrix(np.prod(k_mat / bw, axis=1)) # can be faster
@@ -156,7 +156,7 @@ def get_image_list(img_dirs, suffixes, keep_idvs=None):
     for img_dir, suffix in zip(img_dirs, suffixes):
         for img_file in os.listdir(img_dir):
             img_id = img_file.replace(suffix, '')
-            img_id = (img_id, img_id)
+            img_id = (img_id)
             if (img_file.endswith(suffix) and ((keep_idvs is not None and img_id in keep_idvs) or
                 (keep_idvs is None))):
                 img_files[img_id] = os.path.join(img_dir, img_file)

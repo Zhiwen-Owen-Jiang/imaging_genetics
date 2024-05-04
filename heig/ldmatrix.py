@@ -4,9 +4,8 @@ import re
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
-# from .parse import PlinkBIMFile, PlinkFAMFile, PlinkBEDFile
-from . import utils
-from . import parse
+import input.genotype as gt
+import input.dataset as ds
 
 
 
@@ -252,29 +251,6 @@ class LDmatrixBED(LDmatrix):
     
 
 
-# def read_plink(dir, keep_snps=None, keep_indivs=None, maf=None):
-#     array_file, array_obj = f"{dir}.bed", PlinkBEDFile
-#     snp_file, snp_obj = f"{dir}.bim", PlinkBIMFile
-#     ind_file, ind_obj = f"{dir}.fam", PlinkFAMFile
-
-#     array_snps = snp_obj(snp_file)
-#     array_indivs = ind_obj(ind_file)
-#     # if keep_indivs is not None:
-#     #     array_indivs.IDList = array_indivs.IDList.loc[keep_indivs]
-#     n = len(array_indivs.IDList)
-
-#     geno_array = array_obj(array_file, n, array_snps, keep_snps=keep_snps,
-#                            keep_indivs=keep_indivs, mafMin=maf)
-#     snp_getter = geno_array.nextSNPs
-    
-#     if keep_snps is not None:
-#         array_snps.df = array_snps.df.loc[keep_snps]
-#     array_snps.df['MAF'] = geno_array.df[:, 4].astype(np.float64)
-
-#     return array_snps.df, snp_getter
-
-
-
 def partition_genome(ld_bim, part, log):
     """
     ld_bim: a pd Dataframe of LD matrix SNP information
@@ -429,8 +405,8 @@ def read_process_idvs(fam_dir):
 
 def filter_maf(ld_bfile, ld_bim, ld_keep_snp_idx, ld_keep_idv_idx, 
                ld_inv_bfile, ld_inv_bim, ld_inv_keep_snp_idx, ld_inv_keep_idv_idx, min_maf):
-    ld_bim2, _ = parse.read_plink(ld_bfile, ld_keep_snp_idx, ld_keep_idv_idx)
-    ld_inv_bim2, _ = parse.read_plink(ld_inv_bfile, ld_inv_keep_snp_idx, ld_inv_keep_idv_idx)
+    ld_bim2, _ = gt.read_plink(ld_bfile, ld_keep_snp_idx, ld_keep_idv_idx)
+    ld_inv_bim2, _ = gt.read_plink(ld_inv_bfile, ld_inv_keep_snp_idx, ld_inv_keep_idv_idx)
     common_snps = ld_bim2.loc[(ld_bim2['MAF'] >= min_maf) & (ld_inv_bim2['MAF'] >= min_maf), 'SNP']
     ld_keep_snp_idx = ld_bim.index[ld_bim['SNP'].isin(common_snps)].to_list()
     ld_inv_keep_snp_idx = ld_inv_bim.index[ld_inv_bim['SNP'].isin(common_snps)].to_list()
@@ -453,8 +429,7 @@ def run(args, log):
     
     # extracting SNPs
     if args.extract is not None:
-        # keep_snps = pd.read_csv(args.extract, delim_whitespace=True, header=None, usecols=[0], names=['SNP'])
-        keep_snps = utils.read_extract(args.extract)
+        keep_snps = ds.read_extract(args.extract)
         ld_merged = ld_merged.loc[ld_merged['SNP'].isin(keep_snps['SNP'])]
         log.info(f"{ld_merged.shape[0]} SNPs are common in --extract.")
     ld_keep_snp_idx = ld_bim.index[ld_bim['SNP'].isin(ld_merged['SNP'])].to_list()
@@ -462,9 +437,7 @@ def run(args, log):
 
     # keeping individuals
     if args.keep is not None:
-        # keep_idvs = pd.read_csv(args.keep, delim_whitespace=True, header=None, usecols=[0, 1])
-        # keep_idvs = tuple(zip(keep_idvs[0], keep_idvs[1]))
-        keep_idvs = utils.read_keep(args.keep)
+        keep_idvs = ds.read_keep(args.keep)
         log.info(f'{len(keep_idvs)} subjects are common in --keep.')
         ld_fam = read_process_idvs(ld_bfile + '.fam')
         ld_keep_idv_idx = np.array(range(len(ld_fam)))[ld_fam.index.isin(keep_idvs)]
@@ -486,9 +459,9 @@ def run(args, log):
     
     # reading bfiles 
     log.info(f"Read bfile from {ld_bfile} with selected SNPs and individuals.")
-    ld_bim, ld_snp_getter = parse.read_plink(ld_bfile, ld_keep_snp_idx, ld_keep_idv_idx)
+    ld_bim, ld_snp_getter = gt.read_plink(ld_bfile, ld_keep_snp_idx, ld_keep_idv_idx)
     log.info(f"Read bfile from {ld_inv_bfile} with selected SNPs and individuals.")
-    ld_inv_bim, ld_inv_snp_getter = parse.read_plink(ld_inv_bfile, ld_inv_keep_snp_idx, ld_inv_keep_idv_idx)
+    ld_inv_bim, ld_inv_snp_getter = gt.read_plink(ld_inv_bfile, ld_inv_keep_snp_idx, ld_inv_keep_idv_idx)
 
     # reading and doing genome partition
     log.info(f"\nRead genome partition from {args.partition}")

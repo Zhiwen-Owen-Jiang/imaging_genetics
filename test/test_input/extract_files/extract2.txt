@@ -1,0 +1,4 @@
+SNP
+rs2
+rs3
+rs4

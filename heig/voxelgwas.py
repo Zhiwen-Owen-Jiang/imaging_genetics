@@ -2,8 +2,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import chi2
 from tqdm import tqdm
-from . import sumstats
-from . import utils
+import sumstats
+import input.dataset as ds
 
 
 
@@ -56,7 +56,7 @@ def check_input(args, log):
         start_chr, start_pos, end_chr, end_pos = None, None, None, None
         
     if args.extract is not None:
-        keep_snps = utils.read_extract(args.extract)
+        keep_snps = ds.read_extract(args.extract)
     else:
         keep_snps = None
 

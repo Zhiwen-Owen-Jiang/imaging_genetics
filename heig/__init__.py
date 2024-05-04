@@ -3,7 +3,8 @@
 # from . import ldmatrix
 # from . import voxelgwas
 # from . import ldr
-from .parse import read_plink
+from ..old_version.parse import read_plink
 from . import ldmatrix
-from .fpca import Dataset, Covar
 from . import utils
+from . import sumstats
+from . import ldsc

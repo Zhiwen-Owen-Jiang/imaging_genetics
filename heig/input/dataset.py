@@ -1,10 +1,10 @@
 import sys
+import os
 import pickle
 import logging
 import pandas as pd
 import numpy as np
-
-import utils
+from heig import utils
 
 
 class Dataset():
@@ -180,9 +180,9 @@ def get_common_idxs(*idx_list):
             else:
                 common_idxs = common_idxs.intersection(idx)
     if common_idxs is None:
-        raise ValueError('No valid index provided.')
+        raise ValueError('no valid index provided')
     if len(common_idxs) == 0:
-        raise ValueError('No common index exists.')
+        raise ValueError('no common index exists')
             
     return common_idxs
 
@@ -198,3 +198,74 @@ def read_geno_part(dir):
     
     return genome_part
 
+
+
+def read_keep(keep_files):
+    """
+    Keep common individual IDs from multiple files
+    All files are confirmed to exist
+    Empty files are skipped without error/warning
+    Error out if no common IDs exist
+
+    Parameters:
+    ------------
+    keep_files: a list of tab/white-delimited files
+
+    Returns:
+    ---------
+    keep_idvs_: pd.MultiIndex of common individuals
+    
+    """
+    for i, keep_file in enumerate(keep_files):
+        if os.path.getsize(keep_file) == 0:
+            continue
+        keep_idvs = pd.read_csv(keep_file, 
+                                delim_whitespace=True, 
+                                header=None, 
+                                usecols=[0, 1],
+                               dtype={0: str, 1: str})
+        keep_idvs = pd.MultiIndex.from_arrays([keep_idvs[0], 
+                                               keep_idvs[1]], 
+                                               names=['FID', 'IID'])
+        if i == 0:
+            keep_idvs_ = keep_idvs.copy()
+        else:
+            keep_idvs_ = keep_idvs_.intersection(keep_idvs)
+    
+    if len(keep_idvs_) == 0:
+        raise ValueError('no inviduals are common in --keep')
+
+    return keep_idvs_ 
+
+
+
+def read_extract(extract_files):
+    """
+    Keep common SNPs from multiple files
+    All files are confirmed to exist
+    Empty files are skipped without error/warning
+    Error out if no common SNPs exist
+
+    Parameters:
+    ------------
+    extract_files: a list of tab/white-delimited files
+
+    Returns:
+    ---------
+    keep_snp_: pd.DataFrame of common SNPs
+    
+    """
+    for i, extract_file in enumerate(extract_files):
+        if os.path.getsize(extract_file) == 0:
+            continue
+        keep_snps = pd.read_csv(extract_file, delim_whitespace=True, 
+                               header=None, usecols=[0], names=['SNP']) 
+        if i == 0:
+            keep_snps_ = keep_snps.copy()
+        else:
+            keep_snps_ = keep_snps_.merge(keep_snps)
+            
+    if len(keep_snps_) == 0:
+        raise ValueError('no SNPs are common in --extract')
+
+    return keep_snps_
