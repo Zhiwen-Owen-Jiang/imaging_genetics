@@ -1,9 +1,10 @@
+import os
 import numpy as np
 import pandas as pd
 from scipy.stats import chi2
 from tqdm import tqdm
-import sumstats
-import input.dataset as ds
+from heig import sumstats
+import heig.input.dataset as ds
 
 
 
@@ -37,6 +38,16 @@ def check_input(args, log):
                           'Specify a p-value threshold by --sig-thresh to screen out insignificant results.'))
     if args.sig_thresh is not None and (args.sig_thresh <= 0 or args.sig_thresh >= 1):
         raise ValueError('--sig-thresh should be greater than 0 and less than 1.')
+
+    ## required files must exist
+    if not os.path.exists(f"{args.ldr_sumstats}.snpinfo"):
+        raise FileNotFoundError(f"{args.ldr_sumstats}.snpinfo does not exist.")
+    if not os.path.exists(f"{args.ldr_sumstats}.sumstats"):
+        raise FileNotFoundError(f"{args.ldr_sumstats}.sumstats does not exist.")
+    if not os.path.exists(args.bases):
+        raise FileNotFoundError(f"{args.bases} does not exist.")
+    if not os.path.exists(args.inner_ldr):
+        raise FileNotFoundError(f"{args.inner_ldr} does not exist.")
 
     ## process some arguments
     if args.range is not None:

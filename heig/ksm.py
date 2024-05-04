@@ -7,7 +7,7 @@ import nibabel as nib
 from tqdm import tqdm
 from numpy.linalg import inv
 from scipy.sparse import csc_matrix, csr_matrix, dok_matrix, hstack
-from . import utils
+from heig import utils
 
 
 
@@ -258,9 +258,9 @@ def check_input(args):
         raise ValueError('--image-dir and --image-suffix do not match.')
     for image_dir in args.image_dir:
         if not os.path.exists(image_dir):
-            raise ValueError(f"{image_dir} does not exist.") 
+            raise FileNotFoundError(f"{image_dir} does not exist.") 
     if args.surface_mesh is not None and not os.path.exists(args.surface_mesh):
-        raise ValueError(f"{args.surface_mesh} does not exist.")
+        raise FileNotFoundError(f"{args.surface_mesh} does not exist.")
 
     return args
 

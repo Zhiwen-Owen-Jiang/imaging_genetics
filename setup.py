@@ -10,12 +10,11 @@ setup(name='heig',
       packages=['heig'],
       scripts=['heig.py'],
       install_requires=[
-          'numpy==1.21.5',
-          'pandas==1.1.5',
-          'scikit-sparse==0.4.12',
-          'nibabel==3.2.1',
-          'scipy==1.5.2',
-          'sklearn==0.23.2',
-          'bitarray==2.6.0'  
+          'numpy==1.26.4',
+          'pandas==2.2.2',
+          'nibabel==5.2.1',
+          'scipy==1.11.4',
+          'sklearn==1.4.2',
+          'bitarray==2.9.2'  
       ])
 

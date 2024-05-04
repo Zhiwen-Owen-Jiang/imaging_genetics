@@ -4,8 +4,8 @@ import re
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
-import input.genotype as gt
-import input.dataset as ds
+import heig.input.genotype as gt
+import heig.input.dataset as ds
 
 
 
@@ -345,18 +345,7 @@ def check_input(args):
     
     ## check file/directory exists
     if not os.path.exists(args.partition):
-        raise ValueError(f'{args.partition} does not exist.')
-    try:
-        header = open(args.partition).readline().split()
-    except:
-        raise ValueError('The genome partition file must be an unzipped white-space delimited file.')
-    for x in header[:3]:
-        try:
-            int(x)
-        except:
-            raise ValueError(('The first three columns in --partition must be '
-                              'chromosome, start position, '
-                              'and end position without header.'))
+        raise FileNotFoundError(f'{args.partition} does not exist.')
 
     ## processing some arguments
     try:
@@ -365,9 +354,9 @@ def check_input(args):
         raise ValueError('Two bfiles must be provided with --bfile and separated with a comma.')
     for suffix in ['.bed', '.fam', '.bim']:
         if not os.path.exists(ld_bfile + suffix):
-            raise ValueError(f'{ld_bfile + suffix} does not exist.')
+            raise FileNotFoundError(f'{ld_bfile + suffix} does not exist.')
         if not os.path.exists(ld_inv_bfile + suffix):
-            raise ValueError(f'{ld_inv_bfile + suffix} does not exist.')
+            raise FileNotFoundError(f'{ld_inv_bfile + suffix} does not exist.')
         
     try:
         ld_regu, ld_inv_regu = [float(x) for x in args.ld_regu.split(',')]
@@ -376,7 +365,6 @@ def check_input(args):
                           'and separated with a comma.'))
     if ld_regu >= 1 or ld_regu <= 0 or ld_inv_regu >= 1 or  ld_inv_regu <= 0:
         raise ValueError('Both regularization levels must be greater than 0 and less than 1.')
-
 
     return ld_bfile, ld_inv_bfile, ld_regu, ld_inv_regu
 
@@ -403,10 +391,10 @@ def read_process_idvs(fam_dir):
 
 
 
-def filter_maf(ld_bfile, ld_bim, ld_keep_snp_idx, ld_keep_idv_idx, 
-               ld_inv_bfile, ld_inv_bim, ld_inv_keep_snp_idx, ld_inv_keep_idv_idx, min_maf):
-    ld_bim2, _ = gt.read_plink(ld_bfile, ld_keep_snp_idx, ld_keep_idv_idx)
-    ld_inv_bim2, _ = gt.read_plink(ld_inv_bfile, ld_inv_keep_snp_idx, ld_inv_keep_idv_idx)
+def filter_maf(ld_bfile, ld_bim, ld_keep_snp, ld_keep_idv, 
+               ld_inv_bfile, ld_inv_bim, ld_inv_keep_snp, ld_inv_keep_idv, min_maf):
+    ld_bim2, *_ = gt.read_plink(ld_bfile, ld_keep_snp, ld_keep_idv)
+    ld_inv_bim2, *_ = gt.read_plink(ld_inv_bfile, ld_inv_keep_snp, ld_inv_keep_idv)
     common_snps = ld_bim2.loc[(ld_bim2['MAF'] >= min_maf) & (ld_inv_bim2['MAF'] >= min_maf), 'SNP']
     ld_keep_snp_idx = ld_bim.index[ld_bim['SNP'].isin(common_snps)].to_list()
     ld_inv_keep_snp_idx = ld_inv_bim.index[ld_inv_bim['SNP'].isin(common_snps)].to_list()
@@ -431,41 +419,45 @@ def run(args, log):
     if args.extract is not None:
         keep_snps = ds.read_extract(args.extract)
         ld_merged = ld_merged.loc[ld_merged['SNP'].isin(keep_snps['SNP'])]
-        log.info(f"{ld_merged.shape[0]} SNPs are common in --extract.")
-    ld_keep_snp_idx = ld_bim.index[ld_bim['SNP'].isin(ld_merged['SNP'])].to_list()
-    ld_inv_keep_snp_idx = ld_inv_bim.index[ld_inv_bim['SNP'].isin(ld_merged['SNP'])].to_list()
+        log.info(f"{ld_merged.shape[0]} SNPs are in --extract.")
+    # ld_keep_snp_idx = ld_bim.index[ld_bim['SNP'].isin(ld_merged['SNP'])].to_list()
+    # ld_inv_keep_snp_idx = ld_inv_bim.index[ld_inv_bim['SNP'].isin(ld_merged['SNP'])].to_list()
+    ld_keep_snp = ld_bim['SNP'].merge(ld_merged['SNP'])
+    ld_inv_keep_snp = ld_inv_bim['SNP'].merge(ld_merged['SNP'])
 
     # keeping individuals
     if args.keep is not None:
         keep_idvs = ds.read_keep(args.keep)
-        log.info(f'{len(keep_idvs)} subjects are common in --keep.')
+        log.info(f'{len(keep_idvs)} subjects are in --keep.')
         ld_fam = read_process_idvs(ld_bfile + '.fam')
-        ld_keep_idv_idx = np.array(range(len(ld_fam)))[ld_fam.index.isin(keep_idvs)]
-        log.info(f'{len(ld_keep_idv_idx)} subjects are common in {ld_bfile}')
+        # ld_keep_idv_idx = np.array(range(len(ld_fam)))[ld_fam.index.isin(keep_idvs)]
+        ld_keep_idv = ld_fam[ld_fam.isin(keep_idvs)]
+        log.info(f'{len(ld_keep_idv)} subjects are common in {ld_bfile}')
         ld_inv_fam = read_process_idvs(ld_inv_bfile + '.fam')
-        ld_inv_keep_idv_idx = np.array(range(len(ld_inv_fam)))[ld_inv_fam.index.isin(keep_idvs)]
-        log.info(f'{len(ld_inv_keep_idv_idx)} subjects are common in {ld_inv_bfile}')
+        # ld_inv_keep_idv_idx = np.array(range(len(ld_inv_fam)))[ld_inv_fam.index.isin(keep_idvs)]
+        ld_inv_keep_idv = ld_inv_fam[ld_inv_fam.isin(keep_idvs)]
+        log.info(f'{len(ld_inv_keep_idv)} subjects are common in {ld_inv_bfile}')
     else:
-        ld_keep_idv_idx, ld_inv_keep_idv_idx = None, None
+        ld_keep_idv, ld_inv_keep_idv = None, None
         
     # filtering rare SNPs
     if args.maf_min is not None:
         log.info(f"Removing SNPs with MAF < {args.maf_min} ...")
-        ld_keep_snp_idx, ld_inv_keep_snp_idx = filter_maf(ld_bfile, ld_bim, ld_keep_snp_idx, 
-                                                          ld_keep_idv_idx, ld_inv_bfile, 
-                                                          ld_inv_bim, ld_inv_keep_snp_idx, 
-                                                          ld_inv_keep_idv_idx, args.maf_min)
-        log.info(f"{len(ld_keep_snp_idx)} SNPs remaining.")
+        ld_keep_snp, ld_inv_keep_snp = filter_maf(ld_bfile, ld_bim, ld_keep_snp, 
+                                                          ld_keep_idv, ld_inv_bfile, 
+                                                          ld_inv_bim, ld_inv_keep_snp, 
+                                                          ld_inv_keep_idv, args.maf_min)
+        log.info(f"{len(ld_keep_snp)} SNPs remaining.")
     
     # reading bfiles 
     log.info(f"Read bfile from {ld_bfile} with selected SNPs and individuals.")
-    ld_bim, ld_snp_getter = gt.read_plink(ld_bfile, ld_keep_snp_idx, ld_keep_idv_idx)
+    ld_bim, _, ld_snp_getter = gt.read_plink(ld_bfile, ld_keep_snp, ld_keep_idv)
     log.info(f"Read bfile from {ld_inv_bfile} with selected SNPs and individuals.")
-    ld_inv_bim, ld_inv_snp_getter = gt.read_plink(ld_inv_bfile, ld_inv_keep_snp_idx, ld_inv_keep_idv_idx)
+    ld_inv_bim, _, ld_inv_snp_getter = gt.read_plink(ld_inv_bfile, ld_inv_keep_snp, ld_inv_keep_idv)
 
     # reading and doing genome partition
     log.info(f"\nRead genome partition from {args.partition}")
-    genome_part = pd.read_csv(args.partition, header=None, delim_whitespace=True, usecols=[0, 1, 2])
+    genome_part = ds.read_geno_part(args.partition)
     log.info(f"{genome_part.shape[0]} genome blocks to partition.")
     num_snps_part, ld_bim = partition_genome(ld_bim, genome_part, log)
     ld_inv_bim['block_idx'] = ld_bim['block_idx'] 

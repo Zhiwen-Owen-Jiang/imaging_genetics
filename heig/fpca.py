@@ -7,7 +7,7 @@ import pandas as pd
 from tqdm import tqdm
 from sklearn.decomposition import IncrementalPCA
 import heig.input.dataset as ds
-import utils
+from heig import utils
 
 
 class Dataset():
@@ -243,11 +243,11 @@ def check_input(args, log):
             log.info('WARNING: keeping less than 80% of variance will have bad performance.')
 
     if not os.path.exists(args.image):
-        raise ValueError(f"{args.image} does not exist.") 
+        raise FileNotFoundError(f"{args.image} does not exist.") 
     if not os.path.exists(args.sm_image):
-        raise ValueError(f"{args.sm_image} does not exist.") 
+        raise FileNotFoundError(f"{args.sm_image} does not exist.") 
     if not os.path.exists(args.covar):
-        raise ValueError(f"{args.covar} does not exist.")
+        raise FileNotFoundError(f"{args.covar} does not exist.")
     
     
 

@@ -22,7 +22,7 @@ class Dataset():
         else:
             openfunc, compression = utils.check_compression(dir)
             self._check_header(openfunc, compression, dir)
-            self.data = pd.read_csv(dir, delim_whitespace=True, compression=compression, 
+            self.data = pd.read_csv(dir, sep='\s+', compression=compression, 
                                     na_values=[-9, 'NONE', '.'], dtype={'FID': str, 'IID': str}) 
         if self.data[['FID', 'IID']].duplicated().any():
             first_dup = self.data.loc[self.data[['FID', 'IID']].duplicated(), ['FID', 'IID']]
@@ -189,7 +189,9 @@ def get_common_idxs(*idx_list):
 
 
 def read_geno_part(dir):
-    genome_part = pd.read_csv(dir, header=None, delim_whitespace=True, usecols=[0, 1, 2])
+    _, compression = utils.check_compression(dir)
+    genome_part = pd.read_csv(dir, header=None, sep='\s+', usecols=[0, 1, 2],
+                              compression=compression)
     if not pd.api.types.is_integer_dtype(genome_part[0]):
         raise TypeError(('The 1st column in the genome partition file must be integers. '
                          'Check if a header is included and/or if chromosome X/Y is included.'))
@@ -219,11 +221,13 @@ def read_keep(keep_files):
     for i, keep_file in enumerate(keep_files):
         if os.path.getsize(keep_file) == 0:
             continue
+        _, compression = utils.check_compression(keep_file)
         keep_idvs = pd.read_csv(keep_file, 
-                                delim_whitespace=True, 
+                                sep='\s+', 
                                 header=None, 
                                 usecols=[0, 1],
-                               dtype={0: str, 1: str})
+                               dtype={0: str, 1: str},
+                               compression=compression)
         keep_idvs = pd.MultiIndex.from_arrays([keep_idvs[0], 
                                                keep_idvs[1]], 
                                                names=['FID', 'IID'])
@@ -258,8 +262,13 @@ def read_extract(extract_files):
     for i, extract_file in enumerate(extract_files):
         if os.path.getsize(extract_file) == 0:
             continue
-        keep_snps = pd.read_csv(extract_file, delim_whitespace=True, 
-                               header=None, usecols=[0], names=['SNP']) 
+        _, compression = utils.check_compression(extract_file)
+        keep_snps = pd.read_csv(extract_file, 
+                                sep='\s+', 
+                                header=None, 
+                                usecols=[0], 
+                                names=['SNP'],
+                                compression=compression) 
         if i == 0:
             keep_snps_ = keep_snps.copy()
         else:

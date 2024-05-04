@@ -30,7 +30,7 @@ def __ID_List_Factory__(colnames, keepcol, id_dtypes, fname_end, header=None, us
 
             _, comp = utils.check_compression(fname)
             self.df = pd.read_csv(fname, header=self.__header__, usecols=self.__usecols__,
-                                  delim_whitespace=True, compression=comp, dtype=self.__id_dtypes)
+                                  sep='\s+', compression=comp, dtype=self.__id_dtypes)
 
             if self.__colnames__:
                 self.df.columns = self.__colnames__
@@ -219,7 +219,9 @@ class PlinkBEDFile(__GenotypeArrayInMemory__):
     def nextSNPs(self, num, nona=False):
         '''
         Unpacks the binary array of genotypes and returns an n x num matrix of 
-        genotypes for the next SNP, where n := number of samples.
+        genotypes for next SNPs, where n := number of samples.
+        nona: if fill na as 0
+
         '''
         nona_map = {
             2: ba.bitarray('11'),
@@ -237,13 +239,17 @@ class PlinkBEDFile(__GenotypeArrayInMemory__):
 
         slice = self.geno[2*self._currentSNP*self.nru: 2*(self._currentSNP+num)*self.nru]
         snps = np.array(slice.decode(mapping), dtype=float).reshape((num, self.nru)).T
-        snps = snps[0:self.n, :]
+        # snps = snps[0:self.n, :]
         self._currentSNP += num
 
         return snps
     
 
     def gen_SNPs(self):
+        """
+        Never use it
+        
+        """
         for c in range(self.m):
             slice = self.geno[2*c*self.nru : 2*(c+1)*self.nru]
             X = np.array(slice.decode(self._bedcode), dtype=float)
@@ -260,8 +266,8 @@ def read_plink(dir, keep_snps=None, keep_indivs=None, maf=None):
     Parameters:
     ------------
     dir: prefix of plink triplets
-    keep_snps: idxs of SNPs to extract
-    keep_indivs: idxs of individuals to keep
+    keep_snps:  rsID of SNPs to extract
+    keep_indivs: ID of individuals to keep
     maf: minimum MAF of SNPs to extract
 
     Returns:
@@ -278,12 +284,15 @@ def read_plink(dir, keep_snps=None, keep_indivs=None, maf=None):
     array_indivs = ind_obj(ind_file)
     n = len(array_indivs.IDList)
 
-    geno_array = array_obj(array_file, n, array_snps, keep_snps=keep_snps,
-                           keep_indivs=keep_indivs, mafMin=maf)
+    keep_snps_idxs = array_snps.index[array_snps.IDList['SNP'].isin(keep_snps)]
+    keep_indivs_idxs = array_indivs.index[array_indivs.IDList[['FID', 'IID']].isin(keep_indivs)]
+
+    geno_array = array_obj(array_file, n, array_snps, keep_snps=keep_snps_idxs,
+                           keep_indivs=keep_indivs_idxs, mafMin=maf)
     snp_getter = geno_array.nextSNPs
     
     if keep_snps is not None:
         array_snps.df = array_snps.df.loc[keep_snps]
     array_snps.df['MAF'] = geno_array.df[:, 4].astype(np.float64)
 
-    return array_snps.df, snp_getter
+    return array_snps.df, array_indivs.df, snp_getter

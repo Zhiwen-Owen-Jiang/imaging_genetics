@@ -10,6 +10,10 @@ import input.genotype as gt
 from ldmatrix import partition_genome
 
 
+"""
+TODO: support parallel
+
+"""
 
 class Relatedness:
     """
@@ -68,8 +72,10 @@ class Relatedness:
         proj_inner_block = np.dot(block.T, resid_block) # m by m
         proj_block_ldrs = np.dot(block.T, self.resid_ldrs) # m by r
         for i, param in enumerate(self.shrinkage):
-            preds = np.dot(resid_block, np.dot(np.linalg.inv(proj_inner_block + np.eye(block.shape[1]) * param), 
-                            proj_block_ldrs)) # n by r
+            preds = np.dot(
+                resid_block, 
+                np.dot(np.linalg.inv(proj_inner_block + np.eye(block.shape[1]) * param), proj_block_ldrs)
+                ) # n by r
             level0_preds[:, :, i] = preds.T
                     
         return level0_preds
@@ -149,7 +155,7 @@ class Relatedness:
 
         Returns:
         ---------
-        chr_preds_ldr: chromosome-wise predictions for ldr j
+        chr_preds_ldr: loco predictions for ldr j
         
         """
         preds_ldr = np.dot(level0_preds.T, ldr)
@@ -160,6 +166,8 @@ class Relatedness:
             loco_predictors = np.ma.array(preditors, mask=idxs)
             loco_predictions = np.dot(level0_preds, loco_predictors)
             chr_preds_ldr[:, chr-1] = loco_predictions
+            
+        chr_preds_ldr = np.sum(chr_preds_ldr, axis=1) - chr_preds_ldr
 
         return chr_preds_ldr
     
@@ -233,52 +241,66 @@ def check_input(args):
         raise ValueError('--covar is required.')
     if args.ldrs in None:
         raise ValueError('--ldrs is required.')
+    if args.partition is None:
+        raise ValueError('--partition is required.')
     if args.maf_min is not None:
         if args.maf_min >= 1 or args.maf_min <= 0:
             raise ValueError('--maf must be greater than 0 and less than 1.')
     if args.n_ldrs is not None and args.n_ldrs <= 0:
         raise ValueError('--n-ldrs should be greater than 0.')
     
-    ## processing some arguments
+    ## required files must exist
+    if not os.path.exists(args.covar):
+        raise FileNotFoundError(f"{args.covar} does not exist.")
+    if not os.path.exists(args.ldrs):
+        raise FileNotFoundError(f"{args.ldrs} does not exist.")
+    if not os.path.exists(args.partition):
+        raise FileNotFoundError(f"{args.partition} does not exist.")
     for suffix in ['.bed', '.fam', '.bim']:
         if not os.path.exists(args.bfile + suffix):
-            raise ValueError(f'{args.bfile + suffix} does not exist.')
+            raise FileNotFoundError(f'{args.bfile + suffix} does not exist.')
 
 
 
 def run(args, log):
+    log.info(f"Read covariates from {args.covar}")
     covar = ds.Covar(args.covar, args.cat_covar_list)
+    log.info(f"Read LDRs from {args.ldrs}")
     ldrs = ds.Dataset(args.ldrs)
 
     if args.keep is not None:
         keep_idvs = ds.read_keep(args.keep)
-        log.info(f'{len(keep_idvs)} subjects are common in --keep.')
+        log.info(f'{len(keep_idvs)} subjects are in --keep.')
     else:
         keep_idvs = None
     common_idxs = ds.get_common_idxs([covar.index, ldrs.index, keep_idvs])
         
     if args.extract is not None:
         keep_snps = ds.read_extract(args.extract)
+        log.info(f"{keep_snps} SNPs are in --extract.")
     else:
         keep_snps = None
-    
-    # TODO: internally transfer idxs/snps to numbers
+
+    log.info(f"Read bfile from {args.bfile} with selected SNPs and individuals.")
     bim, fam, snp_getter = gt.read_plink(args.bfile, common_idxs, keep_snps, args.maf_min)
     covar.keep(fam[['FID', 'IID']]) # make sure subjects aligned
     ldrs.keep(fam[['FID', 'IID']])
+    log.info(f'{len(covar.data)} subjects are common in these files.\n')
     
     # genome partition to get LD blocks
-    log.info(f"\nRead genome partition from {args.partition}")
+    log.info(f"Read genome partition from {args.partition}")
     genome_part = ds.read_geno_part(args.partition)
     log.info(f"{genome_part.shape[0]} genome blocks to partition.")
     num_snps_list, bim = partition_genome(bim, genome_part, log)
 
     # merge small blocks to get ~200 blocks
+    log.info(f"Merge small blocks to get ~200 blocks.")
     num_snps_list, chr_idxs = merge_blocks(num_snps_list, bim)
 
     # initialize a remover and do level 0 ridge prediction
     relatedness_remover = Relatedness(bim.shape[1], np.array(ldrs.data), np.array(covar.data))
     with h5py.File(f'{args.out}_l0_pred_temp.h5', 'w') as file:
+        log.info(f'Doing level0 ridge regression ...')
         dset = file.create_dataset('level0_preds', 
                                    (ldrs.shape[1], 
                                     ldrs.shape[0], 
@@ -289,13 +311,19 @@ def run(args, log):
             n_snps = num_snps_list[i]
             block_level0_preds = relatedness_remover.level0_ridge_block(snp_getter(n_snps))
             dset[:, :, :, i] = block_level0_preds
+    log.info(f'Save level0 ridge predictions to a temporary file {args.out}_l0_pred_temp.h5')
 
-    # load level 0 predictions by each ldr
+    # load level 0 predictions by each ldr and do level 1 ridge prediction
     with h5py.File(f'{args.out}_l0_pred_temp.h5', 'r') as file:
+        log.info(f'Doing level1 ridge regression ...')
         level0_preds = file['level0_preds']
         chr_preds = relatedness_remover.level1_ridge(level0_preds, chr_idxs)
+        
+    with h5py.File(f'{args.out}_ldr_loco_preds.h5', 'w') as file:
+        dset = file.create_dataset('ldr_loco_preds', data=chr_preds)
+    log.info(f'Save level1 loco ridge predictions to {args.out}_ldr_loco_preds.h5')
     
-    np.save(f"{args.out}_ldr_chr_preds", chr_preds)
+    
 
 
 

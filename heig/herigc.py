@@ -3,10 +3,10 @@ import numpy as np
 import pandas as pd
 from scipy.stats import chi2
 
-import sumstats
+from heig import sumstats
 import heig.input.dataset as ds
-from ldmatrix import LDmatrix
-from ldsc import LDSC
+from heig.ldmatrix import LDmatrix
+from heig.ldsc import LDSC
 
 
 
@@ -59,20 +59,20 @@ def check_input(args, log):
         raise ValueError('--ld is required.')
 
     if not os.path.exists(f"{args.ldr_sumstats}.snpinfo"):
-        raise ValueError(f"{args.ldr_sumstats}.snpinfo does not exist.")
+        raise FileNotFoundError(f"{args.ldr_sumstats}.snpinfo does not exist.")
     if not os.path.exists(f"{args.ldr_sumstats}.sumstats"):
-        raise ValueError(f"{args.ldr_sumstats}.sumstats does not exist.")
+        raise FileNotFoundError(f"{args.ldr_sumstats}.sumstats does not exist.")
     if not os.path.exists(args.bases):
-        raise ValueError(f"{args.bases} does not exist.")
+        raise FileNotFoundError(f"{args.bases} does not exist.")
     if not os.path.exists(args.inner_ldr):
-        raise ValueError(f"{args.inner_ldr} does not exist.")
+        raise FileNotFoundError(f"{args.inner_ldr} does not exist.")
     if args.overlap and not args.y2_sumstats:
         log.info('WARNING: ignore --overlap as --y2-sumstats is not specified.')
     if args.y2_sumstats is not None:
         if not os.path.exists(f"{args.y2_sumstats}.snpinfo"):
-            raise ValueError(f"{args.y2_sumstats}.snpinfo does not exist.")
+            raise FileNotFoundError(f"{args.y2_sumstats}.snpinfo does not exist.")
         if not os.path.exists(f"{args.y2_sumstats}.sumstats"):
-            raise ValueError(f"{args.y2_sumstats}.sumstats does not exist.")
+            raise FileNotFoundError(f"{args.y2_sumstats}.sumstats does not exist.")
 
 
 
