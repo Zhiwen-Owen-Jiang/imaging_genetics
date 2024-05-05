@@ -22,7 +22,8 @@ class Test_check_compression(unittest.TestCase):
             'test.zip'
         ]
 
-        self.folder = os.path.join(MAIN_DIR, 'test', 'test_utils', 'compressed_files')
+        self.folder = os.path.join(
+            MAIN_DIR, 'test', 'test_utils', 'compressed_files')
 
     def test_compression(self):
         for file, comp in self.good_file_compression.items():
@@ -31,22 +32,15 @@ class Test_check_compression(unittest.TestCase):
             openfunc, comp_ = utils.check_compression(file_dir)
             self.assertEqual(comp_, comp)
 
-            header = openfunc(file_dir).readline().split()
+            with openfunc(file_dir, 'r') as file_:
+                header = file_.readline().split()
             # print(header)
             self.assertEqual(str(header[0], 'UTF-8'), 'FID')
             self.assertEqual(str(header[1], 'UTF-8'), 'IID')
             self.assertEqual(str(header[2], 'UTF-8'), 'x')
             self.assertEqual(str(header[3], 'UTF-8'), '1')
-            
+
         with self.assertRaises(ValueError):
             for file in self.bad_files:
                 file_dir = os.path.join(self.folder, file)
                 utils.check_compression(file_dir)
-            
-            
-
-
-
-
-            
-            

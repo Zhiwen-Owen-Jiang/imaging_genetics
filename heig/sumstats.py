@@ -415,7 +415,8 @@ class GWAS:
         Second round check: if all provided columns exist
 
         """
-        header = openfunc(dir).readline().split()
+        with openfunc(dir, 'r') as file:
+            header = file.readline().split()
         if compression is not None:
             header = [str(x, 'UTF-8') for x in header]
         if ldr:

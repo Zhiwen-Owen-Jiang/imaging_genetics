@@ -10,64 +10,72 @@ from heig import utils
 class Dataset():
     def __init__(self, dir):
         """
+        Read a dataset and do preprocessing
+
         Parameters:
         ------------
         dir: diretory to the dataset
 
         """
+        self.logger = logging.getLogger(__name__)
         if dir.endswith('dat'):
+            self.logger.info(
+                'WARNING: reading a .dat file is deprecated. Will be removed in the next version.')
             self.data = pickle.load(open(dir, 'rb'))
             if not 'FID' in self.data.columns or not 'IID' in self.data.columns:
-                raise ValueError('FID and IID do not exist.')
+                raise ValueError('FID and IID do not exist')
         else:
             openfunc, compression = utils.check_compression(dir)
             self._check_header(openfunc, compression, dir)
             self.data = pd.read_csv(dir, sep='\s+', compression=compression,
                                     na_values=[-9, 'NONE', '.'], dtype={'FID': str, 'IID': str})
-        if self.data[['FID', 'IID']].duplicated().any():
-            first_dup = self.data.loc[self.data[['FID', 'IID']].duplicated(), [
-                'FID', 'IID']]
-            raise ValueError(f'Subject {list(first_dup)} is duplicated.')
-        if len(self.data.columns) != len(set(self.data.columns)):
-            raise ValueError('Duplicated columns are not allowed.')
+        n_sub = len(self.data)
+        self.data.drop_duplicates(
+            subset=['FID', 'IID'], inplace=True, keep=False)
+        self.logger.info(
+            f'Removed {n_sub - len(self.data)} duplicated subjects.')
+        self._remove_na_inf()
+
         self.data = self.data.set_index(['FID', 'IID'])
         self.data = self.data.sort_index()
-        self.logger = logging.getLogger(__name__)
-        self._remove_na_inf()
 
     def _check_header(self, openfunc, compression, dir):
         """
-        The dataset should have a header: FID, IID, ...
+        The dataset must have a header: FID, IID, ...
 
         Parameters:
         ------------
         openfunc: function to read the first line
+        compression: how the data is compressed
         dir: diretory to the dataset
 
         """
-        header = openfunc(dir).readline().split()
+        with openfunc(dir, 'r') as file:
+            header = file.readline().split()
         if len(header) == 1:
             raise ValueError(
-                'Only one column detected, check your input file and delimiter.')
+                'only one column detected, check your input file and delimiter')
         if compression is not None:
-            header[0] = str(header[0], 'UTF-8')
-            header[1] = str(header[1], 'UTF-8')
+            header = [str(header[i], 'UTF-8') for i in range(len(header))]
         if header[0] != 'FID' or header[1] != 'IID':
-            raise ValueError('The first two column names must be FID and IID.')
+            raise ValueError('the first two column names must be FID and IID')
+        if len(header) != len(set(header)):
+            raise ValueError('duplicated column names are not allowed')
 
     def _remove_na_inf(self):
         """
-        Removing rows with any missing values
+        Removing rows with any missing/infinite values
 
         """
         bad_idxs = (self.data.isin([np.inf, -np.inf, np.nan])).any(axis=1)
         self.data = self.data.loc[~bad_idxs]
         self.logger.info(
-            f"{sum(bad_idxs)} row(s) with missing or infinite values were removed.")
+            f"Removed {sum(bad_idxs)} row(s) with missing or infinite values.")
 
     def keep(self, idx):
         """
-        Extracting rows using indices
+        Extracting rows using indices (not boolean)
+        the resulting dataset should have the same order as the indices
 
         Parameters:
         ------------
@@ -75,6 +83,8 @@ class Dataset():
 
         """
         self.data = self.data.loc[idx]
+        if len(self.data) == 0:
+            raise ValueError('no data left')
 
 
 class Covar(Dataset):
@@ -83,6 +93,7 @@ class Covar(Dataset):
         Parameters:
         ------------
         dir: diretory to the dataset
+        cat_covar_list: a string of categorical covariates separated by comma
 
         """
         super().__init__(dir)
@@ -90,19 +101,23 @@ class Covar(Dataset):
 
     def cat_covar_intercept(self):
         """
-        Convert categorical covariates to dummy variables,
-        and add the intercept.
+        Converting categorical covariates to dummy variables,
+        and adding the intercept. This step must be done after
+        merging datasets, otherwise some dummy variables might
+        cause singularity.
 
         """
         if self.cat_covar_list is not None:
             catlist = self.cat_covar_list.split(',')
+            self._check_validcatlist(catlist)
             self.logger.info(
                 f"{len(catlist)} categorical variables provided by --cat-covar-list.")
-            self._check_validcatlist(catlist)
-            self._dummy_covar(catlist)
+            self.data = self._dummy_covar(catlist)
+        if not self.data.shape[1] == self.data.select_dtypes(include=np.number).shape[1]:
+            raise ValueError('did you forget some categorical variables?')
         self._add_intercept()
         if self._check_singularity():
-            raise ValueError('The covarite matrix is singular.')
+            raise ValueError('the covarite matrix is singular')
 
     def _check_validcatlist(self, catlist):
         """
@@ -115,7 +130,7 @@ class Covar(Dataset):
         """
         for cat in catlist:
             if cat not in self.data.columns:
-                raise ValueError(f"{cat} cannot be found in the covariates.")
+                raise ValueError(f"{cat} cannot be found in the covariates")
 
     def _dummy_covar(self, catlist):
         """
@@ -128,14 +143,12 @@ class Covar(Dataset):
         """
         covar_df = self.data[catlist]
         qcovar_df = self.data[self.data.columns.difference(catlist)]
-        _, q = covar_df.shape
-        for i in range(q):
-            covar_dummy = pd.get_dummies(covar_df.iloc[:, 0], drop_first=True)
-            if len(covar_dummy) == 0:
-                raise ValueError(f"{covar_df.columns[i]} have only one level.")
-            covar_df = pd.concat([covar_df, covar_dummy], axis=1)
-            covar_df.drop(covar_df.columns[0], inplace=True, axis=1)
-        self.data = pd.concat([covar_df, qcovar_df], axis=1)
+        if not qcovar_df.shape[1] == qcovar_df.select_dtypes(include=np.number).shape[1]:
+            raise ValueError('did you forget some categorical variables?')
+        covar_df = pd.get_dummies(covar_df, drop_first=True).astype(int)
+        data = pd.concat([covar_df, qcovar_df], axis=1)
+
+        return data
 
     def _add_intercept(self):
         """
@@ -160,7 +173,7 @@ class Covar(Dataset):
 
 def get_common_idxs(*idx_list):
     """
-    Get common indices among a list of double indices for individuals.
+    Get common indices among a list of double indices for subjects.
     Each element in the list must be a pd.MultiIndex instance.
 
     """
@@ -168,7 +181,7 @@ def get_common_idxs(*idx_list):
     for idx in idx_list:
         if idx is not None:
             if not isinstance(idx, pd.MultiIndex):
-                raise TypeError('index must be pd.MultiIndex')
+                raise TypeError('index must be a pd.MultiIndex instance')
             if common_idxs is None:
                 common_idxs = idx.copy()
             else:
@@ -186,18 +199,18 @@ def read_geno_part(dir):
     genome_part = pd.read_csv(dir, header=None, sep='\s+', usecols=[0, 1, 2],
                               compression=compression)
     if not (genome_part[0] % 1 == 0).all():
-        raise TypeError(('The 1st column in the genome partition file must be integers. '
-                         'Check if a header is included and/or if chromosome X/Y is included.'))
+        raise TypeError(('the 1st column in the genome partition file must be integers. '
+                         'Check if a header is included and/or if chromosome X/Y is included'))
     if not ((genome_part[1] % 1 == 0) & (genome_part[2] % 1 == 0)).all():
         raise TypeError(
-            ('The 2nd and 3rd columns in the genome partition file must be integers.'))
+            ('the 2nd and 3rd columns in the genome partition file must be integers'))
 
     return genome_part
 
 
 def read_keep(keep_files):
     """
-    Keep common individual IDs from multiple files
+    Keep common subject IDs from multiple files
     All files are confirmed to exist
     Empty files are skipped without error/warning
     Error out if no common IDs exist
@@ -208,7 +221,7 @@ def read_keep(keep_files):
 
     Returns:
     ---------
-    keep_idvs_: pd.MultiIndex of common individuals
+    keep_idvs_: pd.MultiIndex of common subjects
 
     """
     for i, keep_file in enumerate(keep_files):
@@ -230,7 +243,7 @@ def read_keep(keep_files):
             keep_idvs_ = keep_idvs_.intersection(keep_idvs)
 
     if len(keep_idvs_) == 0:
-        raise ValueError('no inviduals are common in --keep')
+        raise ValueError('no subjects are common in --keep')
 
     return keep_idvs_
 

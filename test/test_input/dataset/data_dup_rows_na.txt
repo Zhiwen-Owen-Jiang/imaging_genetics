@@ -1,0 +1,8 @@
+FID IID data
+s1  s1  1
+s2  s2  2
+s3  s3  3
+s3  s3  3
+s4  s4  NA
+NA  s5  5
+s6  s6  6

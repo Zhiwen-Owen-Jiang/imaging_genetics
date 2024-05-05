@@ -1,0 +1,7 @@
+FID	IID	covar1	covar2	covar3
+s1	s1	1	a	a
+s2	s2	2	b	b
+s3	s3	3	b	b
+s4	s4	4	a	a
+s5	s5	5	c	a
+s6	s6	6	c	a

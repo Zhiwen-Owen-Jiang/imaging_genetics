@@ -257,9 +257,7 @@ class OneSample(Estimation):
         self.ld_block_rank = np.zeros(len(self.block_ranges))
         self.ldr_block_gene_cov = np.zeros(
             (len(self.ld_block_rank), self.r, self.r))
-        for i, ((begin, end), ld_block, ld_inv_block) in enumerate(zip(self.block_ranges,
-                                                                       self.ld.data,
-                                                                       self.ld_inv.data)):
+        for i, ((begin, end), ld_block, ld_inv_block) in enumerate(zip(self.block_ranges, self.ld.data, self.ld_inv.data)):
             ld_block_rank, block_gene_cov = self._block_wise_estimate(
                 begin, end, ld_block, ld_inv_block
             )
@@ -357,14 +355,9 @@ class TwoSample(Estimation):
         self.ld_block_rank = np.zeros(len(self.block_ranges))
         self.ldr_block_gene_cov = np.zeros(
             (len(self.ld_block_rank), self.r, self.r))
-        for i, ((begin, end), ld_block, ld_inv_block) in enumerate(zip(self.block_ranges,
-                                                                       self.ld.data,
-                                                                       self.ld_inv.data)):
-            (ld_block_rank,
-             block_gene_var_y2,
-             block_gene_cov,
-             block_gene_cov_y2
-             ) = self._block_wise_estimate(begin, end, ld_block, ld_inv_block)
+        for i, ((begin, end), ld_block, ld_inv_block) in enumerate(zip(self.block_ranges, self.ld.data, self.ld_inv.data)):
+            ld_block_rank, block_gene_var_y2, block_gene_cov, block_gene_cov_y2 = self._block_wise_estimate(
+                begin, end, ld_block, ld_inv_block)
             self.ld_block_rank[i] = ld_block_rank
             y2_block_gene_cov[i] = block_gene_var_y2
             ldr_y2_block_gene_cov_part1[i, :] = block_gene_cov_y2

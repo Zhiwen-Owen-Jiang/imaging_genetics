@@ -3,15 +3,16 @@ import unittest
 import numpy as np
 import pandas as pd
 from numpy.testing import assert_array_equal
-from pandas.testing import assert_frame_equal
+from pandas.testing import assert_frame_equal, assert_index_equal
 
 from heig.input.dataset import (
-    read_keep, 
-    read_geno_part, 
+    read_keep,
+    read_geno_part,
     read_extract,
     Dataset,
     Covar,
-    )
+    get_common_idxs
+)
 from heig.input.genotype import read_plink
 
 
@@ -159,6 +160,117 @@ class Test_read_geno_part(unittest.TestCase):
 
 
 class Test_DataSet(unittest.TestCase):
-    def SetUp(self):
-        self.folder = os.path.join(
+    @classmethod
+    def setUpClass(cls):
+        cls.folder = os.path.join(
             MAIN_DIR, 'test', 'test_input', 'dataset')
+
+    def test_dup_rows_remove_na(self):
+        # there are missing values in data, so it is float
+        true_data = pd.DataFrame({'FID': ['s1', 's2', 's6'],
+                                  'IID': ['s1', 's2', 's6'],
+                                  'data': [1.0, 2.0, 6.0]}).set_index(['FID', 'IID'])
+        data = Dataset(os.path.join(self.folder, 'data_dup_rows_na.txt'))
+        assert_frame_equal(true_data, data.data)
+
+    def test_dup_cols(self):
+        with self.assertRaises(ValueError):
+            Dataset(os.path.join(self.folder, 'data_dup_cols.txt'))
+
+    def test_keep_rows(self):
+        true_data = pd.DataFrame({'FID': ['s6', 's1'],
+                                  'IID': ['s6', 's1'],
+                                  'data': [6.0, 1.0]}).set_index(['FID', 'IID'])
+        data = Dataset(os.path.join(self.folder, 'data_dup_rows_na.txt'))
+        keep_rows = pd.MultiIndex.from_arrays([('s6', 's1'), ('s6', 's1')],
+                                              names=['FID', 'IID'])
+        data.keep(keep_rows)
+        assert_frame_equal(true_data, data.data)
+
+
+class Test_Covar(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.folder = os.path.join(
+            MAIN_DIR, 'test', 'test_input', 'dataset')
+
+    def test_cont_covar(self):
+        # there is no missing value in covar1, so it is int
+        true_data = pd.DataFrame({'FID': ['s1', 's2', 's3'],
+                                  'IID': ['s1', 's2', 's3'],
+                                  0: [1, 1, 1],
+                                  'covar1': [1, 2, 3]}).set_index(['FID', 'IID'])
+        data = Covar(os.path.join(self.folder, 'covar_cont.txt'))
+        data.cat_covar_intercept()
+        print(data.data)
+        assert_frame_equal(true_data, data.data)
+
+    def test_cate_covar(self):
+        # forgot specifying any categorical variables
+        with self.assertRaises(ValueError):
+            data = Covar(os.path.join(self.folder, 'covar_cate.txt'))
+            data.cat_covar_intercept()
+
+        # forgot specifying a categorical variable
+        with self.assertRaises(ValueError):
+            data = Covar(os.path.join(self.folder, 'covar_cate.txt'), 'covar2')
+            data.cat_covar_intercept()
+
+        # wrong syntax to specify a categorical variable
+        with self.assertRaises(ValueError):
+            data = Covar(os.path.join(
+                self.folder, 'covar_cate.txt'), 'covar2.covar3')
+            data.cat_covar_intercept()
+
+        # nonexisting columns
+        with self.assertRaises(ValueError):
+            data = Covar(os.path.join(
+                self.folder, 'covar_cate.txt'), 'covar10')
+            data.cat_covar_intercept()
+
+        # singularity
+        with self.assertRaises(ValueError):
+            data = Covar(os.path.join(
+                self.folder, 'covar_cate_sing.txt'), 'covar2,covar3')
+            data.cat_covar_intercept()
+
+        # correct case
+        true_data = pd.DataFrame({'FID': ['s1', 's2', 's3', 's4', 's5', 's6'],
+                                  'IID': ['s1', 's2', 's3', 's4', 's5', 's6'],
+                                  0: [1, 1, 1, 1, 1, 1],
+                                  'covar2_b': [0, 1, 1, 0, 0, 0],
+                                  'covar2_c': [0, 0, 0, 0, 1, 1],
+                                  'covar3_b': [0, 1, 1, 1, 0, 0],
+                                  'covar1': [1, 2, 3, 4, 5, 6]
+                                  }).set_index(['FID', 'IID'])
+        data = Covar(os.path.join(
+            self.folder, 'covar_cate.txt'), 'covar2,covar3')
+        data.cat_covar_intercept()
+        assert_frame_equal(true_data, data.data)
+
+
+class Test_get_common_idxs(unittest.TestCase):
+    def test_get_common_idxs(self):
+        idxs1 = pd.MultiIndex.from_arrays([('s1', 's2', 's3'), ('s1', 's2', 's3')],
+                                          names=['FID', 'IID'])
+        idxs2 = pd.MultiIndex.from_arrays([('s3', 's4', 's2'), ('s3', 's4', 's2')],
+                                          names=['FID', 'IID'])
+        idxs3 = pd.MultiIndex.from_arrays([('s5', 's6', 's7'), ('s5', 's6', 's7')],
+                                          names=['FID', 'IID'])
+
+        # correct cases
+        true1 = pd.MultiIndex.from_arrays([('s2', 's3'), ('s2', 's3')],
+                                          names=['FID', 'IID'])
+        assert_index_equal(true1, get_common_idxs(idxs1, idxs2))
+
+        true2 = pd.MultiIndex.from_arrays([('s3', 's2'), ('s3', 's2')],
+                                          names=['FID', 'IID'])
+        assert_index_equal(true2, get_common_idxs(idxs2, idxs1, None))
+
+        # specified other data types
+        with self.assertRaises(TypeError):
+            get_common_idxs(idxs2, idxs1, [1, 2, 3])
+
+        # no overlap
+        with self.assertRaises(ValueError):
+            get_common_idxs(idxs1, idxs3)
