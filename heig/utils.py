@@ -1,5 +1,6 @@
 import os
-import gzip, bz2
+import gzip
+import bz2
 import pandas as pd
 import logging
 from functools import reduce
@@ -19,7 +20,8 @@ def GetLogger(logpath):
 
 def sec_to_str(t):
     '''Convert seconds to days:hours:minutes:seconds'''
-    [d, h, m, s, n] = reduce(lambda ll, b : divmod(ll[0], b) + ll[1:], [(t, 1), 60, 60, 24])
+    [d, h, m, s, n] = reduce(lambda ll, b: divmod(
+        ll[0], b) + ll[1:], [(t, 1), 60, 60, 24])
     f = ''
     if d > 0:
         f += '{D}d:'.format(D=d)
@@ -44,7 +46,7 @@ def check_compression(dir):
     ---------
     openfunc: function to open the file
     compression: type of compression
-    
+
     """
     if dir.endswith('gz') or dir.endswith('bgz'):
         compression = 'gzip'
@@ -54,14 +56,10 @@ def check_compression(dir):
         openfunc = bz2.BZ2File
     elif (dir.endswith('zip') or dir.endswith('tar') or
           dir.endswith('tar.gz') or dir.endswith('tar.bz2')):
-        raise ValueError('files with suffix .zip, .tar, .tar.gz, .tar.bz2 are not supported')
+        raise ValueError(
+            'files with suffix .zip, .tar, .tar.gz, .tar.bz2 are not supported')
     else:
         openfunc = open
         compression = None
 
     return openfunc, compression
-
-
-
-
-        

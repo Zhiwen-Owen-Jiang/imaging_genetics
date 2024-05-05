@@ -1,0 +1,28 @@
+PLINK v2.00a3LM 64-bit Intel (18 Jan 2021)
+Options in effect:
+  --bfile plink
+  --maf 0.0001
+  --make-bed
+  --out plink
+
+Hostname: longleaf-login6.its.unc.edu
+Working directory: /work/users/o/w/owenjf/image_genetics/methods/package_pub/test/test_input/plink
+Start time: Sat May  4 20:33:05 2024
+
+Random number seed: 1714869185
+772104 MiB RAM detected; reserving 386052 MiB for main workspace.
+Using up to 72 threads (change this with --threads).
+Warning: --make-bed input and output filenames match.  Appending '~' to input
+filenames.
+20 samples (8 females, 12 males; 20 founders) loaded from plink.fam~.
+10 variants loaded from plink.bim~.
+Note: No phenotype data present.
+Calculating allele frequencies... done.
+1 variant removed due to allele frequency threshold(s)
+(--maf/--max-maf/--mac/--max-mac).
+9 variants remaining after main filters.
+Writing plink.fam ... done.
+Writing plink.bim ... done.
+Writing plink.bed ... done.
+
+End time: Sat May  4 20:33:05 2024

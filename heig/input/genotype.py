@@ -10,8 +10,9 @@ https://github.com/bulik/ldsc
 
 """
 
+
 def __ID_List_Factory__(colnames, keepcol, id_dtypes, fname_end, header=None, usecols=None):
-    
+
     class IDContainer:
         def __init__(self, fname):
             self.__usecols__ = usecols
@@ -36,14 +37,16 @@ def __ID_List_Factory__(colnames, keepcol, id_dtypes, fname_end, header=None, us
                 self.df.columns = self.__colnames__
 
             if self.__keepcol__ is not None:
-                self.IDList = self.df.iloc[:, self.__keepcol__].astype('object')
+                self.IDList = self.df.iloc[:,
+                                           self.__keepcol__].astype('object')
 
     return IDContainer
 
-PlinkBIMFile = __ID_List_Factory__(['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2'], 1, {1: str}, \
-                                    '.bim', usecols=[0, 1, 2, 3, 4, 5])
-PlinkFAMFile = __ID_List_Factory__(['FID', 'IID', 'SEX'], [0, 1], {0: str, 1: str}, \
-                                    '.fam', usecols=[0, 1, 4])
+
+PlinkBIMFile = __ID_List_Factory__(['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2'], 1, {1: str},
+                                   '.bim', usecols=[0, 1, 2, 3, 4, 5])
+PlinkFAMFile = __ID_List_Factory__(['FID', 'IID', 'SEX'], [0, 1], {0: str, 1: str},
+                                   '.fam', usecols=[0, 1, 4])
 # FilterFile = __ID_List_Factory__(['ID'], 0, {0: str}, None, usecols=[0])
 
 
@@ -52,26 +55,28 @@ class __GenotypeArrayInMemory__:
     Parent class for various classes containing inferences for files with genotype
     matrices, e.g., plink .bed files, etc
     '''
+
     def __init__(self, fname, n, snp_list, keep_snps=None, keep_indivs=None, mafMin=None):
-        self.m = len(snp_list.IDList)
+        self.m = len(snp_list)
         self.n = n
         self.keep_snps = keep_snps
         self.keep_indivs = keep_indivs
-        self.df = np.array(snp_list.df[['CHR', 'SNP', 'POS', 'CM']])
-        self.colnames = ['CHR', 'SNP', 'POS', 'CM']
+        self.df = snp_list
+        self.colnames = ['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2']
         self.mafMin = mafMin if mafMin is not None else 0
         self._currentSNP = 0
         (self.nru, self.geno) = self.__read__(fname, n)
-        
+
         if keep_indivs is not None:
             keep_indivs = np.array(keep_indivs, dtype='int')
             if np.any(keep_indivs > self.n):
                 raise ValueError('keep_indivs indices out of bounds')
 
-            (self.geno, self.m, self.n) = self.__filter_indivs__(self.geno, keep_indivs, self.m)
+            (self.geno, self.m, self.n) = self.__filter_indivs__(
+                self.geno, keep_indivs, self.m)
             if self.n <= 0:
                 raise ValueError('After filtering, no individuals remain')
-            
+
         # filter SNPs
         if keep_snps is not None:
             keep_snps = np.array(keep_snps, dtype='int')
@@ -84,18 +89,18 @@ class __GenotypeArrayInMemory__:
         if self.m <= 0:
             raise ValueError('After filtering, no SNPs remain')
 
-        self.df = self.df[self.kept_snps, :]
+        self.df = self.df.loc[self.kept_snps]
         self.maf = np.minimum(self.freq, np.ones(self.m)-self.freq)
         self.sqrtpq = np.sqrt(self.freq*(np.ones(self.m)-self.freq))
-        self.df = np.c_[self.df, self.maf]
+        self.df['MAF'] = self.maf
         self.colnames.append('MAF')
-    
+
     def __read__(self):
         raise NotImplementedError
-    
+
     def __filter_indivs__(self):
         raise NotImplementedError
-    
+
     def __filter_snps_maf__(self):
         raise NotImplementedError
 
@@ -104,6 +109,7 @@ class PlinkBEDFile(__GenotypeArrayInMemory__):
     '''
     Interface for Plink .bed format
     '''
+
     def __init__(self, fname, n, snp_list, keep_snps=None, keep_indivs=None, mafMin=None):
         self._bedcode = {
             2: ba.bitarray('11'),
@@ -113,40 +119,43 @@ class PlinkBEDFile(__GenotypeArrayInMemory__):
         }
 
         __GenotypeArrayInMemory__.__init__(self, fname, n, snp_list, keep_snps=keep_snps,
-            keep_indivs=keep_indivs, mafMin=mafMin)
+                                           keep_indivs=keep_indivs, mafMin=mafMin)
 
     def __read__(self, fname, n):
         if not fname.endswith('.bed'):
             raise ValueError('.bed filename must end in .bed')
 
-        fh = open(fname, 'rb')
-        magicNumber = ba.bitarray(endian='little')
-        magicNumber.fromfile(fh, 2)
-        bedMode = ba.bitarray(endian='little')
-        bedMode.fromfile(fh, 1)
-        e = (4 - n % 4) if n % 4 != 0 else 0
-        nru = n + e
-        self.nru = nru
+        with open(fname, 'rb') as fh:
+            magicNumber = ba.bitarray(endian='little')
+            magicNumber.fromfile(fh, 2)
+            bedMode = ba.bitarray(endian='little')
+            bedMode.fromfile(fh, 1)
+            e = (4 - n % 4) if n % 4 != 0 else 0
+            nru = n + e
+            self.nru = nru
 
-        # check magic number
-        if magicNumber != ba.bitarray('0011011011011000'):
-            raise IOError('Magic number from PLINK .bed file not recognized')
-        
-        if bedMode != ba.bitarray('10000000'):
-            raise IOError('Plink .bed file must be in default SNP-major mode')
+            # check magic number
+            if magicNumber != ba.bitarray('0011011011011000'):
+                raise IOError(
+                    'Magic number from PLINK .bed file not recognized')
 
-        # check file length
-        self.geno = ba.bitarray(endian='little')
-        self.geno.fromfile(fh)
-        self.__test_length__(self.geno, self.m, self.nru)
-        return (self.nru, self.geno)
+            if bedMode != ba.bitarray('10000000'):
+                raise IOError(
+                    'Plink .bed file must be in default SNP-major mode')
+
+            # check file length
+            self.geno = ba.bitarray(endian='little')
+            self.geno.fromfile(fh)
+            self.__test_length__(self.geno, self.m, self.nru)
+            return (self.nru, self.geno)
 
     def __test_length__(self, geno, m, nru):
         exp_len = 2*m*nru
         real_len = len(geno)
         if real_len != exp_len:
-            raise IOError(f"Plink .bed file has {real_len} bits, expected {exp_len}")
-    
+            raise IOError(
+                f"Plink .bed file has {real_len} bits, expected {exp_len}")
+
     def __filter_indivs__(self, geno, keep_indivs, m):
         n_new = len(keep_indivs)
         e = (4 - n_new % 4) if n_new % 4 != 0 else 0
@@ -160,7 +169,7 @@ class PlinkBEDFile(__GenotypeArrayInMemory__):
 
         self.nru = nru_new
         return (z, m, n_new)
-    
+
     def __filter_snps_maf__(self, geno, m, n, mafMin, keep_snps):
         '''
         Credit to Chris Chang and the Plink2 developers for this algorithm
@@ -225,7 +234,7 @@ class PlinkBEDFile(__GenotypeArrayInMemory__):
         '''
         nona_map = {
             2: ba.bitarray('11'),
-            0: ba.bitarray('10'), # na is mapped to 0
+            0: ba.bitarray('10'),  # na is mapped to 0
             1: ba.bitarray('01'),
             0: ba.bitarray('00')
         }
@@ -235,34 +244,35 @@ class PlinkBEDFile(__GenotypeArrayInMemory__):
             mapping = self._bedcode
 
         if self._currentSNP + num > self.m:
-            raise ValueError(f"{num} SNPs requested, {self.m - self._currentSNP} SNPs remain")
+            raise ValueError(
+                f"{num} SNPs requested, {self.m - self._currentSNP} SNPs remain")
 
-        slice = self.geno[2*self._currentSNP*self.nru: 2*(self._currentSNP+num)*self.nru]
-        snps = np.array(slice.decode(mapping), dtype=float).reshape((num, self.nru)).T
-        # snps = snps[0:self.n, :]
+        slice = self.geno[2*self._currentSNP *
+                          self.nru: 2*(self._currentSNP+num)*self.nru]
+        snps = np.array(slice.decode(mapping),
+                        dtype=float).reshape((num, self.nru)).T
+        snps = snps[0:self.n, :]
         self._currentSNP += num
 
         return snps
-    
 
     def gen_SNPs(self):
         """
         Never use it
-        
+
         """
         for c in range(self.m):
-            slice = self.geno[2*c*self.nru : 2*(c+1)*self.nru]
+            slice = self.geno[2*c*self.nru: 2*(c+1)*self.nru]
             X = np.array(slice.decode(self._bedcode), dtype=float)
             X = X[0:self.n]
 
             yield c, X
-            
 
 
 def read_plink(dir, keep_snps=None, keep_indivs=None, maf=None):
     """
     Read plink triplets with a subset of SNPs/individuals
-    
+
     Parameters:
     ------------
     dir: prefix of plink triplets
@@ -284,15 +294,23 @@ def read_plink(dir, keep_snps=None, keep_indivs=None, maf=None):
     array_indivs = ind_obj(ind_file)
     n = len(array_indivs.IDList)
 
-    keep_snps_idxs = array_snps.index[array_snps.IDList['SNP'].isin(keep_snps)]
-    keep_indivs_idxs = array_indivs.index[array_indivs.IDList[['FID', 'IID']].isin(keep_indivs)]
+    if keep_snps is not None:
+        keep_snps_idxs = array_snps.df.index[array_snps.df['SNP'].isin(
+            keep_snps['SNP'])]
+    else:
+        keep_snps_idxs = None
 
-    geno_array = array_obj(array_file, n, array_snps, keep_snps=keep_snps_idxs,
+    array_indivs.df = array_indivs.df.set_index(['FID', 'IID'])
+    if keep_indivs is not None:
+        keep_indivs_idxs = np.array(
+            range(n))[array_indivs.df.index.isin(keep_indivs)]
+        fam = array_indivs.df.loc[keep_indivs]
+    else:
+        keep_indivs_idxs = None
+        fam = array_indivs.df
+
+    geno_array = array_obj(array_file, n, array_snps.df, keep_snps=keep_snps_idxs,
                            keep_indivs=keep_indivs_idxs, mafMin=maf)
     snp_getter = geno_array.nextSNPs
-    
-    if keep_snps is not None:
-        array_snps.df = array_snps.df.loc[keep_snps]
-    array_snps.df['MAF'] = geno_array.df[:, 4].astype(np.float64)
 
-    return array_snps.df, array_indivs.df, snp_getter
+    return geno_array.df, fam, snp_getter

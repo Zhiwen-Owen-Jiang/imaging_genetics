@@ -1,4 +1,4 @@
-import numpy as np 
+import numpy as np
 
 
 class LDSC:
@@ -12,9 +12,8 @@ class LDSC:
         y2_z_ldsc = y2_z[:, 0]
         for j in range(r):
             z_ldsc = z_mat[:, j]
-            self.total_ldsc[j], self.lobo_ldsc[:, j] = self.ldsc(z_ldsc, y2_z_ldsc, n, n1, n2, ldr_heri[j], y2_heri, ld_rank, 
-                             ldscore, block_ranges, merged_blocks)
-
+            self.total_ldsc[j], self.lobo_ldsc[:, j] = self.ldsc(z_ldsc, y2_z_ldsc, n, n1, n2, ldr_heri[j], y2_heri, ld_rank,
+                                                                 ldscore, block_ranges, merged_blocks)
 
     def ldsc(self, gwas1, gwas2, n, n1, n2, h1, h2, ld_rank, ldscore, block_ranges, merged_blocks):
         """
@@ -27,15 +26,17 @@ class LDSC:
         h2: heritability estimate of gwas2
         ldscore: a vector of ld score
         block_ranges: a list of block ranges 
-        
+
         gwas1, gwas2 and ldscore should be aligned, and snps with
         a chisq greater than 80 should be removed
 
         """
         y = gwas1 * gwas2
-        init_h1, init_h2, init_gc, w_ldscore = self._process_input(y, h1, h2, n, n1, n2, ld_rank, ldscore)
-        weights_part1 = (init_h1 * w_ldscore + 1) * (init_h2 * w_ldscore + 1) # don't update
-        weights_part2 = (init_gc * w_ldscore) ** 2 # need to update
+        init_h1, init_h2, init_gc, w_ldscore = self._process_input(
+            y, h1, h2, n, n1, n2, ld_rank, ldscore)
+        weights_part1 = (init_h1 * w_ldscore + 1) * \
+            (init_h2 * w_ldscore + 1)  # don't update
+        weights_part2 = (init_gc * w_ldscore) ** 2  # need to update
         weights = 1 / (weights_part1 + weights_part2)
         weights *= 1 / w_ldscore
         X = np.stack((np.ones(len(ldscore)), ldscore * n / np.mean(n)), axis=1)
@@ -44,23 +45,23 @@ class LDSC:
         for _ in range(2):
             xwx_total, xwy_total = self._wls(y, X, weights)
             coef_total = np.dot(np.linalg.inv(xwx_total), xwy_total)
-            weights = self._update_weights(coef_total, n, ld_rank, w_ldscore, weights_part1)
+            weights = self._update_weights(
+                coef_total, n, ld_rank, w_ldscore, weights_part1)
 
         # compute left-one-block-out WLS
         lobo_ldsc = []
-        for block in merged_blocks: 
+        for block in merged_blocks:
             begin, end = self._block_range(block, block_ranges)
-            xwx_i, xwy_i = self._wls(y[begin: end], X[begin: end], weights[begin: end])
+            xwx_i, xwy_i = self._wls(
+                y[begin: end], X[begin: end], weights[begin: end])
             coef = np.dot(np.linalg.inv(xwx_total - xwx_i), xwy_total - xwy_i)
             lobo_ldsc.append(coef[0])
         lobo_ldsc = np.array(lobo_ldsc)
 
         return coef_total[0], lobo_ldsc
 
-
     def _block_range(self, block, block_ranges):
         return block_ranges[block[0]][0], block_ranges[block[-1]][1]
-
 
     def _process_input(self, y, h1, h2, n, n1, n2, ld_rank, ldscore):
         init_gc = ld_rank * np.mean(y) / np.mean(ldscore * n)
@@ -77,14 +78,12 @@ class LDSC:
 
         return init_h1, init_h2, init_gc, ldscore
 
-
     def _wls(self, y, X, weights):
         X_w = X * weights.reshape(-1, 1)
         xwx = np.dot(X_w.T, X)
         xwy = np.dot(X_w.T, y)
 
         return xwx, xwy
-
 
     def _update_weights(self, coef, n, ld_rank, w_ldscore, weights_part1):
         rho_g = coef[1] * ld_rank / np.mean(n)
@@ -96,12 +95,11 @@ class LDSC:
 
         return weights
 
-
     def _remove_snps_chisq80(self, gwas):
         """
         gwas is a vector of Z score
 
         """
-        gwas[gwas > np.sqrt(80)] = 0 # TODO: be cautious
-        
+        gwas[gwas > np.sqrt(80)] = 0  # TODO: be cautious
+
         return np.array(gwas)
