@@ -251,7 +251,7 @@ class PlinkBEDFile(__GenotypeArrayInMemory__):
                           self.nru: 2*(self._currentSNP+num)*self.nru]
         snps = np.array(slice.decode(mapping),
                         dtype=float).reshape((num, self.nru)).T
-        snps = snps[0:self.n, :]
+        snps = snps[:self.n]
         self._currentSNP += num
 
         return snps
@@ -282,7 +282,8 @@ def read_plink(dir, keep_snps=None, keep_indivs=None, maf=None):
 
     Returns:
     ---------
-    array_snps.df: pd.DataFrame of bim file
+    geno_array.df: pd.DataFrame of bim file
+    fam: pd.DataFrame of fam file
     snp_getter: a generator of SNPs
 
     """

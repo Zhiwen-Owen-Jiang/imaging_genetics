@@ -185,10 +185,10 @@ def read_geno_part(dir):
     _, compression = utils.check_compression(dir)
     genome_part = pd.read_csv(dir, header=None, sep='\s+', usecols=[0, 1, 2],
                               compression=compression)
-    if not pd.api.types.is_integer_dtype(genome_part[0]):
+    if not (genome_part[0] % 1 == 0).all():
         raise TypeError(('The 1st column in the genome partition file must be integers. '
                          'Check if a header is included and/or if chromosome X/Y is included.'))
-    if not pd.api.types.is_integer_dtype(genome_part[[1, 2]]):
+    if not ((genome_part[1] % 1 == 0) & (genome_part[2] % 1 == 0)).all():
         raise TypeError(
             ('The 2nd and 3rd columns in the genome partition file must be integers.'))
 

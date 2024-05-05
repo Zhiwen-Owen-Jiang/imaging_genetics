@@ -7,7 +7,8 @@ old_version/
 # test output
 test_output/
 
-heig/__pycache__
+# __pycache__
+__pycache__/
 
 # slurm
 slurm*
