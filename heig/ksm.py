@@ -7,7 +7,7 @@ import nibabel as nib
 from tqdm import tqdm
 from numpy.linalg import inv
 from scipy.sparse import csc_matrix, csr_matrix, dok_matrix, hstack
-from heig import utils
+import heig.input.dataset as ds
 
 
 class KernelSmooth:
@@ -15,9 +15,8 @@ class KernelSmooth:
         """
         Parameters:
         ------------
-        ld_prefix: prefix of LD matrix file 
-        data (n * N): raw imaging data
-        coord (N * d): coordinates of points.
+        data (n, N): raw imaging data
+        coord (N, dim): coordinates
 
         """
         self.data = data
@@ -31,12 +30,11 @@ class KernelSmooth:
 
         Parameters:
         ------------
-        x: vector or matrix in coordinate matrix
-        bw (1 * 1): bandwidth 
+        x: a np.array of coordinates
 
         Returns:
         ---------
-        Gaussian kernel function
+        gau_k: Gaussian density
 
         """
         gau_k = 1 / np.sqrt(2 * np.pi) * np.exp(-0.5 * x ** 2)
@@ -52,12 +50,12 @@ class KernelSmooth:
 
         Parameters:
         ------------
-        bw_list: a list of candidate bandwidths 
+        bw_list: a array of candidate bandwidths 
         log: a logger 
 
         Returns:
         ---------
-        The optimal bandwidth
+        bw_opt: the optimal bandwidth
 
         """
         score = np.zeros(len(bw_list))
@@ -89,7 +87,7 @@ class KernelSmooth:
 
     def bw_cand(self):
         """
-        Generating a list of candidate bandwidths
+        Generating a array of candidate bandwidths
 
         """
         bw_raw = self.N ** (-1 / (4 + self.d))
@@ -113,12 +111,13 @@ class LocalLinear(KernelSmooth):
 
         Parameters:
         ------------
-        bw (d * 1): bandwidth for d dimension
+        bw (dim, 1): bandwidth for dim dimension
 
         Returns:
         ---------
-        An Boolean variable that the bandwidth is valid to make the weight matrix sparse;
-        the smooothed data, and the sparse weights.
+        True/False: if the bandwidth is able to make the weight matrix sparse
+        sm_data (n, N): smooothed imaging data
+        sparse_sm_weight (N, N): sparse kernel smoothing weights
 
         """
         sparse_sm_weight = dok_matrix((self.N, self.N), dtype=np.float32)
@@ -140,7 +139,7 @@ class LocalLinear(KernelSmooth):
         nonzero_weights = np.sum(sparse_sm_weight != 0, axis=0)
         if np.mean(nonzero_weights) > self.N // 10:
             self.logger.info((f"On average, the non-zero weight for each voxel "
-                              "are greater than {self.N // 10}. "
+                              f"are greater than {self.N // 10}. "
                               "Skip this bandwidth."))
             return False, None, None
 
@@ -148,29 +147,65 @@ class LocalLinear(KernelSmooth):
         return True, sm_data, sparse_sm_weight
 
 
-def get_image_list(img_dirs, suffixes, keep_idvs=None):
+def get_image_list(img_dirs, suffixes, log, keep_idvs=None):
+    """
+    Getting file path of images from multiple directories.
+
+    Parameters:
+    ------------
+    img_dirs: a list of directories
+    suffixes: a list of suffixes of images
+    log: a logger
+    keep_idvs: a pd.MultiIndex instance of IDs (FID, IID)
+
+    Returns:
+    ---------
+    ids: a pd.MultiIndex instance of IDs
+    img_files_list: a list of image files to read
+
+    """
     img_files = {}
+    n_dup = 0
 
     for img_dir, suffix in zip(img_dirs, suffixes):
         for img_file in os.listdir(img_dir):
             img_id = img_file.replace(suffix, '')
-            img_id = (img_id)
             if (img_file.endswith(suffix) and ((keep_idvs is not None and img_id in keep_idvs) or
                                                (keep_idvs is None))):
-                img_files[img_id] = os.path.join(img_dir, img_file)
+                if img_id in img_files:
+                    n_dup += 1
+                else:
+                    img_files[img_id] = os.path.join(img_dir, img_file)
     img_files = dict(sorted(img_files.items()))
     ids = pd.MultiIndex.from_arrays(
         [img_files.keys(), img_files.keys()], names=['FID', 'IID'])
+    img_files_list = list(img_files.values())
+    if n_dup > 0:
+        log.info(
+            f'WARNING: {n_dup} duplicated subjects. Keep the first appeared one.')
 
-    return ids, list(img_files.values())
+    return ids, img_files_list
 
 
 def load_nifti(img_files):
+    """
+    Load NifTi images.
+    
+    Parameters:
+    ------------
+    img_files: a list of image files
+
+    Returns:
+    ---------
+    images (n, N): a np.array of imaging data
+    coord (N, dim): a np.array of coordinates
+    
+    """
     try:
         img = nib.load(img_files[0])
     except:
-        raise ValueError(('Cannot read the image, did you provide FreeSurfer images '
-                          'but forget to provide a Freesurfer surface mesh?'))
+        raise ValueError(('cannot read the image, did you provide FreeSurfer images '
+                          'but forget to provide a Freesurfer surface mesh file?'))
 
     for i, img_file in enumerate(tqdm(img_files, desc=f'Loading {len(img_files)} images')):
         img = nib.load(img_file)
@@ -186,31 +221,47 @@ def load_nifti(img_files):
 
 
 def load_freesurfer(img_files, coord):
+    """
+    Load freeSurfer outputs.
+
+    Parameters:
+    ------------
+    img_files: a list of image files
+    coord (N, dim): a np.array of coordinates 
+
+    Returns:
+    ---------
+    images (n, N): a np.array of imaging data
+    
+    """
     for i, img_file in enumerate(tqdm(img_files, desc=f'Loading {len(img_files)} images')):
         data = nib.freesurfer.read_morph_data(img_file)
         if i == 0:
             images = np.zeros((len(img_files), len(data)), dtype=np.float32)
+            if coord.shape[0] != images.shape[1]:
+                raise ValueError(('the FreeSurfer surface mesh data and morphometry data '
+                                  'have inconsistent coordinates'))
+        if len(data) != images.shape[1]:
+            raise ValueError('images have inconsistent resolution')
         images[i] = data
-    if coord.shape[0] != images.shape[1]:
-        raise ValueError(('The FreeSurfer surface mesh data and morphometry data '
-                          'have inconsistent coordinates.'))
 
-    return images, coord
+    return images
 
 
 def do_kernel_smoothing(data, coord, bw_opt, log):
     """
-    A wrap function for doing kernel smoothing
+    A wrap function for doing kernel smoothing.
 
     Parameters:
     ------------
-    data (n * N): an np.array of imaging data
-    coord (N * d): an np.array of coordinate 
+    data (n, N): a np.array of imaging data
+    bw_opt (1, ): a scalar of optimal bandwidth
+    coord (N, dim): a np.array of coordinate 
+    log: a logger
 
     Returns:
     ---------
-    values: eigenvalues
-    bases: eigenfunctions
+    sm_data (n, N): smoothed and centered imaging data
 
     """
     ks = LocalLinear(data, coord)
@@ -225,13 +276,24 @@ def do_kernel_smoothing(data, coord, bw_opt, log):
     _, sm_data, _ = ks.smoother(bw_opt)
     if not isinstance(sm_data, np.ndarray):
         raise ValueError(
-            'The bandwidth provided by --bw-opt may be problematic.')
+            'the bandwidth provided by --bw-opt may be problematic')
     sm_data = sm_data - np.mean(sm_data, axis=0)
 
     return sm_data
 
 
 def save_images(out, images, coord, id):
+    """
+    Save imaging data to a HDF5 file.
+
+    Parameters:
+    ------------
+    out: prefix of output
+    images (n, N): a np.array of imaging data
+    coord (N, dim): a np.array of coordinate 
+    id: a pd.MultiIndex instance of IDs (FID, IID)
+    
+    """
     with h5py.File(f'{out}.h5', 'w') as file:
         dset = file.create_dataset('images', data=images)
         file.create_dataset('id', data=np.array(id.tolist(), dtype='S10'))
@@ -242,21 +304,21 @@ def save_images(out, images, coord, id):
 
 def check_input(args):
     if args.image_dir is None:
-        raise ValueError('--image-dir is required.')
+        raise ValueError('--image-dir is required')
     if args.image_suffix is None:
-        raise ValueError('--image-suffix is required.')
+        raise ValueError('--image-suffix is required')
     if args.bw_opt is not None and args.bw_opt <= 0:
-        raise ValueError('--bw-opt should be positive.')
+        raise ValueError('--bw-opt should be positive')
 
     args.image_dir = args.image_dir.split(',')
     args.image_suffix = args.image_suffix.split(',')
     if len(args.image_dir) != len(args.image_suffix):
-        raise ValueError('--image-dir and --image-suffix do not match.')
+        raise ValueError('--image-dir and --image-suffix do not match')
     for image_dir in args.image_dir:
         if not os.path.exists(image_dir):
-            raise FileNotFoundError(f"{image_dir} does not exist.")
+            raise FileNotFoundError(f"{image_dir} does not exist")
     if args.surface_mesh is not None and not os.path.exists(args.surface_mesh):
-        raise FileNotFoundError(f"{args.surface_mesh} does not exist.")
+        raise FileNotFoundError(f"{args.surface_mesh} does not exist")
 
     return args
 
@@ -267,14 +329,14 @@ def run(args, log):
 
     # subjects to keep
     if args.keep is not None:
-        keep_idvs = utils.read_keep(args.keep)
+        keep_idvs = ds.read_keep(args.keep)
         log.info(f'{len(keep_idvs)} subjects are common in --keep.')
     else:
         keep_idvs = None
 
     # read images
     ids, img_files = get_image_list(
-        args.image_dir, args.image_suffix, keep_idvs)
+        args.image_dir, args.image_suffix, log, keep_idvs)
     if args.surface_mesh is not None:
         coord = nib.freesurfer.read_geometry(args.surface_mesh)[0]
         images = load_freesurfer(img_files, coord)
