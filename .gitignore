@@ -24,5 +24,8 @@ simulate*
 # shared data
 shared_data/
 
+# zenodo tools
 zenodo-upload/
 
+# hail logs
+hail*

@@ -256,7 +256,7 @@ def run(args, log):
     bases = np.load(args.bases)
     log.info(f'{bases.shape[1]} bases read from {args.bases}')
     if bases.shape[1] < args.n_ldrs:
-        raise ValueError('The number of bases is less than the number of LDR.')
+        raise ValueError('the number of bases is less than the number of LDR')
     ldrs = ldrs.data[:, :args.n_ldrs]
     bases = bases[:, :args.n_ldrs]
 
@@ -264,12 +264,12 @@ def run(args, log):
     inner_ldr = np.load(args.inner_ldr)
     if inner_ldr.shape[0] < args.n_ldrs or inner_ldr.shape[1] < args.n_ldrs:
         raise ValueError(
-            'The dimension of inner product of LDR is less than the number of LDR.')
+            'the dimension of inner product of LDR is less than the number of LDR')
     inner_ldr = inner_ldr[:args.n_ldrs, :args.n_ldrs]
     log.info(f'Keep the top {args.n_ldrs} LDRs.\n')
 
     # read covar
-    covar = ds.Covar(args.covar)
+    covar = ds.Covar(args.covar, args.cat_covar_list)
 
     # get variant set
     vset = vset_reader()

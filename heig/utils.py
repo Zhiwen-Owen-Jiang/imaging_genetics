@@ -10,6 +10,7 @@ def GetLogger(logpath):
     log = logging.getLogger()
     log.setLevel(logging.INFO)
     fh = logging.FileHandler(logpath, mode='w')
+    # fh.setLevel(logging.INFO)
     log.addHandler(fh)
     sh = logging.StreamHandler()
     sh.setLevel(logging.INFO)

@@ -19,37 +19,37 @@ def recover_se(bases, inner_ldr, n, ldr_beta, ztz_inv):
 def check_input(args, log):
     # required arguments
     if args.ldr_sumstats is None:
-        raise ValueError('--ldr-sumstats is required.')
+        raise ValueError('--ldr-sumstats is required')
     if args.bases is None:
-        raise ValueError('--bases is required.')
+        raise ValueError('--bases is required')
     if args.inner_ldr is None:
-        raise ValueError('--inner-ldr is required.')
+        raise ValueError('--inner-ldr is required')
 
     # optional arguments
     if args.range is not None and args.extract is not None:
         log.info('WARNING: --extract will be ignored if --range is provided.')
         args.extract = None
     if args.n_ldrs is not None and args.n_ldrs <= 0:
-        raise ValueError('--n-ldrs should be greater than 0.')
+        raise ValueError('--n-ldrs should be greater than 0')
     if args.voxel is not None and args.voxel < 0:
-        raise ValueError('--voxel should be nonnegative.')
+        raise ValueError('--voxel should be nonnegative')
     if args.range is None and args.voxel is None and args.sig_thresh is None and args.extract is None:
-        raise ValueError(('Generating all voxelwise summary statistics will require large disk memory. '
-                          'Specify a p-value threshold by --sig-thresh to screen out insignificant results.'))
+        raise ValueError(('generating all voxelwise summary statistics will require large disk memory. '
+                          'Specify a p-value threshold by --sig-thresh to screen out insignificant results'))
     if args.sig_thresh is not None and (args.sig_thresh <= 0 or args.sig_thresh >= 1):
         raise ValueError(
-            '--sig-thresh should be greater than 0 and less than 1.')
+            '--sig-thresh should be greater than 0 and less than 1')
 
     # required files must exist
     if not os.path.exists(f"{args.ldr_sumstats}.snpinfo"):
-        raise FileNotFoundError(f"{args.ldr_sumstats}.snpinfo does not exist.")
+        raise FileNotFoundError(f"{args.ldr_sumstats}.snpinfo does not exist")
     if not os.path.exists(f"{args.ldr_sumstats}.sumstats"):
         raise FileNotFoundError(
-            f"{args.ldr_sumstats}.sumstats does not exist.")
+            f"{args.ldr_sumstats}.sumstats does not exist")
     if not os.path.exists(args.bases):
-        raise FileNotFoundError(f"{args.bases} does not exist.")
+        raise FileNotFoundError(f"{args.bases} does not exist")
     if not os.path.exists(args.inner_ldr):
-        raise FileNotFoundError(f"{args.inner_ldr} does not exist.")
+        raise FileNotFoundError(f"{args.inner_ldr} does not exist")
 
     # process some arguments
     if args.range is not None:
@@ -59,13 +59,13 @@ def check_input(args, log):
             end_chr, end_pos = [int(x) for x in end.split(':')]
         except:
             raise ValueError(
-                '--range should be in this format: 3:1000000,3:2000000.')
+                '--range should be in this format: 3:1000000,3:2000000')
         if start_chr != end_chr:
-            raise ValueError((f'The start chromosome is {start_chr} while the end chromosome is {end_chr}, '
-                              'which is not allowed.'))
+            raise ValueError((f'the start chromosome is {start_chr} while the end chromosome is {end_chr}, '
+                              'which is not allowed'))
         if start_pos > end_pos:
-            raise ValueError((f'The start position is {start_pos} while the end position is {end_pos}, '
-                              'which is not allowed.'))
+            raise ValueError((f'the start position is {start_pos} while the end position is {end_pos}, '
+                              'which is not allowed'))
     else:
         start_chr, start_pos, end_chr, end_pos = None, None, None, None
 
@@ -108,7 +108,7 @@ def run(args, log):
             outpath += f"_voxel{args.voxel}"
             log.info(f'Keep the voxel {args.voxel}.')
         else:
-            raise ValueError('--voxel index out of range.')
+            raise ValueError('--voxel index out of range')
     else:
         voxel_list = range(bases.shape[0])
 

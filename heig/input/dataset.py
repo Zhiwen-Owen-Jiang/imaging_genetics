@@ -86,6 +86,14 @@ class Dataset():
         if len(self.data) == 0:
             raise ValueError('no data left')
 
+    def to_single_index(self):
+        """
+        Using only the IID as index for compatible with hail
+
+        """
+        self.data = self.data.reset_index(level=0, drop=True)
+        self.data.reset_index(inplace=True)
+
 
 class Covar(Dataset):
     def __init__(self, dir, cat_covar_list=None):
@@ -156,8 +164,9 @@ class Covar(Dataset):
 
         """
         n = self.data.shape[0]
-        const = pd.Series(np.ones(n), index=self.data.index, dtype=int)
-        self.data = pd.concat([const, self.data], axis=1)
+        # const = pd.Series(np.ones(n), index=self.data.index, dtype=int)
+        # self.data = pd.concat([const, self.data], axis=1)
+        self.data.insert(0, 'intercept', np.ones(n))
 
     def _check_singularity(self):
         """

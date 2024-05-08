@@ -1,10 +1,15 @@
-import os, time, argparse, traceback, numexpr
+import os
+import time
+import argparse
+import traceback
+import numexpr
 import heig.sumstats as sumstats
 import heig.herigc as herigc
 import heig.ksm as ksm
 import heig.fpca as fpca
 import heig.ldmatrix as ldmatrix
 import heig.voxelgwas as voxelgwas
+import heig.gwas as gwas
 from heig.utils import GetLogger, sec_to_str
 
 
@@ -23,18 +28,26 @@ MASTHEAD += f"* Correspondence: owenjf@live.unc.edu, zhiwenowenjiang@gmail.com\n
 MASTHEAD += "******************************************************************************\n"
 
 
-
-parser = argparse.ArgumentParser(description='\n Highly-Efficient Imaging Genetics (HEIG)')
+parser = argparse.ArgumentParser(
+    description='\n Highly-Efficient Imaging Genetics (HEIG)')
 
 common_parser = parser.add_argument_group(title="Common arguments")
-herigc_parser = parser.add_argument_group(title="Arguments specific to heritability and (cross-trait) genetic correlation analysis")
-ksm_parser = parser.add_argument_group(title="Arguments specific to Kernel smoothing")
-fpca_parser = parser.add_argument_group(title="Arguments specific to functional PCA")
-makeld_parser = parser.add_argument_group(title="Arguments specific to making an LD matrix and its inverse")
-sumstats_parser = parser.add_argument_group(title="Arguments specific to organizing and preprocessing GWAS summary statistics")
-voxelgwas_parser = parser.add_argument_group(title="Arguments specific to recovering voxel-level GWAS results")
+herigc_parser = parser.add_argument_group(
+    title="Arguments specific to heritability and (cross-trait) genetic correlation analysis")
+ksm_parser = parser.add_argument_group(
+    title="Arguments specific to Kernel smoothing")
+fpca_parser = parser.add_argument_group(
+    title="Arguments specific to functional PCA")
+makeld_parser = parser.add_argument_group(
+    title="Arguments specific to making an LD matrix and its inverse")
+sumstats_parser = parser.add_argument_group(
+    title="Arguments specific to organizing and preprocessing GWAS summary statistics")
+voxelgwas_parser = parser.add_argument_group(
+    title="Arguments specific to recovering voxel-level GWAS results")
+gwas_parser = parser.add_argument_group(
+    title="Arguments specific to doing genome-wide association analysis")
 
-## module arguments
+# module arguments
 herigc_parser.add_argument('--heri-gc', action='store_true',
                            help='Heritability and (cross-trait) genetic correlation analysis.')
 ksm_parser.add_argument('--kernel-smooth', action='store_true',
@@ -47,55 +60,65 @@ sumstats_parser.add_argument('--sumstats', action='store_true',
                              help='Organizing and preprocessing GWAS summary statistics.')
 voxelgwas_parser.add_argument('--voxel-gwas', action='store_true',
                               help='Recovering voxel-level GWAS results.')
+gwas_parser.add_argument('--gwas', action='store_true',
+                         help='Doing genome-wide association analysis.')
 
-## common arguments
-common_parser.add_argument('--out', 
+# common arguments
+common_parser.add_argument('--out',
                            help='Prefix of output.')
-common_parser.add_argument('--n-ldrs', type=int, 
+common_parser.add_argument('--n-ldrs', type=int,
                            help='Number of LDRs. Supported modules: --heri-gc, --fpca, --voxel-gwas.')
-common_parser.add_argument('--ldr-sumstats', 
+common_parser.add_argument('--ldr-sumstats',
                            help=('Prefix of preprocessed LDR GWAS summary statistics. '
                                  'Supported modules: --heri-gc, --voxel-gwas.'))
-common_parser.add_argument('--bases', 
+common_parser.add_argument('--bases',
                            help='Directory to functional bases. Supported modules: --heri-gc, --voxel-gwas.')
-common_parser.add_argument('--inner-ldr', 
+common_parser.add_argument('--inner-ldr',
                            help='Directory to inner product of LDRs. Supported modules: --heri-gc, --voxel-gwas.')
-common_parser.add_argument('--keep', 
+common_parser.add_argument('--keep',
                            help=('Individual file(s). Multiple files are separated by comma. '
                                  'Each file should be tab or space delimited, '
                                  'with the first column being FID and the second column being IID. '
                                  'Other columns will be ignored. '
                                  'Each row contains only one subject. '
                                  'Supported modules: --kernel-smooth, --fpca, --make-ld.'))
-common_parser.add_argument('--extract', 
+common_parser.add_argument('--extract',
                            help=('SNP file(s). Multiple files are separated by comma. '
                                  'Each file should be tab or space delimited, '
                                  'with the first column being rsID. '
                                  'Other columns will be ignored. '
                                  'Each row contains only one SNP. '
                                  'Supported modules: --heri-gc, --make-ld, --voxel-gwas.'))
-common_parser.add_argument('--maf-min', type=float, 
-                             help=('Minimum minor allele frequency for screening SNPs. '
-                                   'Supported modules: --make-ld, --sumstats.'))
+common_parser.add_argument('--maf-min', type=float,
+                           help=('Minimum minor allele frequency for screening SNPs. '
+                                 'Supported modules: --make-ld, --sumstats.'))
+common_parser.add_argument('--covar',
+                           help='Directory to covariate file.')
+common_parser.add_argument('--cat-covar-list',
+                           help='List of categorical covariates to include in the analysis. '
+                           'Each covariate is separated by a comma.')
+common_parser.add_argument('--bfile',
+                           help=('Prefix of PLINK bfile triplets for LD matrix and its inverse. '
+                                 'Two prefices should be seperated by a comma, e.g., `file1,file2` .'))
 
-## arguments for heri_gc.py
-herigc_parser.add_argument('--ld-inv', 
+# arguments for heri_gc.py
+herigc_parser.add_argument('--ld-inv',
                            help=('Prefix of inverse LD matrix. Multiple matrices can be specified using {}, '
                                  'e.g., `ld_inv_chr{1:22}`.'))
-herigc_parser.add_argument('--ld', 
+herigc_parser.add_argument('--ld',
                            help=('Prefix of LD matrix. Multiple matrices can be specified using {}, '
                                  'e.g., `ld_chr{1:22}`.'))
-herigc_parser.add_argument('--y2-sumstats', 
+herigc_parser.add_argument('--y2-sumstats',
                            help='Prefix of preprocessed GWAS summary statistics of non-imaging traits.')
-herigc_parser.add_argument('--overlap', action='store_true', 
+herigc_parser.add_argument('--overlap', action='store_true',
                            help=('Flag for indicating sample overlap between LDR summary statistics '
                                  'and non-imaging summary statistics. Only effective if --y2-sumstats is specified.'))
-herigc_parser.add_argument('--heri-only', action='store_true', 
+herigc_parser.add_argument('--heri-only', action='store_true',
                            help=('Flag for only computing voxelwise heritability '
                                  'but not voxelwise genetic correlation within images.'))
 
-## arguments for ksm.py
-ksm_parser.add_argument('--image-dir', 
+# arguments for ksm.py
+ksm_parser.add_argument('--image-dir',
                         help=('Directory to images. All images in the directory with matched suffix '
                               '(see --image-suffix) and will be loaded. '
                               'Multiple directories can be specified and separated by comma. '
@@ -103,7 +126,7 @@ ksm_parser.add_argument('--image-dir',
                               'The supported formats include all those that can be loaded by '
                               'nibabel.load(), such as .nii, .nii.gz, .mgh, .mgz, etc. '
                               'And FreeSurfer morphometry data file.'))
-ksm_parser.add_argument('--image-suffix', 
+ksm_parser.add_argument('--image-suffix',
                         help=('Suffix of images. HEIG requires the name of each image being <ID><suffix>, '
                               'e.g., `1000001_masked_FAskel.nii.gz`, where `1000001` is the ID '
                               'and `_masked_FAskel.nii.gz` is the suffix. '
@@ -112,32 +135,24 @@ ksm_parser.add_argument('--image-suffix',
 ksm_parser.add_argument('--surface-mesh',
                         help=('Directory to FreeSurfer surface mesh data. '
                               'Required if loading FreeSurfer morphometry data files.'))
-ksm_parser.add_argument('--bw-opt', type=float, 
+ksm_parser.add_argument('--bw-opt', type=float,
                         help=('The bandwidth you want to use, '
                               'then the program will skip searching the optimal bandwidth. '
                               'For images of any dimension, just specify one number, e.g, 0.5'))
 
-## arguments for fpca.py
-fpca_parser.add_argument('--image', 
+# arguments for fpca.py
+fpca_parser.add_argument('--image',
                          help='Directory to processed raw images in HDF5 format.')
-fpca_parser.add_argument('--sm-image', 
+fpca_parser.add_argument('--sm-image',
                          help='Directory to processed smoothed images in HDF5 format.')
-fpca_parser.add_argument('--covar', 
-                         help='Directory to covariate file.')
-fpca_parser.add_argument('--cat-covar-list', 
-                         help='List of categorical covariates to include in the analysis. '
-                         'Each covariate is separated by a comma.')
-fpca_parser.add_argument('--prop', type=float, 
+fpca_parser.add_argument('--prop', type=float,
                          help='Proportion of imaging signals to keep, must be a number between 0 and 1.')
-fpca_parser.add_argument('--all', action='store_true', 
+fpca_parser.add_argument('--all', action='store_true',
                          help=('Flag for generating all components which is min(n_subs, n_voxels), '
                                'which may take longer time very memory consuming.'))
 
-## arguments for make_ld.py
-makeld_parser.add_argument('--bfile', 
-                           help=('Prefix of PLINK bfile triplets for LD matrix and its inverse. '
-                                 'Two prefices should be seperated by a comma, e.g., `file1,file2` .'))
-makeld_parser.add_argument('--partition', 
+# arguments for make_ld.py
+makeld_parser.add_argument('--partition',
                            help=('Genome partition file. '
                                  'The file should be tab or space delimited without header, '
                                  'with the first column being chromosome, '
@@ -149,55 +164,67 @@ makeld_parser.add_argument('--ld-regu',
                                  'Two values should be separated by a comma, '
                                  'e.g., `0.85,0.80`'))
 
-## arguments for munge_sumstats.py
-sumstats_parser.add_argument('--ldr-gwas', 
+# arguments for munge_sumstats.py
+sumstats_parser.add_argument('--ldr-gwas',
                              help=('Raw LDR GWAS summary statistics. '
                                    'Multiple files can be speficied using {:}, e.g., `ldr_gwas{1:10}.txt`'))
-sumstats_parser.add_argument('--y2-gwas', 
+sumstats_parser.add_argument('--y2-gwas',
                              help='Raw non-imaging GWAS summary statistics.')
-sumstats_parser.add_argument('--n', type=float, 
+sumstats_parser.add_argument('--n', type=float,
                              help='Sample size. A positive number.')
-sumstats_parser.add_argument('--n-col', 
+sumstats_parser.add_argument('--n-col',
                              help='Sample size column.')
-sumstats_parser.add_argument('--chr-col', 
+sumstats_parser.add_argument('--chr-col',
                              help='Chromosome column.')
-sumstats_parser.add_argument('--pos-col', 
+sumstats_parser.add_argument('--pos-col',
                              help='Position column.')
-sumstats_parser.add_argument('--snp-col', 
+sumstats_parser.add_argument('--snp-col',
                              help='SNP column.')
-sumstats_parser.add_argument('--a1-col', 
+sumstats_parser.add_argument('--a1-col',
                              help='A1 column. The effective allele.')
-sumstats_parser.add_argument('--a2-col', 
+sumstats_parser.add_argument('--a2-col',
                              help='A2 column. The non-effective allele.')
-sumstats_parser.add_argument('--effect-col', 
+sumstats_parser.add_argument('--effect-col',
                              help=('Genetic effect column, usually beta or odds ratio, '
                                    'should be specified in this format `BETA,0` where '
                                    'BETA is the column name and 0 is the null value. '
                                    'For odds ratio, the null value is 1.'))
-sumstats_parser.add_argument('--se-col', 
+sumstats_parser.add_argument('--se-col',
                              help='Standard error column.')
-sumstats_parser.add_argument('--z-col', 
+sumstats_parser.add_argument('--z-col',
                              help='Z score column.')
-sumstats_parser.add_argument('--p-col', 
+sumstats_parser.add_argument('--p-col',
                              help='p-Value column.')
-sumstats_parser.add_argument('--maf-col', 
+sumstats_parser.add_argument('--maf-col',
                              help='Minor allele frequency column.')
-sumstats_parser.add_argument('--info-col', 
+sumstats_parser.add_argument('--info-col',
                              help='INFO score column.')
-sumstats_parser.add_argument('--info-min', type=float, 
+sumstats_parser.add_argument('--info-min', type=float,
                              help='Minimum INFO score for screening SNPs.')
 
-## arguments for voxel_gwas.py
-voxelgwas_parser.add_argument('--sig-thresh', type=float, 
+# arguments for voxel_gwas.py
+voxelgwas_parser.add_argument('--sig-thresh', type=float,
                               help=('Significance p-value threshold, '
                                     'can be specified in a decimal 0.00000005 '
                                     'or in scientific notation 5e-08'))
-voxelgwas_parser.add_argument('--voxel', type=int, 
+voxelgwas_parser.add_argument('--voxel', type=int,
                               help='0 based index of voxel.')
-voxelgwas_parser.add_argument('--range', 
+voxelgwas_parser.add_argument('--range',
                               help=('A segment of chromosome, e.g. `3:1000000,3:2000000` '
                                     'means from chromosome 3 bp 1000000 to chromosome 3 bp 2000000. '
                                     'Cross chromosome is not allowed.'))
+
+# arguments for gwas.py
+gwas_parser.add_argument('--ldrs',
+                         help='LDR file.')
+gwas_parser.add_argument('--grch37', action='store_true',
+                         help='Using reference genome GRCh37. Otherwise using GRCh38.')
+gwas_parser.add_argument('--threads', type=int,
+                         help='Number of computational threads to use.')
+gwas_parser.add_argument('--mem', type=int,
+                         help='RAM to use (GB).')
+gwas_parser.add_argument('--geno-mt',
+                         help='MatrixTable of genotype.')
 
 
 def split_files(arg):
@@ -208,7 +235,6 @@ def split_files(arg):
     return files
 
 
-
 def main(args, log):
     if args.out is None:
         args.out = 'heig'
@@ -216,9 +242,9 @@ def main(args, log):
         dirname = os.path.dirname(args.out)
         if dirname != '' and not os.path.exists(dirname):
             raise ValueError(f'{os.path.dirname(args.out)} does not exist.')
-    if args.heri_gc + args.kernel_smooth + args.fpca + args.ld_matrix + args.sumstats + args.voxel_gwas != 1:
+    if args.heri_gc + args.kernel_smooth + args.fpca + args.ld_matrix + args.sumstats + args.voxel_gwas + args.gwas != 1:
         raise ValueError(('You must raise one and only one of following flags: '
-                          '--heri-gc, --kernel-smooth, --fpca, --ld-matrix, --sumstats, --voxel-gwas.'))
+                          '--heri-gc, --kernel-smooth, --fpca, --ld-matrix, --sumstats, --voxel-gwas, --gwas.'))
     if args.keep is not None:
         args.keep = split_files(args.keep)
     if args.extract is not None:
@@ -236,7 +262,8 @@ def main(args, log):
         sumstats.run(args, log)
     elif args.voxel_gwas:
         voxelgwas.run(args, log)
-    
+    elif args.gwas:
+        gwas.run(args, log)
 
 
 if __name__ == '__main__':
@@ -252,8 +279,9 @@ if __name__ == '__main__':
         opts = vars(args)
         non_defaults = [x for x in opts.keys() if opts[x] != defaults[x]]
         header = "heig.py \\\n"
-        options = ['--'+x.replace('_','-')+' '+str(opts[x]) + ' \\'  for x in non_defaults]
-        header += '\n'.join(options).replace('True','').replace('False','')
+        options = ['--'+x.replace('_', '-')+' ' +
+                   str(opts[x]) + ' \\' for x in non_defaults]
+        header += '\n'.join(options).replace(' True', '').replace(' `False', '')
         header = header+'\n'
         log.info(header)
         main(args, log)

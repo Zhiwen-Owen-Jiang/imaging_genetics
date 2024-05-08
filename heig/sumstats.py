@@ -456,9 +456,6 @@ class GWAS:
         self.z = self.z[self.snpinfo['id']]
         del self.snpinfo['id']
 
-    # def df2array(self):
-    #     self.z = np.array(self.z)
-
     def save(self, out):
         pickle.dump({'beta': self.beta, 'se': self.se, 'z': self.z},
                     open(f'{out}.sumstats', 'wb'), protocol=4)

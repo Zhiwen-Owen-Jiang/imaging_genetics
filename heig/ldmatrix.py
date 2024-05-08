@@ -61,7 +61,7 @@ class LDmatrix:
                                     'block_idx', 'block_idx2', 'ldscore'])
         if not ldinfo.groupby('CHR')['POS'].apply(lambda x: x.is_monotonic_increasing).all():
             raise ValueError(
-                f'The SNPs in each chromosome are not sorted or there are duplicated SNPs')
+                f'the SNPs in each chromosome are not sorted or there are duplicated SNPs')
 
         return ldinfo
 
@@ -75,7 +75,7 @@ class LDmatrix:
 
         """
         if len(prefix_list) == 0:
-            raise ValueError('There is nothing in the ld list')
+            raise ValueError('nothing in the LD list')
 
         ldinfo = self._read_ldinfo(prefix_list[0])
         for prefix in prefix_list[1:]:
@@ -323,46 +323,46 @@ def get_sub_blocks(begin, end):
 def check_input(args):
     # required arguments
     if args.bfile is None:
-        raise ValueError('--bfile is required.')
+        raise ValueError('--bfile is required')
     if args.partition is None:
-        raise ValueError('--partition is required.')
+        raise ValueError('--partition is required')
     if args.ld_regu is None:
-        raise ValueError('--ld-regu is required.')
+        raise ValueError('--ld-regu is required')
     if args.maf_min is not None:
         if args.maf_min >= 1 or args.maf_min <= 0:
-            raise ValueError('--maf must be greater than 0 and less than 1.')
+            raise ValueError('--maf must be greater than 0 and less than 1')
 
     # check file/directory exists
     if not os.path.exists(args.partition):
-        raise FileNotFoundError(f'{args.partition} does not exist.')
+        raise FileNotFoundError(f'{args.partition} does not exist')
 
     # processing some arguments
     try:
         ld_bfile, ld_inv_bfile = args.bfile.split(',')
     except:
         raise ValueError(
-            'Two bfiles must be provided with --bfile and separated with a comma.')
+            'two bfiles must be provided with --bfile and separated with a comma')
     for suffix in ['.bed', '.fam', '.bim']:
         if not os.path.exists(ld_bfile + suffix):
-            raise FileNotFoundError(f'{ld_bfile + suffix} does not exist.')
+            raise FileNotFoundError(f'{ld_bfile + suffix} does not exist')
         if not os.path.exists(ld_inv_bfile + suffix):
-            raise FileNotFoundError(f'{ld_inv_bfile + suffix} does not exist.')
+            raise FileNotFoundError(f'{ld_inv_bfile + suffix} does not exist')
 
     try:
         ld_regu, ld_inv_regu = [float(x) for x in args.ld_regu.split(',')]
     except:
-        raise ValueError(('Two regularization levels must be provided with --prop '
-                          'and separated with a comma.'))
+        raise ValueError(('two regularization levels must be provided with --prop '
+                          'and separated with a comma'))
     if ld_regu >= 1 or ld_regu <= 0 or ld_inv_regu >= 1 or ld_inv_regu <= 0:
         raise ValueError(
-            'Both regularization levels must be greater than 0 and less than 1.')
+            'both regularization levels must be greater than 0 and less than 1')
 
     return ld_bfile, ld_inv_bfile, ld_regu, ld_inv_regu
 
 
 def read_process_snps(bim_dir, log):
     log.info(f"Read SNP list from {bim_dir} and remove duplicated SNPs.")
-    ld_bim = pd.read_csv(bim_dir, delim_whitespace=True, header=None,
+    ld_bim = pd.read_csv(bim_dir, sep='\s+', header=None,
                          names=['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2'],
                          dtype={'A1': 'category', 'A2': 'category'})
     ld_bim.drop_duplicates(subset=['SNP'], keep=False, inplace=True)
@@ -373,25 +373,22 @@ def read_process_snps(bim_dir, log):
 
 
 def read_process_idvs(fam_dir):
-    ld_fam = pd.read_csv(fam_dir, delim_whitespace=True, header=None,
-                         names=['FID', 'IID', 'FATHER', 'MOTHER', 'GENDER', 'TRAIT'])
+    ld_fam = pd.read_csv(fam_dir, sep='\s+', header=None,
+                         names=['FID', 'IID', 'FATHER', 'MOTHER', 'GENDER', 'TRAIT'], 
+                         dtype={'FID': str, 'IID': str})
     ld_fam = ld_fam.set_index(['FID', 'IID'])
 
     return ld_fam
 
 
-def filter_maf(ld_bfile, ld_bim, ld_keep_snp, ld_keep_idv,
-               ld_inv_bfile, ld_inv_bim, ld_inv_keep_snp, ld_inv_keep_idv, min_maf):
+def filter_maf(ld_bfile, ld_keep_snp, ld_keep_idv,
+               ld_inv_bfile, ld_inv_keep_snp, ld_inv_keep_idv, min_maf):
     ld_bim2, *_ = gt.read_plink(ld_bfile, ld_keep_snp, ld_keep_idv)
-    ld_inv_bim2, *_ = gt.read_plink(ld_inv_bfile,
-                                    ld_inv_keep_snp, ld_inv_keep_idv)
+    ld_inv_bim2, *_ = gt.read_plink(ld_inv_bfile, ld_inv_keep_snp, ld_inv_keep_idv)
     common_snps = ld_bim2.loc[(ld_bim2['MAF'] >= min_maf) & (
-        ld_inv_bim2['MAF'] >= min_maf), 'SNP']
-    ld_keep_snp_idx = ld_bim.index[ld_bim['SNP'].isin(common_snps)].to_list()
-    ld_inv_keep_snp_idx = ld_inv_bim.index[ld_inv_bim['SNP'].isin(
-        common_snps)].to_list()
+        ld_inv_bim2['MAF'] >= min_maf)]
 
-    return ld_keep_snp_idx, ld_inv_keep_snp_idx
+    return common_snps
 
 
 def run(args, log):
@@ -411,44 +408,39 @@ def run(args, log):
     if args.extract is not None:
         keep_snps = ds.read_extract(args.extract)
         ld_merged = ld_merged.loc[ld_merged['SNP'].isin(keep_snps['SNP'])]
-        log.info(f"{ld_merged.shape[0]} SNPs are in --extract.")
-    # ld_keep_snp_idx = ld_bim.index[ld_bim['SNP'].isin(ld_merged['SNP'])].to_list()
-    # ld_inv_keep_snp_idx = ld_inv_bim.index[ld_inv_bim['SNP'].isin(ld_merged['SNP'])].to_list()
-    ld_keep_snp = ld_bim['SNP'].merge(ld_merged['SNP'])
-    ld_inv_keep_snp = ld_inv_bim['SNP'].merge(ld_merged['SNP'])
+        log.info(f"{ld_merged.shape[0]} SNPs in --extract.")
+    ld_keep_snp = ld_bim.merge(ld_merged, on='SNP')
+    ld_inv_keep_snp = ld_inv_bim.merge(ld_merged, on='SNP')
 
     # keeping individuals
     if args.keep is not None:
         keep_idvs = ds.read_keep(args.keep)
-        log.info(f'{len(keep_idvs)} subjects are in --keep.')
+        log.info(f'{len(keep_idvs)} subjects in --keep.')
         ld_fam = read_process_idvs(ld_bfile + '.fam')
-        # ld_keep_idv_idx = np.array(range(len(ld_fam)))[ld_fam.index.isin(keep_idvs)]
-        ld_keep_idv = ld_fam[ld_fam.isin(keep_idvs)]
-        log.info(f'{len(ld_keep_idv)} subjects are common in {ld_bfile}')
+        ld_keep_idv = ld_fam.loc[keep_idvs]
+        log.info(f'{len(ld_keep_idv)} subjects kept in {ld_bfile}')
         ld_inv_fam = read_process_idvs(ld_inv_bfile + '.fam')
-        # ld_inv_keep_idv_idx = np.array(range(len(ld_inv_fam)))[ld_inv_fam.index.isin(keep_idvs)]
-        ld_inv_keep_idv = ld_inv_fam[ld_inv_fam.isin(keep_idvs)]
-        log.info(f'{len(ld_inv_keep_idv)} subjects are common in {ld_inv_bfile}')
+        ld_inv_keep_idv = ld_inv_fam.loc[keep_idvs]
+        log.info(f'{len(ld_inv_keep_idv)} subjects kept in {ld_inv_bfile}')
     else:
         ld_keep_idv, ld_inv_keep_idv = None, None
 
     # filtering rare SNPs
     if args.maf_min is not None:
         log.info(f"Removing SNPs with MAF < {args.maf_min} ...")
-        ld_keep_snp, ld_inv_keep_snp = filter_maf(ld_bfile, ld_bim, ld_keep_snp,
-                                                  ld_keep_idv, ld_inv_bfile,
-                                                  ld_inv_bim, ld_inv_keep_snp,
-                                                  ld_inv_keep_idv, args.maf_min)
-        log.info(f"{len(ld_keep_snp)} SNPs remaining.")
+        common_snps = filter_maf(ld_bfile, ld_keep_snp, 
+                                 ld_keep_idv, ld_inv_bfile, 
+                                 ld_inv_keep_snp, ld_inv_keep_idv, args.maf_min)
+        log.info(f"{len(common_snps)} SNPs remaining.")
 
     # reading bfiles
     log.info(f"Read bfile from {ld_bfile} with selected SNPs and individuals.")
     ld_bim, _, ld_snp_getter = gt.read_plink(
-        ld_bfile, ld_keep_snp, ld_keep_idv)
+        ld_bfile, common_snps, ld_keep_idv)
     log.info(
         f"Read bfile from {ld_inv_bfile} with selected SNPs and individuals.")
     ld_inv_bim, _, ld_inv_snp_getter = gt.read_plink(
-        ld_inv_bfile, ld_inv_keep_snp, ld_inv_keep_idv)
+        ld_inv_bfile, common_snps, ld_inv_keep_idv)
 
     # reading and doing genome partition
     log.info(f"\nRead genome partition from {args.partition}")
