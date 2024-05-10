@@ -263,7 +263,8 @@ def main(args, log):
     elif args.voxel_gwas:
         voxelgwas.run(args, log)
     elif args.gwas:
-        gwas.run(args, log)
+        log.info('--gwas module is under development.')
+        # gwas.run(args, log)
 
 
 if __name__ == '__main__':

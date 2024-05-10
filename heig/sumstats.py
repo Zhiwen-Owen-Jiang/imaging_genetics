@@ -439,7 +439,7 @@ class GWAS:
         median_beta = np.nanmedian(data)
         if np.abs(median_beta - null_value > 0.1):
             raise ValueError((f"Median value of {effect} is {round(median_beta, 4)} "
-                              "(should be close to {null_value}). "
+                              f"(should be close to {null_value}). "
                               "This column may be mislabeled."))
         else:
             cls.logger.info((f"Median value of {effect} is {round(median_beta, 4)}, "
