@@ -85,6 +85,10 @@ def run(args, log):
         snps = hl.read_matrix_table(f"{args.geno_mt}")
 
     # filtering SNPs
+    log.info(f'Remove SNPs with an MAC less than {args.mac_min}')
+    snps = snps.annotate_rows(allele_counts = hl.agg.counter(snps.GT.n_alt_alleles()))
+    snps = snps.annotate_rows(MAC = hl.min(snps.allele_counts[1], snps.allele_counts[0] if 0 in snps.allele_counts else snps.allele_counts[1]))
+    snps = snps.filter_rows(snps.MAC > args.mac_min)
     if args.maf_min is not None:
         log.info(f'Remove SNPs with an MAF less than {args.maf_min}')
         snps = hl.variant_qc(snps)
