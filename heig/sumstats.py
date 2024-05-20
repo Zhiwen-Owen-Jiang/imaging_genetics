@@ -462,6 +462,17 @@ class GWAS:
         self.snpinfo.to_csv(f'{out}.snpinfo', sep='\t',
                             index=None, na_rep='NA')
 
+    def __eq__(self, other):
+        if isinstance(other, GWAS):
+            if not self.snpinfo.equals(other.snpinfo):
+                return False
+            if (not np.equal(self.z, other.z).all() or 
+                not np.equal(self.beta, other.beta).all() or 
+                not np.equal(self.se, other.se).all()):
+                return False
+            return True
+        return False
+
 
 def run(args, log):
     args = check_input(args, log)
