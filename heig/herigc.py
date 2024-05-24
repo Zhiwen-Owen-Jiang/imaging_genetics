@@ -2,6 +2,7 @@ import os
 import numpy as np
 import pandas as pd
 from scipy.stats import chi2
+import tracemalloc
 
 from heig import sumstats
 import heig.input.dataset as ds
@@ -93,8 +94,10 @@ def get_common_snps(*snp_list):
     for i in range(len(snp_list)):
         if hasattr(snp_list[i], 'ldinfo'):
             snp = snp_list[i].ldinfo[['SNP', 'A1', 'A2']]
+            snp = snp.rename({'A1': f'A1_{i}', 'A2': f'A2_{i}'}, axis=1)
         elif hasattr(snp_list[i], 'snpinfo'):
             snp = snp_list[i].snpinfo[['SNP', 'A1', 'A2']]
+            snp = snp.rename({'A1': f'A1_{i}', 'A2': f'A2_{i}'}, axis=1)
         elif hasattr(snp_list[i], 'SNP'):
             snp = snp_list[i]['SNP']
         if not isinstance(common_snps, pd.DataFrame):
@@ -146,7 +149,7 @@ def read_process_data(args, log):
     if ld.ldinfo.shape[0] != ld_inv.ldinfo.shape[0]:
         raise ValueError(('the LD matrix and LD inverse matrix have different number of SNPs. '
                           'It is highly likely that the files were misspecified or modified'))
-    if not np.equal(ld.ldinfo[['A1', 'A2']], ld_inv.ldinfo[['A1', 'A2']]).all():
+    if not np.equal(ld.ldinfo[['A1', 'A2']].values, ld_inv.ldinfo[['A1', 'A2']].values).all():
         raise ValueError(
             'LD matrix and LD inverse matrix have different alleles for some SNPs')
     log.info(
@@ -659,6 +662,7 @@ def print_results_gc(gene_cor, gene_cor_se):
 
 
 def run(args, log):
+    tracemalloc.start()
     check_input(args, log)
     ldr_gwas, y2_gwas, bases, inner_ldr, ld, ld_inv = read_process_data(
         args, log)
@@ -672,6 +676,8 @@ def run(args, log):
         heri_gc = OneSample(z_mat, ldr_gwas.snpinfo['N'], ld,
                             ld_inv, bases, inner_ldr,
                             args.heri_only)
+        snapshot = tracemalloc.take_snapshot()
+        top_stats = snapshot.statistics('lineno')
         heri_output = format_heri(heri_gc.heri, heri_gc.heri_se, log)
         msg = print_results_heri(heri_output)
         log.info(f'{msg}')

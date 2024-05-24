@@ -213,7 +213,9 @@ def read_geno_part(dir):
     if not ((genome_part[1] % 1 == 0) & (genome_part[2] % 1 == 0)).all():
         raise TypeError(
             ('the 2nd and 3rd columns in the genome partition file must be integers'))
-
+    # if not (genome_part.groupby(0)[1].diff().iloc[1:] > 0).all() or not (genome_part.groupby(0)[2].diff().iloc[1:] > 0).all():
+    #     raise ValueError('the LD blocks must be in ascending order')
+    
     return genome_part
 
 

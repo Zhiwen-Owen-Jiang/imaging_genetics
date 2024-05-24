@@ -57,12 +57,8 @@ def check_input(args, log):
                               '--effect-col + --p-col for --y2-gwas.'))
 
     if args.maf_col is not None and args.maf_min is not None:
-        try:
-            args.maf_min = float(args.maf_min)
-        except:
-            raise ValueError('--maf-min should be a number.')
-        if args.maf_min < 0 or args.maf_min > 1:
-            raise ValueError('--maf-min should be between 0 and 1.')
+        if args.maf_min <= 0 or args.maf_min >= 0.5:
+            raise ValueError('--maf-min must be greater than 0 and less than 0.5')
     elif args.maf_col is None and args.maf_min is not None:
         log.info('WARNING: No --maf-col is provided. Ignore --maf-min')
         args.maf_min = None
@@ -178,7 +174,7 @@ def read_sumstats(dir):
         raise ValueError(f"Either .sumstats or .snp file does not exist")
 
     sumstats = pickle.load(open(sumstats_dir, 'rb'))
-    snpinfo = pd.read_csv(snpinfo_dir, delim_whitespace=True)
+    snpinfo = pd.read_csv(snpinfo_dir, sep='\s+')
 
     if sumstats['beta'] is not None:
         n_snps = sumstats['beta'].shape[0]
@@ -229,7 +225,7 @@ class GWAS:
             openfunc, compression = utils.check_compression(gwas_file)
             cls._check_header(openfunc, compression,
                               gwas_file, cols_map, cols_map2, True)
-            gwas_data = pd.read_csv(gwas_file, delim_whitespace=True, compression=compression,
+            gwas_data = pd.read_csv(gwas_file, sep='\s+', compression=compression,
                                     usecols=list(cols_map2.keys()), na_values=[-9, 'NONE', '.'],
                                     dtype={'A1': 'category', 'A2': 'category'})
             gwas_data = gwas_data.rename(cols_map2, axis=1)
@@ -296,7 +292,7 @@ class GWAS:
         openfunc, compression = utils.check_compression(gwas_file)
         cls._check_header(openfunc, compression, gwas_file,
                           cols_map, cols_map2, False)
-        gwas_data = pd.read_csv(gwas_file, delim_whitespace=True, compression=compression,
+        gwas_data = pd.read_csv(gwas_file, sep='\s+', compression=compression,
                                 usecols=list(cols_map2.keys()), na_values=[-9, 'NONE', '.'],
                                 dtype={'A1': 'category', 'A2': 'category'})  # TODO: read by block
         gwas_data = gwas_data.rename(cols_map2, axis=1)
@@ -447,6 +443,8 @@ class GWAS:
 
     def get_zscore(self):
         self.z = self.beta / self.se
+        self.beta = None
+        self.se = None
 
     def extract_snps(self, keep_snps):
         if isinstance(keep_snps, pd.Series):
