@@ -258,7 +258,7 @@ def check_accepted_args(module, args, log):
     for k, v in vars(args).items():
         if v is None or not v:
             continue
-        elif k not in accepted_args(module):
+        elif k not in accepted_args[module]:
             ignored_args.append(k)
 
     if len(ignored_args) > 0:

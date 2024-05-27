@@ -29,3 +29,6 @@ zenodo-upload/
 
 # hail logs
 hail*
+
+# simulation code
+*simulation*

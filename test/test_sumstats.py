@@ -3,7 +3,6 @@ import logging
 import unittest
 import pandas as pd
 import numpy as np
-from pandas.testing import assert_frame_equal
 from numpy.testing import assert_array_equal
 
 from heig.sumstats import (
