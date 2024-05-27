@@ -7,7 +7,6 @@ from pandas.testing import assert_frame_equal
 from numpy.testing import assert_array_equal
 
 from heig.ldmatrix import (
-    parse_ld_input,
     partition_genome,
     find_loc,
     get_sub_blocks,
@@ -16,48 +15,15 @@ from heig.ldmatrix import (
     check_input
 )
 
-MAIN_DIR = os.getcwd()
+MAIN_DIR = os.path.join(os.getcwd(), 'test', 'test_ldmatrix')
 log = logging.getLogger()
 log.setLevel(logging.INFO)
 
 
-class Test_parse_ld_input(unittest.TestCase):
-    def test_parse_ld_input_good(self):
-        true_value = ['file1', 'file2']
-        self.assertEqual(true_value, parse_ld_input('file{1:2}'))
-        true_value = ['file1_a', 'file2_a']
-        self.assertEqual(true_value, parse_ld_input('file{1:2}_a'))
-        true_value = ['file1-a', 'file2-a']
-        self.assertEqual(true_value, parse_ld_input('file{1:2}-a'))
-        true_value = ['file1~a', 'file2~a']
-        self.assertEqual(true_value, parse_ld_input('file{1:2}~a'))
-        true_value = ['file1.a', 'file2.a']
-        self.assertEqual(true_value, parse_ld_input('file{1:2}.a'))
-        true_value = ['file1.a', 'file2.a']
-        self.assertEqual(true_value, parse_ld_input('file{2:1}.a'))
-        true_value = ['file1.a']
-        self.assertEqual(true_value, parse_ld_input('file{1:1}.a'))
-        true_value = ['file1']
-        self.assertEqual(true_value, parse_ld_input('file1'))
-        true_value = ['file1:a']
-        self.assertEqual(true_value, parse_ld_input('file1:a'))
-        true_value = ['file{}']
-        self.assertEqual(true_value, parse_ld_input('file{}'))
-
-    def test_parse_ld_input_bad(self):
-        with self.assertRaises(ValueError):
-            parse_ld_input('file{1:}.a')
-        with self.assertRaises(ValueError):
-            parse_ld_input('file{1:a}.a')
-        with self.assertRaises(ValueError):
-            parse_ld_input('file{:}.a')
-
-
 class Test_LDmatrix(unittest.TestCase):
     def setUp(self):
-        self.folder = os.path.join(MAIN_DIR, 'test', 'test_ldmatrix')
-        self.ld1 = LDmatrix(os.path.join(self.folder, 'ld1_chr{21:22}'))
-        self.ld2 = LDmatrix(os.path.join(self.folder, 'ld1_chr21'))
+        self.ld1 = LDmatrix(os.path.join(MAIN_DIR, 'ld1_chr{21:22}'))
+        self.ld2 = LDmatrix(os.path.join(MAIN_DIR, 'ld1_chr21'))
 
     def test_good_case1(self):
         ldinfo = pd.DataFrame({'CHR': [21, 21, 22, 22],
@@ -103,7 +69,7 @@ class Test_LDmatrix(unittest.TestCase):
 
     def test_bad_case(self):
         with self.assertRaises(ValueError):
-            LDmatrix(os.path.join(self.folder, 'ld1_chr21_dup'))
+            LDmatrix(os.path.join(MAIN_DIR, 'ld1_chr21_dup'))
         with self.assertRaises(ValueError):
             self.ld1._merge_ldinfo([])
 
@@ -267,39 +233,37 @@ class Args:
         self.ld_regu = ld_regu
         self.maf_min = maf_min
 
-class Test_check_input(unittest.TestCase):
-    def setUp(self):
-        self.dir = os.path.join(MAIN_DIR, 'test', 'test_ldmatrix')
 
+class Test_check_input(unittest.TestCase):
     def test_case1(self):
         """
         good case
-        
+
         """
-        args = Args(bfile=f"{os.path.join(self.dir, 'plink')},{os.path.join(self.dir, 'plink1')}",
-                    partition=os.path.join(self.dir, 'genome_part.txt'),
+        args = Args(bfile=f"{os.path.join(MAIN_DIR, 'plink')},{os.path.join(MAIN_DIR, 'plink1')}",
+                    partition=os.path.join(MAIN_DIR, 'genome_part.txt'),
                     ld_regu='0.9,0.8',
                     maf_min=0.01)
         ld_bfile, ld_inv_bfile, ld_regu, ld_inv_regu = check_input(args)
-        self.assertEqual(os.path.join(self.dir, 'plink'), ld_bfile)
-        self.assertEqual(os.path.join(self.dir, 'plink1'), ld_inv_bfile)
+        self.assertEqual(os.path.join(MAIN_DIR, 'plink'), ld_bfile)
+        self.assertEqual(os.path.join(MAIN_DIR, 'plink1'), ld_inv_bfile)
         self.assertEqual(0.9, ld_regu)
         self.assertEqual(0.8, ld_inv_regu)
-    
+
     def test_case2(self):
         """
         bad case: wrong separator
-        
+
         """
-        args = Args(bfile=f"{os.path.join(self.dir, 'plink')};{os.path.join(self.dir, 'plink1')}",
-                    partition=os.path.join(self.dir, 'genome_part.txt'),
+        args = Args(bfile=f"{os.path.join(MAIN_DIR, 'plink')};{os.path.join(MAIN_DIR, 'plink1')}",
+                    partition=os.path.join(MAIN_DIR, 'genome_part.txt'),
                     ld_regu='0.9,0.8',
                     maf_min=0.01)
         with self.assertRaises(ValueError):
             check_input(args)
 
-        args = Args(bfile=f"{os.path.join(self.dir, 'plink')},{os.path.join(self.dir, 'plink1')}",
-                    partition=os.path.join(self.dir, 'genome_part.txt'),
+        args = Args(bfile=f"{os.path.join(MAIN_DIR, 'plink')},{os.path.join(MAIN_DIR, 'plink1')}",
+                    partition=os.path.join(MAIN_DIR, 'genome_part.txt'),
                     ld_regu='0.9;0.8',
                     maf_min=0.01)
         with self.assertRaises(ValueError):
@@ -308,17 +272,17 @@ class Test_check_input(unittest.TestCase):
     def test_case3(self):
         """
         bad case: wrong LD regularization/maf_min
-        
+
         """
-        args = Args(bfile=f"{os.path.join(self.dir, 'plink')};{os.path.join(self.dir, 'plink1')}",
-                    partition=os.path.join(self.dir, 'genome_part.txt'),
+        args = Args(bfile=f"{os.path.join(MAIN_DIR, 'plink')};{os.path.join(MAIN_DIR, 'plink1')}",
+                    partition=os.path.join(MAIN_DIR, 'genome_part.txt'),
                     ld_regu='1,0.8',
                     maf_min=0.01)
         with self.assertRaises(ValueError):
             check_input(args)
 
-        args = Args(bfile=f"{os.path.join(self.dir, 'plink')};{os.path.join(self.dir, 'plink1')}",
-                    partition=os.path.join(self.dir, 'genome_part.txt'),
+        args = Args(bfile=f"{os.path.join(MAIN_DIR, 'plink')};{os.path.join(MAIN_DIR, 'plink1')}",
+                    partition=os.path.join(MAIN_DIR, 'genome_part.txt'),
                     ld_regu='0.9,0.8',
                     maf_min=0.5)
         with self.assertRaises(ValueError):
@@ -327,34 +291,25 @@ class Test_check_input(unittest.TestCase):
     def test_case4(self):
         """
         bad case: lack of required parameters
-        
+
         """
-        args = Args(bfile=f"{os.path.join(self.dir, 'plink')};{os.path.join(self.dir, 'plink1')}",
-                    partition=os.path.join(self.dir, 'genome_part.txt'),
+        args = Args(bfile=f"{os.path.join(MAIN_DIR, 'plink')};{os.path.join(MAIN_DIR, 'plink1')}",
+                    partition=os.path.join(MAIN_DIR, 'genome_part.txt'),
                     ld_regu=None,
                     maf_min=None)
         with self.assertRaises(ValueError):
             check_input(args)
 
         args = Args(bfile=None,
-                    partition=os.path.join(self.dir, 'genome_part.txt'),
+                    partition=os.path.join(MAIN_DIR, 'genome_part.txt'),
                     ld_regu='0.9,0.8',
                     maf_min=None)
         with self.assertRaises(ValueError):
             check_input(args)
 
-        args = Args(bfile=f"{os.path.join(self.dir, 'plink')};{os.path.join(self.dir, 'plink1')}",
+        args = Args(bfile=f"{os.path.join(MAIN_DIR, 'plink')};{os.path.join(MAIN_DIR, 'plink1')}",
                     partition=None,
                     ld_regu='0.9,0.8',
                     maf_min=None)
         with self.assertRaises(ValueError):
             check_input(args)
-        
-
-    
-
-
-
-    
-
-    

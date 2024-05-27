@@ -27,9 +27,8 @@ class LDSC:
         ldscore: a vector of ld score
         block_ranges: a list of block ranges 
 
-        gwas1, gwas2 and ldscore should be aligned, and snps with
-        a chisq greater than 80 should be removed
-
+        gwas1, gwas2 and ldscore should be aligned
+        
         """
         y = gwas1 * gwas2
         init_h1, init_h2, init_gc, w_ldscore = self._process_input(

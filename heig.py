@@ -93,15 +93,18 @@ common_parser.add_argument('--maf-min', type=float,
                            help=('Minimum minor allele frequency for screening SNPs. '
                                  'Supported modules: --make-ld, --sumstats.'))
 common_parser.add_argument('--covar',
-                           help='Directory to covariate file.')
+                           help=('Directory to covariate file. '
+                                 'Supported modules: --fpca, --gwas.'))
 common_parser.add_argument('--cat-covar-list',
-                           help='List of categorical covariates to include in the analysis. '
-                           'Each covariate is separated by a comma.')
+                           help=('List of categorical covariates to include in the analysis. '
+                                 'Each covariate is separated by a comma. '
+                                 'Supported modules: --fpca, --gwas.'))
 common_parser.add_argument('--bfile',
                            help=('Prefix of PLINK bfile triplets for LD matrix and its inverse. '
-                                 'Two prefices should be seperated by a comma, e.g., `file1,file2` .'))
+                                 'Two prefices should be seperated by a comma, e.g., `file1,file2`. '
+                                 'Supported modules: --ld-matrix, --gwas.'))
 
-# arguments for heri_gc.py
+# arguments for herigc.py
 herigc_parser.add_argument('--ld-inv',
                            help=('Prefix of inverse LD matrix. Multiple matrices can be specified using {}, '
                                  'e.g., `ld_inv_chr{1:22}`.'))
@@ -151,7 +154,7 @@ fpca_parser.add_argument('--all', action='store_true',
                          help=('Flag for generating all components which is min(n_subs, n_voxels), '
                                'which may take longer time very memory consuming.'))
 
-# arguments for make_ld.py
+# arguments for ldmatrix.py
 makeld_parser.add_argument('--partition',
                            help=('Genome partition file. '
                                  'The file should be tab or space delimited without header, '
@@ -164,7 +167,7 @@ makeld_parser.add_argument('--ld-regu',
                                  'Two values should be separated by a comma, '
                                  'e.g., `0.85,0.80`'))
 
-# arguments for munge_sumstats.py
+# arguments for sumstats.py
 sumstats_parser.add_argument('--ldr-gwas',
                              help=('Raw LDR GWAS summary statistics. '
                                    'Multiple files can be speficied using {:}, e.g., `ldr_gwas{1:10}.txt`'))
@@ -201,8 +204,11 @@ sumstats_parser.add_argument('--info-col',
                              help='INFO score column.')
 sumstats_parser.add_argument('--info-min', type=float,
                              help='Minimum INFO score for screening SNPs.')
+sumstats_parser.add_argument('--fast-sumstats', action='store_true',
+                             help=('Faster version of processing LDR summary statistics, '
+                                   'where only the first LDR is subject to SNP pruning.'))
 
-# arguments for voxel_gwas.py
+# arguments for voxelgwas.py
 voxelgwas_parser.add_argument('--sig-thresh', type=float,
                               help=('Significance p-value threshold, '
                                     'can be specified in a decimal 0.00000005 '
@@ -225,6 +231,41 @@ gwas_parser.add_argument('--mem', type=int,
                          help='RAM to use (GB).')
 gwas_parser.add_argument('--geno-mt',
                          help='MatrixTable of genotype.')
+
+
+def check_accepted_args(module, args, log):
+    accepted_args = {
+        'heri_gc': {'out', 'ld_inv', 'ld', 'y2_sumstats',
+                    'overlap', 'heri_only', 'n_ldrs', 'ldr_sumstats',
+                    'bases', 'inner_ldr', 'extract', },
+        'kernel_smooth': {'out', 'keep', 'image_dir', 'image_suffix',
+                          'surface_mesh', 'bw_opt'},
+        'fpca': {'out', 'image', 'sm_image', 'prop', 'all', 'n_ldrs',
+                 'keep', 'covar', 'cat_covar_list'},
+        'ld_matrix': {'out', 'partition', 'ld_regu', 'bfile'},
+        'sumstats': {'out', 'ldr_gwas', 'y2_gwas', 'n', 'n_col',
+                     'chr_col', 'pos_col', 'snp_col', 'a1_col',
+                     'a2_col', 'effect_col', 'se_col', 'z_col',
+                     'p_col', 'maf_col', 'maf_min', 'info_col',
+                     'info_min', 'fast_sumstats'},
+        'voxel_gwas': {'out', 'sig_thresh', 'voxel', 'range',
+                       'extract', 'ldr_sumstats', 'n_ldrs',
+                       'inner_ldr', 'bases'},
+        'gwas': {'out', 'ldrs', 'grch37', 'threads', 'mem', 'geno_mt'}
+    }
+
+    ignored_args = []
+    for k, v in vars(args).items():
+        if v is None or not v:
+            continue
+        elif k not in accepted_args(module):
+            ignored_args.append(k)
+
+    if len(ignored_args) > 0:
+        ignored_args = [f"--{arg.replace('_', '-')}" for arg in ignored_args]
+        ignored_args_str = ', '.join(ignored_args)
+        log.info(
+            f"{ignored_args_str} are ignored by --{module.replace('_', '-')}")
 
 
 def split_files(arg):
@@ -251,18 +292,25 @@ def main(args, log):
         args.extract = split_files(args.extract)
 
     if args.heri_gc:
+        check_accepted_args('heri_gc', args, log)
         herigc.run(args, log)
     elif args.kernel_smooth:
+        check_accepted_args('kernel_smooth', args, log)
         ksm.run(args, log)
     elif args.fpca:
+        check_accepted_args('fpca', args, log)
         fpca.run(args, log)
     elif args.ld_matrix:
+        check_accepted_args('ld_matrix', args, log)
         ldmatrix.run(args, log)
     elif args.sumstats:
+        check_accepted_args('sumstats', args, log)
         sumstats.run(args, log)
     elif args.voxel_gwas:
+        check_accepted_args('voxel_gwas', args, log)
         voxelgwas.run(args, log)
     elif args.gwas:
+        check_accepted_args('gwas', args, log)
         log.info('--gwas module is under development.')
         # gwas.run(args, log)
 
@@ -282,7 +330,7 @@ if __name__ == '__main__':
         header = "heig.py \\\n"
         options = ['--'+x.replace('_', '-')+' ' +
                    str(opts[x]) + ' \\' for x in non_defaults]
-        header += '\n'.join(options).replace(' True', '').replace(' `False', '')
+        header += '\n'.join(options).replace(' True', '').replace(' False', '')
         header = header+'\n'
         log.info(header)
         main(args, log)

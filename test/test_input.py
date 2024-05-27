@@ -11,7 +11,8 @@ from heig.input.dataset import (
     read_extract,
     Dataset,
     Covar,
-    get_common_idxs
+    get_common_idxs,
+    parse_input
 )
 from heig.input.genotype import read_plink
 
@@ -274,3 +275,35 @@ class Test_get_common_idxs(unittest.TestCase):
         # no overlap
         with self.assertRaises(ValueError):
             get_common_idxs(idxs1, idxs3)
+
+
+class Test_parse_input(unittest.TestCase):
+    def test_parse_input_good(self):
+        true_value = ['file1', 'file2']
+        self.assertEqual(true_value, parse_input('file{1:2}'))
+        true_value = ['file1_a', 'file2_a']
+        self.assertEqual(true_value, parse_input('file{1:2}_a'))
+        true_value = ['file1-a', 'file2-a']
+        self.assertEqual(true_value, parse_input('file{1:2}-a'))
+        true_value = ['file1~a', 'file2~a']
+        self.assertEqual(true_value, parse_input('file{1:2}~a'))
+        true_value = ['file1.a', 'file2.a']
+        self.assertEqual(true_value, parse_input('file{1:2}.a'))
+        true_value = ['file1.a', 'file2.a']
+        self.assertEqual(true_value, parse_input('file{2:1}.a'))
+        true_value = ['file1.a']
+        self.assertEqual(true_value, parse_input('file{1:1}.a'))
+        true_value = ['file1']
+        self.assertEqual(true_value, parse_input('file1'))
+        true_value = ['file1:a']
+        self.assertEqual(true_value, parse_input('file1:a'))
+        true_value = ['file{}']
+        self.assertEqual(true_value, parse_input('file{}'))
+
+    def test_parse_input_bad(self):
+        with self.assertRaises(ValueError):
+            parse_input('file{1:}.a')
+        with self.assertRaises(ValueError):
+            parse_input('file{1:a}.a')
+        with self.assertRaises(ValueError):
+            parse_input('file{:}.a')

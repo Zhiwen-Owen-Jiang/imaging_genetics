@@ -1,46 +1,10 @@
 import os
 import pickle
-import re
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
 import heig.input.genotype as gt
 import heig.input.dataset as ds
-
-
-def parse_ld_input(arg):
-    """
-    Parsing the LD matrix files. 
-
-    Parameters:
-    ------------
-    arg: prefix of LD matrix file(s), e.g.
-    `ldmatrix/ukb_white_exclude_phase123_25k_sub_chr{1:22}_LD1`
-    `ldmatrix/ukb_white_exclude_phase123_25k_sub_allchr_LD1`
-
-    Returns:
-    ---------
-    A list of parsed gwas files 
-
-    """
-    p0 = r'\{.*:.*\}'
-    p1 = r'{(.*?)}'
-    p2 = r'({.*})'
-    match = re.search(p0, arg)
-    if match:
-        file_range = re.search(p1, arg).group(1)
-        try:
-            start, end = [int(x) for x in file_range.split(":")]
-        except ValueError:
-            raise ValueError(('if multiple LD matrices are provided, '
-                              '--ld or --ld-inv should be specified using `{}`, '
-                              'e.g. `prefix_chr{stard:end}`'))
-        if start > end:
-            start, end = end, start
-        ld_files = [re.sub(p2, str(i), arg) for i in range(start, end + 1)]
-        return ld_files
-    else:
-        return [arg]
 
 
 class LDmatrix:
@@ -53,7 +17,7 @@ class LDmatrix:
         ld_prefix: prefix of LD matrix file 
 
         """
-        ld_prefix_list = parse_ld_input(ld_prefix)
+        ld_prefix_list = ds.parse_input(ld_prefix)
         self.ldinfo = self._merge_ldinfo(ld_prefix_list)
         self.data = self._read_as_generator(ld_prefix_list)
         self.block_sizes, self.block_ranges = self._get_block_info(self.ldinfo)
@@ -401,7 +365,7 @@ def find_loc(num_list, target):
     Returns:
     ---------
     the exact index or -1
-    
+
     """
     l = 0
     r = len(num_list) - 1
@@ -428,7 +392,7 @@ def get_sub_blocks(begin, end):
     Returns:
     ---------
     sub_blocks: a list of tuples
-    
+
     """
     block_size = end - begin
     n_sub_blocks = block_size // 1000

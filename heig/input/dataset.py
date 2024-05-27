@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 import pickle
 import logging
 import pandas as pd
@@ -294,3 +295,40 @@ def read_extract(extract_files):
         raise ValueError('no SNPs are common in --extract')
 
     return keep_snps_
+
+
+def parse_input(arg):
+    """
+    Parsing files for LD matrix/LDR gwas
+
+    Parameters:
+    ------------
+    arg: prefix file(s), e.g.
+    `ldmatrix/ukb_white_exclude_phase123_25k_sub_chr{1:22}_LD1`
+    `ldmatrix/ukb_white_exclude_phase123_25k_sub_allchr_LD1`
+    `ukb_hippocampus_{0:25}.glm.linear`
+
+    Returns:
+    ---------
+    A list of parsed files 
+
+    """
+    p0 = r'\{.*:.*\}'
+    p1 = r'{(.*?)}'
+    p2 = r'({.*})'
+    match = re.search(p0, arg)
+    if match:
+        file_range = re.search(p1, arg).group(1)
+        try:
+            start, end = [int(x) for x in file_range.split(":")]
+        except ValueError:
+            raise ValueError(('if multiple files are provided, '
+                              'they should be specified using `{}`, '
+                              'e.g. `prefix_{stard:end}_suffix`. '
+                              'Both start and end are included'))
+        if start > end:
+            start, end = end, start
+        files = [re.sub(p2, str(i), arg) for i in range(start, end + 1)]
+        return files
+    else:
+        return [arg]
