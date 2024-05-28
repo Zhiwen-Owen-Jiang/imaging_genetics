@@ -2,7 +2,12 @@ import numpy as np
 
 
 class LDSC:
-    def __init__(self, z_mat, y2_z, ldscore, ldr_heri, y2_heri, n1, n2, ld_rank, block_ranges, merged_blocks):
+    """
+    cross-trait LDSC for estimating the intercept when there is sample overlap
+    
+    """
+    def __init__(self, z_mat, y2_z, ldscore, ldr_heri, y2_heri, n1, n2, 
+                 ld_rank, block_ranges, merged_blocks):
         n_blocks = len(merged_blocks)
         r = z_mat.shape[1]
         n = np.sqrt(n1 * n2)
@@ -12,11 +17,16 @@ class LDSC:
         y2_z_ldsc = y2_z[:, 0]
         for j in range(r):
             z_ldsc = z_mat[:, j]
-            self.total_ldsc[j], self.lobo_ldsc[:, j] = self.ldsc(z_ldsc, y2_z_ldsc, n, n1, n2, ldr_heri[j], y2_heri, ld_rank,
+            self.total_ldsc[j], self.lobo_ldsc[:, j] = self.ldsc(z_ldsc, y2_z_ldsc, n, n1, n2, 
+                                                                 ldr_heri[j], y2_heri, ld_rank,
                                                                  ldscore, block_ranges, merged_blocks)
 
     def ldsc(self, gwas1, gwas2, n, n1, n2, h1, h2, ld_rank, ldscore, block_ranges, merged_blocks):
         """
+        Main LDSC estimator
+
+        Parameters:
+        ------------
         gwas1: a vector of Z score
         gwas2: a vector of Z score
         n: a vector of sqrt(n1 * n2)
@@ -28,6 +38,11 @@ class LDSC:
         block_ranges: a list of block ranges 
 
         gwas1, gwas2 and ldscore should be aligned
+
+        Returns:
+        ---------
+        coef_total[0]: intercept estimate using all data (1, )
+        lobo_ldsc: left-one-block-out intercept estimates (n_blocks, )
         
         """
         y = gwas1 * gwas2
@@ -99,6 +114,6 @@ class LDSC:
         gwas is a vector of Z score
 
         """
-        gwas[gwas > np.sqrt(80)] = 0  # TODO: be cautious
+        gwas[gwas > np.sqrt(80)] = 0
 
         return np.array(gwas)

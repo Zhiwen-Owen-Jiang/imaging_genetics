@@ -3,13 +3,13 @@ import time
 import argparse
 import traceback
 import numexpr
-import heig.sumstats as sumstats
-import heig.herigc as herigc
-import heig.ksm as ksm
-import heig.fpca as fpca
-import heig.ldmatrix as ldmatrix
-import heig.voxelgwas as voxelgwas
-import heig.gwas as gwas
+# import heig.sumstats as sumstats
+# import heig.herigc as herigc
+# import heig.ksm as ksm
+# import heig.fpca as fpca
+# import heig.ldmatrix as ldmatrix
+# import heig.voxelgwas as voxelgwas
+# import heig.gwas as gwas
 from heig.utils import GetLogger, sec_to_str
 
 
@@ -81,17 +81,17 @@ common_parser.add_argument('--keep',
                                  'with the first column being FID and the second column being IID. '
                                  'Other columns will be ignored. '
                                  'Each row contains only one subject. '
-                                 'Supported modules: --kernel-smooth, --fpca, --make-ld.'))
+                                 'Supported modules: --kernel-smooth, --fpca, --ld-matrix.'))
 common_parser.add_argument('--extract',
                            help=('SNP file(s). Multiple files are separated by comma. '
                                  'Each file should be tab or space delimited, '
                                  'with the first column being rsID. '
                                  'Other columns will be ignored. '
                                  'Each row contains only one SNP. '
-                                 'Supported modules: --heri-gc, --make-ld, --voxel-gwas.'))
+                                 'Supported modules: --heri-gc, --ld-matrix, --voxel-gwas.'))
 common_parser.add_argument('--maf-min', type=float,
                            help=('Minimum minor allele frequency for screening SNPs. '
-                                 'Supported modules: --make-ld, --sumstats.'))
+                                 'Supported modules: --ld-matrix, --sumstats.'))
 common_parser.add_argument('--covar',
                            help=('Directory to covariate file. '
                                  'Supported modules: --fpca, --gwas.'))
@@ -138,6 +138,9 @@ ksm_parser.add_argument('--image-suffix',
 ksm_parser.add_argument('--surface-mesh',
                         help=('Directory to FreeSurfer surface mesh data. '
                               'Required if loading FreeSurfer morphometry data files.'))
+ksm_parser.add_argument('--gifti',
+                        help=('Directory to GIFTI data for surface geometry. '
+                              'Required if loading CIFTI2 surface data.'))
 ksm_parser.add_argument('--bw-opt', type=float,
                         help=('The bandwidth you want to use, '
                               'then the program will skip searching the optimal bandwidth. '
@@ -239,10 +242,11 @@ def check_accepted_args(module, args, log):
                     'overlap', 'heri_only', 'n_ldrs', 'ldr_sumstats',
                     'bases', 'inner_ldr', 'extract', },
         'kernel_smooth': {'out', 'keep', 'image_dir', 'image_suffix',
-                          'surface_mesh', 'bw_opt'},
+                          'surface_mesh', 'gifti', 'bw_opt'},
         'fpca': {'out', 'image', 'sm_image', 'prop', 'all', 'n_ldrs',
                  'keep', 'covar', 'cat_covar_list'},
-        'ld_matrix': {'out', 'partition', 'ld_regu', 'bfile'},
+        'ld_matrix': {'out', 'partition', 'ld_regu', 'bfile', 'keep',
+                      'extract', 'maf_min'},
         'sumstats': {'out', 'ldr_gwas', 'y2_gwas', 'n', 'n_col',
                      'chr_col', 'pos_col', 'snp_col', 'a1_col',
                      'a2_col', 'effect_col', 'se_col', 'z_col',
@@ -251,7 +255,8 @@ def check_accepted_args(module, args, log):
         'voxel_gwas': {'out', 'sig_thresh', 'voxel', 'range',
                        'extract', 'ldr_sumstats', 'n_ldrs',
                        'inner_ldr', 'bases'},
-        'gwas': {'out', 'ldrs', 'grch37', 'threads', 'mem', 'geno_mt'}
+        'gwas': {'out', 'ldrs', 'grch37', 'threads', 'mem', 'geno_mt'
+                 'covar', 'cat_covar_list', 'bfile'}
     }
 
     ignored_args = []
@@ -265,7 +270,9 @@ def check_accepted_args(module, args, log):
         ignored_args = [f"--{arg.replace('_', '-')}" for arg in ignored_args]
         ignored_args_str = ', '.join(ignored_args)
         log.info(
-            f"{ignored_args_str} are ignored by --{module.replace('_', '-')}")
+            f"WARNING: {ignored_args_str} are ignored by --{module.replace('_', '-')}")
+
+    return ignored_args
 
 
 def split_files(arg):
@@ -282,10 +289,10 @@ def main(args, log):
     else:
         dirname = os.path.dirname(args.out)
         if dirname != '' and not os.path.exists(dirname):
-            raise ValueError(f'{os.path.dirname(args.out)} does not exist.')
+            raise ValueError(f'{os.path.dirname(args.out)} does not exist')
     if args.heri_gc + args.kernel_smooth + args.fpca + args.ld_matrix + args.sumstats + args.voxel_gwas + args.gwas != 1:
-        raise ValueError(('You must raise one and only one of following flags: '
-                          '--heri-gc, --kernel-smooth, --fpca, --ld-matrix, --sumstats, --voxel-gwas, --gwas.'))
+        raise ValueError(('you must raise one and only one of following flags: '
+                          '--heri-gc, --kernel-smooth, --fpca, --ld-matrix, --sumstats, --voxel-gwas, --gwas'))
     if args.keep is not None:
         args.keep = split_files(args.keep)
     if args.extract is not None:
@@ -293,21 +300,27 @@ def main(args, log):
 
     if args.heri_gc:
         check_accepted_args('heri_gc', args, log)
+        import heig.herigc as herigc
         herigc.run(args, log)
     elif args.kernel_smooth:
         check_accepted_args('kernel_smooth', args, log)
+        import heig.ksm as ksm
         ksm.run(args, log)
     elif args.fpca:
         check_accepted_args('fpca', args, log)
+        import heig.fpca as fpca
         fpca.run(args, log)
     elif args.ld_matrix:
         check_accepted_args('ld_matrix', args, log)
+        import heig.ldmatrix as ldmatrix
         ldmatrix.run(args, log)
     elif args.sumstats:
         check_accepted_args('sumstats', args, log)
+        import heig.sumstats as sumstats
         sumstats.run(args, log)
     elif args.voxel_gwas:
         check_accepted_args('voxel_gwas', args, log)
+        import heig.voxelgwas as voxelgwas
         voxelgwas.run(args, log)
     elif args.gwas:
         check_accepted_args('gwas', args, log)
