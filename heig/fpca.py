@@ -139,7 +139,7 @@ def get_n_top(n_ldrs, max_n_pc, n_sub, dim, all, log):
     Returns:
     ---------
     n_top: the number of top components to compute in PCA
-    
+
     """
     if all:
         n_top = max_n_pc
@@ -155,11 +155,10 @@ def get_n_top(n_ldrs, max_n_pc, n_sub, dim, all, log):
             n_top = max_n_pc
         else:
             n_top = int(max_n_pc / (dim - 1))
-    
+
     n_top = np.min((n_top, n_sub))
 
     return n_top
-
 
 
 def run(args, log):
@@ -203,7 +202,8 @@ def run(args, log):
         images = file['images']
         coord = file['coord'][:]
         if coord.shape != (n_voxels, dim):
-            raise ValueError('the smoothed images and raw images have different resolution')
+            raise ValueError(
+                'the smoothed images and raw images have different resolution')
         # this id is used to take intersection with --covar and --keep
         ids = file['id'][:]
         ids = pd.MultiIndex.from_arrays(
@@ -233,7 +233,7 @@ def run(args, log):
     # var-cov matrix of projected LDRs
     proj_inner_ldr = projection_ldr(ldr, np.array(covar.data))
     log.info(f"Removed covariate effects from LDRs and computed inner product.\n")
-    
+
     # save the output
     ldr_df = pd.DataFrame(ldr, index=common_idxs)
     ldr_df.to_csv(f"{args.out}_ldr_top{n_opt}.txt", sep='\t')

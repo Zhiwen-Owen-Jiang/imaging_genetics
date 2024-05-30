@@ -139,16 +139,16 @@ def run(args, log):
                (ldr_gwas.snpinfo['CHR'] == target_chr)).to_numpy()
         outpath += f"_chr{target_chr}_start{start_pos}_end{end_pos}.txt"
         log.info(
-            f'Keep {np.sum(idx)} SNP(s) on chromosome {target_chr} from {start_pos} to {end_pos}.')
+            f'{np.sum(idx)} SNP(s) on chromosome {target_chr} from {start_pos} to {end_pos}.')
     else:
         idx = ~ldr_gwas.snpinfo['SNP'].isna().to_numpy()
         outpath += ".txt"
-        log.info(f'Analyzing all SNPs.')
+        log.info(f'{np.sum(idx)} SNP(s) in total.')
     
     if keep_snps is not None:
         idx_keep_snps = (ldr_gwas.snpinfo['SNP'].isin(keep_snps['SNP'])).to_numpy()
         idx = idx & idx_keep_snps
-        log.info(f"Keep {len(keep_snps['SNP'])} SNP(s).")
+        log.info(f"Keep {len(keep_snps['SNP'])} SNP(s) from --extract.")
 
     # extracting SNPs
     ldr_beta = ldr_gwas.beta[idx]

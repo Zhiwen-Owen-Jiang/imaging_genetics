@@ -209,10 +209,13 @@ class GWAS:
         """
         cls.logger = logging.getLogger(__name__)
         r = len(gwas_files)
+        if fast_sumstats:
+            cls.logger.info('Using fast mode that only the first GWAS file will be QCed.')
         cls.logger.info(
             f'Reading and processing {r} LDR GWAS summary statistics files ...\n')
-
+        
         for i, gwas_file in enumerate(gwas_files):
+            cls.logger.info(f'GWAS file {i+1}')
             openfunc, compression = utils.check_compression(gwas_file)
             cls._check_header(openfunc, compression,
                               gwas_file, cols_map, cols_map2, True)
@@ -223,26 +226,29 @@ class GWAS:
             gwas_data['A1'] = gwas_data['A1'].str.upper().astype('category')
             gwas_data['A2'] = gwas_data['A2'].str.upper().astype('category')
 
-            if cols_map['N'] is None:
-                gwas_data['N'] = cols_map['n']
-
-            cls._check_median(gwas_data['EFFECT'],
-                              'EFFECT', cols_map['null_value'])
-            if cols_map['null_value'] == 1:
-                gwas_data['EFFECT'] = np.log(gwas_data['EFFECT'])
-
             if i == 0:
+                if cols_map['N'] is None:
+                    gwas_data['N'] = cols_map['n']
+                cls._check_median(gwas_data['EFFECT'],
+                                  'EFFECT', cols_map['null_value'])
                 orig_snps_list = gwas_data[[
                     'CHR', 'POS', 'SNP', 'A1', 'A2', 'N']]
                 beta_mat = np.zeros((gwas_data.shape[0], r))
                 se_mat = np.zeros((gwas_data.shape[0], r))
                 valid_snp_idxs = np.ones(gwas_data.shape[0], dtype=bool)
-            else:
+
+            if i > 0 and not fast_sumstats:
+                cls._check_median(gwas_data['EFFECT'],
+                                  'EFFECT', cols_map['null_value'])
                 if not gwas_data['SNP'].equals(orig_snps_list['SNP']):
                     raise ValueError(
                         'different SNPs in the input LDR GWAS files')
+
+            if cols_map['null_value'] == 1:
+                gwas_data['EFFECT'] = np.log(gwas_data['EFFECT'])
             beta_mat[:, i] = np.array(gwas_data['EFFECT'])
             se_mat[:, i] = np.array(gwas_data['SE'])
+            
             if i == 0 or not fast_sumstats:
                 cls.logger.info(f'Pruning SNPs for {gwas_file} ...')
                 gwas_data = cls._prune_snps(gwas_data, maf_min, info_min)
@@ -519,7 +525,7 @@ def run(args, log):
 
     if args.ldr_gwas is not None:
         sumstats = GWAS.from_rawdata_ldr(args.ldr_gwas, cols_map, cols_map2,
-                                         args.maf_min, args.info_min)
+                                         args.maf_min, args.info_min, args.fast_sumstats)
     elif args.y2_gwas is not None:
         sumstats = GWAS.from_rawdata_y2(args.y2_gwas, cols_map, cols_map2,
                                         args.maf_min, args.info_min)
