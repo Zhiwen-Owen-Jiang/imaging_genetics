@@ -491,7 +491,6 @@ class GWAS:
         else:
             self.z = self.z[self.snpinfo['id']]
         del self.snpinfo['id']
-        self.snpinfo = self.snpinfo[['CHR', 'POS', 'SNP', 'A1', 'A2', 'N']]
 
     def save(self, out):
         """
