@@ -128,7 +128,7 @@ class LocalLinear(KernelSmooth):
             close_points = (dis < 4) & (dis > -4)  # keep only nearby voxels
             k_mat = csr_matrix((self._gau_kernel(dis[close_points]), np.where(close_points)),
                                (self.N, self.d))
-            k_mat = csc_matrix(np.prod(k_mat / bw, axis=1))  # can be faster
+            k_mat = csc_matrix(np.prod((k_mat / bw).toarray(), axis=1)).T  # can be faster, update for scipy 1.11
             k_mat_sparse = hstack([k_mat] * (self.d + 1))
             kx = k_mat_sparse.multiply(t_mat).T  # (d+1) * N
             sm_weight = inv(kx @ t_mat + np.eye(self.d + 1)

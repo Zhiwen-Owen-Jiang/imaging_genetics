@@ -368,8 +368,8 @@ class Test_GWAS(unittest.TestCase):
         true_beta = None
         true_se = None
         true_z = np.array([0.0, 0.0]).reshape((1, 2))
-        true_snpinfo = pd.DataFrame({'CHR': [2], 'POS': [10],
-                                    'SNP': ['rs2'],
+        true_snpinfo = pd.DataFrame({'SNP': ['rs2'],
+                                     'CHR': [2], 'POS': [10],
                                      'A1': ['C'],
                                      'A2': ['A'],
                                      'N': [100]})
