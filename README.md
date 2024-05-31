@@ -1,5 +1,11 @@
 # Highly-Efficient Imaging Genetics (HEIG)
-HEIG is a statistical framework for efficiently conducting joint analysis for large-scale imaging and genetic data. Currently, HEIG is capable of performing voxelwise genome-wide association analysis (GWAS) on images for unrelated subjects, as well as heritability analysis for each voxel, genetic correlation analysis for a pair of voxels, and cross-trait genetic correlation between a voxel and non-imaging phenotype using summary statistics. 
+HEIG is a statistical framework for efficiently conducting joint analysis for large-scale imaging and genetic data. Compared to traditional methods, HEIG reduces computational time and storage burden by over 100 times, significantly boosts statistical power in association analysis, and most importantly, defines the standard to share the voxel-level GWAS summary statistics to the community. 
+
+The analysis can be performed by HEIG (will have more in the near future):
+- Voxelwise genome-wide association analysis (VGWAS)
+- Voxelwise heritability analysis
+- Genetic correlation analysis for pairs of voxels
+- Cross-trait genetic correlation between voxels and non-imaging phenotypes
 
 ## Getting Started
 First clone the repository using the commands
@@ -10,7 +16,7 @@ cd heig
 You can use [Anaconda](https://www.anaconda.com) to build the environment and install all dependencies for HEIG using the commands
 ```
 conda env create --file environment.yml
-source activate heig
+conda activate heig
 ```
 Or you can do it manually. Using the following command to test if the enviroment was successfully built
 ```

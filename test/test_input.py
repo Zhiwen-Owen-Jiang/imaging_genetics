@@ -199,7 +199,7 @@ class Test_Covar(unittest.TestCase):
         # there is no missing value in covar1, so it is int
         true_data = pd.DataFrame({'FID': ['s1', 's2', 's3'],
                                   'IID': ['s1', 's2', 's3'],
-                                  0: [1, 1, 1],
+                                  'intercept': [1.0, 1.0, 1.0],
                                   'covar1': [1, 2, 3]}).set_index(['FID', 'IID'])
         data = Covar(os.path.join(self.folder, 'covar_cont.txt'))
         data.cat_covar_intercept()
@@ -238,7 +238,7 @@ class Test_Covar(unittest.TestCase):
         # correct case
         true_data = pd.DataFrame({'FID': ['s1', 's2', 's3', 's4', 's5', 's6'],
                                   'IID': ['s1', 's2', 's3', 's4', 's5', 's6'],
-                                  0: [1, 1, 1, 1, 1, 1],
+                                  'intercept': [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
                                   'covar2_b': [0, 1, 1, 0, 0, 0],
                                   'covar2_c': [0, 0, 0, 0, 1, 1],
                                   'covar3_b': [0, 1, 1, 1, 0, 0],
