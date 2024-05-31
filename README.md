@@ -7,28 +7,22 @@ The analysis can be performed by HEIG (will have more in the near future):
 - Genetic correlation analysis for pairs of voxels
 - Cross-trait genetic correlation between voxels and non-imaging phenotypes
 
+## Version
+[v1.0.0](https://github.com/Zhiwen-Owen-Jiang/heig/releases/tag/v1.0.0): the initial version of HEIG.
+
 ## Getting Started
-First clone the repository using the commands
+First download the [released version](https://github.com/Zhiwen-Owen-Jiang/heig/releases/tag/v1.0.0), unzip it, and navigate to the extracted folder.
+Alternatively, you can clone the repository and navigate to it using the commands
 ```
 git clone https://github.com/Zhiwen-Owen-Jiang/heig.git
 cd heig
 ```
-You can use [Anaconda](https://www.anaconda.com) to build the environment and install all dependencies for HEIG using the commands
+Install [Anaconda](https://www.anaconda.com) to build the environment and install all dependencies for HEIG using the commands
 ```
 conda env create --file environment.yml
 conda activate heig
 ```
-Or you can do it manually. Using the following command to test if the enviroment was successfully built
-```
-python heig.py -h
-```
-If it failed with an error, then go back to check if all requirements are installed and if the version is compatible.
-
-## Updating HEIG
-HEIG is under active update and more analysis modules will be added in the near future. To update HEIG using the command
-```
-git pull
-```
+Or you can do it manually. 
 
 ## How to use HEIG
 We provided detailed [tutorial](https://github.com/Zhiwen-Owen-Jiang/heig/wiki) for using HEIG. The example data used in the tutorial can be downloaded [here](https://zenodo.org/records/11075259). Common issues are described in the [FAQ](https://github.com/Zhiwen-Owen-Jiang/heig/wiki/FAQ).
