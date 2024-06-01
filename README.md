@@ -16,7 +16,6 @@ First download the [released version](https://github.com/Zhiwen-Owen-Jiang/heig/
 wget -O heig-v1.0.0.zip  https://github.com/Zhiwen-Owen-Jiang/heig/archive/refs/tags/v1.0.0.zip
 unzip heig-v1.0.0.zip
 cd heig-1.0.0
-
 ```
 Alternatively, you can clone the repository and navigate to it:
 ```
