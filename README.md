@@ -11,13 +11,19 @@ The analysis can be performed by HEIG (will have more in the near future):
 [v1.0.0](https://github.com/Zhiwen-Owen-Jiang/heig/releases/tag/v1.0.0): the initial version of HEIG.
 
 ## Getting Started
-First download the [released version](https://github.com/Zhiwen-Owen-Jiang/heig/releases/tag/v1.0.0), unzip it, and navigate to the extracted folder.
-Alternatively, you can clone the repository and navigate to it using the commands
+First download the [released version](https://github.com/Zhiwen-Owen-Jiang/heig/releases/tag/v1.0.0), unzip it, and navigate to the extracted folder:
+```
+wget -O heig-v1.0.0.zip  https://github.com/Zhiwen-Owen-Jiang/heig/archive/refs/tags/v1.0.0.zip
+unzip heig-v1.0.0.zip
+cd heig-1.0.0
+
+```
+Alternatively, you can clone the repository and navigate to it:
 ```
 git clone https://github.com/Zhiwen-Owen-Jiang/heig.git
 cd heig
 ```
-Install [Anaconda](https://www.anaconda.com) to build the environment and install all dependencies for HEIG using the commands
+Install [Anaconda](https://www.anaconda.com) to build the environment and install all dependencies for HEIG:
 ```
 conda env create --file environment.yml
 conda activate heig
