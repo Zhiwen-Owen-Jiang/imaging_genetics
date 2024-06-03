@@ -22,7 +22,7 @@ tar -xvzf ldmatrix_hapmap3.tar.gz
 
 
 # Code for voxelwise GWAS
-## For another ROIs, --n-ldrs can be specified based on the LDR summary statistics file
+## For other ROIs, --n-ldrs can be specified based on the LDR summary statistics file
 ## --n-ldrs is 19 for this case
 python heig.py \
 --voxel-gwas \
