@@ -1,28 +1,33 @@
 # Highly-Efficient Imaging Genetics (HEIG)
-HEIG is a statistical framework for efficiently conducting joint analysis for large-scale imaging and genetic data. Currently, HEIG is capable of performing voxelwise genome-wide association analysis (GWAS) on images for unrelated subjects, as well as heritability analysis for each voxel, genetic correlation analysis for a pair of voxels, and cross-trait genetic correlation between a voxel and non-imaging phenotype using summary statistics. 
+HEIG is a statistical framework for efficiently conducting joint analysis for large-scale imaging and genetic data. Compared to traditional methods, HEIG reduces computational time and storage burden by over 100 times, significantly boosts statistical power in association analysis, and most importantly, defines the standard to share the voxel-level GWAS summary statistics to the community. 
+
+The analysis can be performed by HEIG (will have more in the near future):
+- Voxelwise genome-wide association analysis (VGWAS)
+- Voxelwise heritability analysis
+- Genetic correlation analysis for pairs of voxels
+- Cross-trait genetic correlation between voxels and non-imaging phenotypes
+
+## Version
+[v1.0.0](https://github.com/Zhiwen-Owen-Jiang/heig/releases/tag/v1.0.0): the initial version of HEIG.
 
 ## Getting Started
-First clone the repository using the commands
+First download the [released version](https://github.com/Zhiwen-Owen-Jiang/heig/releases/tag/v1.0.0), unzip it, and navigate to the extracted folder:
+```
+wget -O heig-v1.0.0.zip  https://github.com/Zhiwen-Owen-Jiang/heig/archive/refs/tags/v1.0.0.zip
+unzip heig-v1.0.0.zip
+cd heig-1.0.0
+```
+Alternatively, you can clone the repository and navigate to it:
 ```
 git clone https://github.com/Zhiwen-Owen-Jiang/heig.git
 cd heig
 ```
-You can use [Anaconda](https://www.anaconda.com) to build the environment and install all dependencies for HEIG using the commands
+Install [Anaconda](https://www.anaconda.com) to build the environment and install all dependencies for HEIG:
 ```
 conda env create --file environment.yml
-source activate heig
+conda activate heig
 ```
-Or you can do it manually. Using the following command to test if the enviroment was successfully built
-```
-python heig.py -h
-```
-If it failed with an error, then go back to check if all requirements are installed and if the version is compatible.
-
-## Updating HEIG
-HEIG is under active update and more analysis modules will be added in the near future. To update HEIG using the command
-```
-git pull
-```
+Or you can do it manually. 
 
 ## How to use HEIG
 We provided detailed [tutorial](https://github.com/Zhiwen-Owen-Jiang/heig/wiki) for using HEIG. The example data used in the tutorial can be downloaded [here](https://zenodo.org/records/11075259). Common issues are described in the [FAQ](https://github.com/Zhiwen-Owen-Jiang/heig/wiki/FAQ).

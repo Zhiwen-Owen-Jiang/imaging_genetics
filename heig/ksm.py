@@ -128,7 +128,7 @@ class LocalLinear(KernelSmooth):
             close_points = (dis < 4) & (dis > -4)  # keep only nearby voxels
             k_mat = csr_matrix((self._gau_kernel(dis[close_points]), np.where(close_points)),
                                (self.N, self.d))
-            k_mat = csc_matrix(np.prod(k_mat / bw, axis=1))  # can be faster
+            k_mat = csc_matrix(np.prod((k_mat / bw).toarray(), axis=1)).T  # can be faster, update for scipy 1.11
             k_mat_sparse = hstack([k_mat] * (self.d + 1))
             kx = k_mat_sparse.multiply(t_mat).T  # (d+1) * N
             sm_weight = inv(kx @ t_mat + np.eye(self.d + 1)
@@ -189,8 +189,8 @@ def get_image_list(img_dirs, suffixes, log, keep_idvs=None):
 
 def load_nifti(img_files):
     """
-    Load NifTi images.
-    
+    Loading NifTi images.
+
     Parameters:
     ------------
     img_files: a list of image files
@@ -199,7 +199,7 @@ def load_nifti(img_files):
     ---------
     images (n, N): a np.array of imaging data
     coord (N, dim): a np.array of coordinates
-    
+
     """
     try:
         img = nib.load(img_files[0])
@@ -220,9 +220,42 @@ def load_nifti(img_files):
     return images, coord
 
 
+def load_cifti(img_files, coord):
+    """
+    Loading CIFTI images.
+
+    Parameters:
+    ------------
+    img_files: a list of image files
+
+    Returns:
+    ---------
+    images (n, N): a np.array of imaging data
+
+    """
+    try:
+        img = nib.load(img_files[0])
+    except:
+        raise ValueError(('cannot read the image, did you provide FreeSurfer images '
+                          'but forget to provide a Freesurfer surface mesh file?'))
+
+    for i, img_file in enumerate(tqdm(img_files, desc=f'Loading {len(img_files)} images')):
+        img = nib.load(img_file)
+        data = img.get_fdata()[0]
+        if i == 0:
+            n_voxels = len(data)
+            if n_voxels != coord.shape[0]:
+                raise ValueError(
+                    'the CIFTI and GIFTI data has different number of vertices')
+            images = np.zeros((len(img_files), n_voxels), dtype=np.float32)
+        images[i] = data
+
+    return images
+
+
 def load_freesurfer(img_files, coord):
     """
-    Load freeSurfer outputs.
+    Loading freeSurfer outputs.
 
     Parameters:
     ------------
@@ -232,7 +265,7 @@ def load_freesurfer(img_files, coord):
     Returns:
     ---------
     images (n, N): a np.array of imaging data
-    
+
     """
     for i, img_file in enumerate(tqdm(img_files, desc=f'Loading {len(img_files)} images')):
         data = nib.freesurfer.read_morph_data(img_file)
@@ -292,7 +325,7 @@ def save_images(out, images, coord, id):
     images (n, N): a np.array of imaging data
     coord (N, dim): a np.array of coordinate 
     id: a pd.MultiIndex instance of IDs (FID, IID)
-    
+
     """
     with h5py.File(f'{out}.h5', 'w') as file:
         dset = file.create_dataset('images', data=images)
@@ -319,6 +352,8 @@ def check_input(args):
             raise FileNotFoundError(f"{image_dir} does not exist")
     if args.surface_mesh is not None and not os.path.exists(args.surface_mesh):
         raise FileNotFoundError(f"{args.surface_mesh} does not exist")
+    if args.gifti is not None and not os.path.exists(args.gifti):
+        raise FileNotFoundError(f"{args.gifti} does not exist")
 
     return args
 
@@ -340,6 +375,9 @@ def run(args, log):
     if args.surface_mesh is not None:
         coord = nib.freesurfer.read_geometry(args.surface_mesh)[0]
         images = load_freesurfer(img_files, coord)
+    elif args.gifti is not None:
+        coord = nib.load(args.gifti).darrays[0].data
+        images = load_cifti(img_files)
     else:
         images, coord = load_nifti(img_files)
     log.info(

@@ -11,7 +11,8 @@ from heig.input.dataset import (
     read_extract,
     Dataset,
     Covar,
-    get_common_idxs
+    get_common_idxs,
+    parse_input
 )
 from heig.input.genotype import read_plink
 
@@ -198,7 +199,7 @@ class Test_Covar(unittest.TestCase):
         # there is no missing value in covar1, so it is int
         true_data = pd.DataFrame({'FID': ['s1', 's2', 's3'],
                                   'IID': ['s1', 's2', 's3'],
-                                  0: [1, 1, 1],
+                                  'intercept': [1.0, 1.0, 1.0],
                                   'covar1': [1, 2, 3]}).set_index(['FID', 'IID'])
         data = Covar(os.path.join(self.folder, 'covar_cont.txt'))
         data.cat_covar_intercept()
@@ -237,7 +238,7 @@ class Test_Covar(unittest.TestCase):
         # correct case
         true_data = pd.DataFrame({'FID': ['s1', 's2', 's3', 's4', 's5', 's6'],
                                   'IID': ['s1', 's2', 's3', 's4', 's5', 's6'],
-                                  0: [1, 1, 1, 1, 1, 1],
+                                  'intercept': [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
                                   'covar2_b': [0, 1, 1, 0, 0, 0],
                                   'covar2_c': [0, 0, 0, 0, 1, 1],
                                   'covar3_b': [0, 1, 1, 1, 0, 0],
@@ -274,3 +275,35 @@ class Test_get_common_idxs(unittest.TestCase):
         # no overlap
         with self.assertRaises(ValueError):
             get_common_idxs(idxs1, idxs3)
+
+
+class Test_parse_input(unittest.TestCase):
+    def test_parse_input_good(self):
+        true_value = ['file1', 'file2']
+        self.assertEqual(true_value, parse_input('file{1:2}'))
+        true_value = ['file1_a', 'file2_a']
+        self.assertEqual(true_value, parse_input('file{1:2}_a'))
+        true_value = ['file1-a', 'file2-a']
+        self.assertEqual(true_value, parse_input('file{1:2}-a'))
+        true_value = ['file1~a', 'file2~a']
+        self.assertEqual(true_value, parse_input('file{1:2}~a'))
+        true_value = ['file1.a', 'file2.a']
+        self.assertEqual(true_value, parse_input('file{1:2}.a'))
+        true_value = ['file1.a', 'file2.a']
+        self.assertEqual(true_value, parse_input('file{2:1}.a'))
+        true_value = ['file1.a']
+        self.assertEqual(true_value, parse_input('file{1:1}.a'))
+        true_value = ['file1']
+        self.assertEqual(true_value, parse_input('file1'))
+        true_value = ['file1:a']
+        self.assertEqual(true_value, parse_input('file1:a'))
+        true_value = ['file{}']
+        self.assertEqual(true_value, parse_input('file{}'))
+
+    def test_parse_input_bad(self):
+        with self.assertRaises(ValueError):
+            parse_input('file{1:}.a')
+        with self.assertRaises(ValueError):
+            parse_input('file{1:a}.a')
+        with self.assertRaises(ValueError):
+            parse_input('file{:}.a')

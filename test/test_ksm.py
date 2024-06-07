@@ -6,6 +6,7 @@ from pandas.testing import assert_index_equal
 
 from heig.ksm import (
     get_image_list,
+    load_nifti
 )
 
 MAIN_DIR = os.getcwd()
@@ -97,3 +98,13 @@ class Test_get_image_list(unittest.TestCase):
 class Test_load_nifti(unittest.TestCase):
     def test_load_nifti(self):
         folder = os.path.join(MAIN_DIR, 'test', 'test_ksm')
+        ids, img_files = get_image_list([os.path.join(folder, 'image_dir1'),
+                                         os.path.join(folder, 'image_dir2'),
+                                         os.path.join(folder, 'image_dir3'),],
+                                         ['_example_image.nii.gz',
+                                          '_example_image.nii.gz',
+                                          '_example_image.nii.gz'], log)
+        images, coord = load_nifti(img_files)
+        print(images)
+        print(coord)
+        print(ids)

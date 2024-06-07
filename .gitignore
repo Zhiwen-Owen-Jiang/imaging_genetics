@@ -29,3 +29,12 @@ zenodo-upload/
 
 # hail logs
 hail*
+
+# simulation code
+*simulation*
+
+# example summary stats
+insomnia*
+
+# nfs files
+.nfs*
