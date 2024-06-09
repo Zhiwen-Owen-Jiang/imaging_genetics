@@ -55,6 +55,14 @@ def do_annotation(xsv, out, chr, i, db_path):
     subprocess.run(code, shell=True)
 
 
+def variant_type(snps, variant_type):
+    """
+    variant_type is in ('variant', 'snv', 'indel')
+
+    """
+    pass
+
+
 def run(args, log):
     spark_config = process_config(args.spark_config)
     hl.init(spark_conf=spark_config)  # TODO: investigate

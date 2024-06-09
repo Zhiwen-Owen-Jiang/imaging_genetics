@@ -7,26 +7,29 @@ import input.dataset as ds
 
 
 class VariantSetTest:
-    def __init__(self, bases, inner_ldr, ldrs, covar):
+    def __init__(self, bases, inner_ldr, resid_ldr, covar, var):
         """
         bases: (N, r) matrix, functional bases
         inner_ldr: (r, r) matrix, inner product of projected LDRs
-        ldrs: (n, r) matrix, unprojected LDRs
+        resid_ldr: (n, r) matrix, LDR residuals
         covar: (n, p) matrix, the same as those used to do projection
+        var: (N, ) vector, voxel-level variance
 
         """
         self.bases = bases
         self.inner_ldr = inner_ldr
         self.covar = covar
+        self.var = var
         self.n, self.p = covar.shape
-        self.ldrs = ldrs
+        self.resid_ldr = resid_ldr
         self.N = bases.shape[0]
 
         # null model
         self.inner_covar_inv = np.linalg.inv(np.dot(covar.T, covar))  # (p, p)
-        self.covar_ldrs = np.dot(covar.T, ldrs)  # (p, r)
-        self.var = np.sum(np.dot(self.bases, self.inner_ldr)
-                          * self.bases.T, axis=1) / (self.n - self.p)  # (N, )
+        # self.covar_ldrs = np.dot(covar.T, ldrs)  # (p, r)
+        # self.var = np.sum(np.dot(self.bases, self.inner_ldr)
+        #                   * self.bases.T, axis=1) / (self.n - self.p)  # (N, )
+        
 
     def input_vset(self, vset, annotation_pred, rare_maf_cutoff=0.01):
         """
@@ -45,10 +48,11 @@ class VariantSetTest:
         self.is_rare = np.sum(self.vset > 0, axis=0) < 10  # mac less than 10
 
         self.vset_covar = np.dot(self.vset.T, self.covar)  # Z'X, (m, p)
-        self.vset_ldrs = np.dot(self.vset.T, self.ldrs)  # Z'\Xi, (m, r)
+        # self.vset_ldrs = np.dot(self.vset.T, self.ldrs)  # Z'\Xi, (m, r)
         self.inner_vset = np.dot(self.vset.T, self.vset)  # Z'Z, (m, m)
-        self.half_ldr_score = self.vset_ldrs - np.dot(np.dot(self.vset_covar, self.inner_covar_inv),
-                                                      self.covar_ldrs)  # Z'(I-M)\Xi, (m, r)
+        # self.half_ldr_score = self.vset_ldrs - np.dot(np.dot(self.vset_covar, self.inner_covar_inv),
+        #                                               self.covar_ldrs)  # Z'(I-M)\Xi, (m, r)
+        self.half_ldr_score = np.dot(self.vset.T, self.resid_ldr) # Z'(I-M)\Xi, (m, r)
         self.cov_mat = self.inner_vset - np.dot(np.dot(self.vset_covar, self.inner_covar_inv),
                                                 self.vset_covar.T)  # Z'(I-M)Z, (m, m)
 

@@ -47,12 +47,12 @@ def run(args, log):
     n, p = covar.data.shape
     inner_covar_inv = np.linalg.inv(np.dot(covar.data.T, covar.data))  # (p, p)
     covar_ldrs = np.dot(covar.data.T, np.array(ldrs.data))  # (p, r)
-    resid_ldrs = ldrs.data - np.dot(covar.data, np.dot(inner_covar_inv, covar_ldrs)) # (n, r)
+    resid_ldr = ldrs.data - np.dot(covar.data, np.dot(inner_covar_inv, covar_ldrs)) # (n, r)
     var = np.sum(np.dot(bases, inner_ldr) * bases.T, axis=1) / (n - p)  # (N, )
     
     log.info(f'Save the null model to {args.out}_null_model.h5')
     with h5py.File(f'{args.out}_null_model.h5', 'w') as file:
         file.create_dataset('covar', data=covar.data)
-        file.create_dataset('resid_ldrs', data=resid_ldrs)
+        file.create_dataset('resid_ldr', data=resid_ldr)
         file.create_dataset('var', data=var)
         file.create_dataset('id', data=ids)
