@@ -59,6 +59,7 @@ class Coding:
         Parameters:
         ------------
         snps: a hail.MatrixTable of genotype data with annotation attached
+        for a specific gene and variant type
         variant_type: one of ('variant', 'snv', 'indel')
         
         """
@@ -137,7 +138,7 @@ def extract_variant_type(snps, variant_type):
     return snps
 
 
-def extract_gene(start, end, snps):
+def extract_gene(start, end, snps, gene_name=None):
     """
     Extacting a gene with the gene name
     snps should have a position column 
@@ -147,13 +148,18 @@ def extract_gene(start, end, snps):
     start: start position
     end: end position
     snps: a MatrixTable of annotated vcf
+    gene_name: gene name, if specified, start and end will be ignored
     
     Returns:
     ---------
     snps: a MatrixTable of annotated vcf
 
     """
-    snps = snps.filter_rows((snps.position >= start) & (snps.position <= end))
+    if gene_name is None:
+        snps = snps.filter_rows((snps.position >= start) & (snps.position <= end))
+    else:
+        gencode_info = snps.fa[Annotation_name_catalog['GENCODE.Info']]
+        snps = snps.filter_rows(gene_name in gencode_info)
     return snps
 
 
