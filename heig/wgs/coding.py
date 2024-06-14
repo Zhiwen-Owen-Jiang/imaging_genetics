@@ -217,8 +217,8 @@ def single_gene_analysis(snps, start, end, variant_type, vset_test):
     coding = Coding(snps, variant_type)
     for cate, idx in coding.category_dict.items():
         phred = coding.anno_phred[idx].to_numpy()
-        snps = fillna_flip_snps(snps.GT.to_numpy())
-        vset_test.input_vset(snps, phred)
+        vset = fillna_flip_snps(snps.GT.to_numpy())
+        vset_test.input_vset(vset, phred)
         pvalues = vset_test.do_inference()
         cate_pvalues[cate] = pvalues
     cate_pvalues['missense'] = process_missense(cate_pvalues['missense'], 
