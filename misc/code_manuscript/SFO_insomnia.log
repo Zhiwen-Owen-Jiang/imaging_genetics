@@ -1,0 +1,59 @@
+******************************************************************************
+* Highly-Efficient Imaging Genetics (HEIG)
+* Version 1.0.0
+* Zhiwen Jiang and Hongtu Zhu
+* Department of Biostatistics, University of North Carolina at Chapel Hill
+* GNU General Public License v3
+* Correspondence: owenjf@live.unc.edu, zhiwenowenjiang@gmail.com
+******************************************************************************
+
+heig.py \
+--heri-gc \
+--out SFO_insomnia \
+--n-ldrs 19 \
+--ldr-sumstats SFO/FA_SFO_phase123_white_unrel0.05_top19_6msnp \
+--bases SFO/FA_SFO_phase123_white_unrel0.05_bases_top39.npy \
+--inner-ldr SFO/FA_SFO_phase123_white_unrel0.05_proj_innerldr_top39.npy \
+--ld-inv ldmatrix_hapmap3/ld_regu9085/ukb_white_exclude_phase123_50k_sub_chr{1:22}_unrel_ld_inv_prop85 \
+--ld ldmatrix_hapmap3/ld_regu9085/ukb_white_exclude_phase123_50k_sub_chr{1:22}_unrel_ld_prop90 \
+--y2-sumstats insomnia_ukb2b_EUR_sumstats_20190311_with_chrX_mac_100 \
+--overlap \
+
+Read LD matrix from ldmatrix_hapmap3/ld_regu9085/ukb_white_exclude_phase123_50k_sub_chr{1:22}_unrel_ld_prop90
+Read LD inverse matrix from ldmatrix_hapmap3/ld_regu9085/ukb_white_exclude_phase123_50k_sub_chr{1:22}_unrel_ld_inv_prop85
+1159563 SNPs read from LD matrix (and its inverse).
+39 bases read from SFO/FA_SFO_phase123_white_unrel0.05_bases_top39.npy
+Read inner product of LDRs from SFO/FA_SFO_phase123_white_unrel0.05_proj_innerldr_top39.npy
+6635836 SNPs read from LDR summary statistics SFO/FA_SFO_phase123_white_unrel0.05_top19_6msnp
+Keep the top 19 LDRs.
+9906419 SNPs read from non-imaging summary statistics insomnia_ukb2b_EUR_sumstats_20190311_with_chrX_mac_100
+1128147 SNPs are common in these files with identical alleles. Extracting them from each file ...
+Aligned genetic effects of summary statistics to the same allele.
+
+Computing heritability and/or genetic correlation ...
+Removed out-of-bound results (if any)
+
+Heritability of the image
+-------------------------
+Mean h^2: 0.1347 (0.013)
+Median h^2: 0.1339
+Max h^2: 0.197
+Min h^2: 0.0842
+
+Heritability of the non-imaging trait
+-------------------------------------
+Total observed scale h^2: 0.0443 (0.0013)
+Chi^2: 1223.5197
+P: 0.0
+
+Genetic correlation (with sample overlap)
+--------------------------------------------
+Mean genetic correlation: -0.0639 (0.0594)
+Median genetic correlation: -0.0563
+Max genetic correlation: 0.0371
+Min genetic correlation: -0.1835
+
+Save the genetic correlation results to SFO_insomnia_gc.txt
+
+Analysis finished at Fri Jun 14 17:09:42 2024
+Total time elapsed: 1.0m:24.819999999999993s

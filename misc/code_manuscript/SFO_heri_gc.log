@@ -1,0 +1,51 @@
+******************************************************************************
+* Highly-Efficient Imaging Genetics (HEIG)
+* Version 1.0.0
+* Zhiwen Jiang and Hongtu Zhu
+* Department of Biostatistics, University of North Carolina at Chapel Hill
+* GNU General Public License v3
+* Correspondence: owenjf@live.unc.edu, zhiwenowenjiang@gmail.com
+******************************************************************************
+
+heig.py \
+--heri-gc \
+--out SFO_heri_gc \
+--n-ldrs 19 \
+--ldr-sumstats SFO/FA_SFO_phase123_white_unrel0.05_top19_6msnp \
+--bases SFO/FA_SFO_phase123_white_unrel0.05_bases_top39.npy \
+--inner-ldr SFO/FA_SFO_phase123_white_unrel0.05_proj_innerldr_top39.npy \
+--ld-inv ldmatrix_hapmap3/ld_regu9895/ukb_white_exclude_phase123_50k_sub_chr{1:22}_unrel_ld_inv_prop95 \
+--ld ldmatrix_hapmap3/ld_regu9895/ukb_white_exclude_phase123_50k_sub_chr{1:22}_unrel_ld_prop98 \
+
+Read LD matrix from ldmatrix_hapmap3/ld_regu9895/ukb_white_exclude_phase123_50k_sub_chr{1:22}_unrel_ld_prop98
+Read LD inverse matrix from ldmatrix_hapmap3/ld_regu9895/ukb_white_exclude_phase123_50k_sub_chr{1:22}_unrel_ld_inv_prop95
+1159563 SNPs read from LD matrix (and its inverse).
+39 bases read from SFO/FA_SFO_phase123_white_unrel0.05_bases_top39.npy
+Read inner product of LDRs from SFO/FA_SFO_phase123_white_unrel0.05_proj_innerldr_top39.npy
+6635836 SNPs read from LDR summary statistics SFO/FA_SFO_phase123_white_unrel0.05_top19_6msnp
+Keep the top 19 LDRs.
+1159110 SNPs are common in these files with identical alleles. Extracting them from each file ...
+Aligned genetic effects of summary statistics to the same allele.
+
+Computing heritability and/or genetic correlation ...
+Removed out-of-bound results (if any)
+
+Heritability of the image
+-------------------------
+Mean h^2: 0.1741 (0.0186)
+Median h^2: 0.1739
+Max h^2: 0.2296
+Min h^2: 0.1146
+
+Save the heritability results to SFO_heri_gc_heri.txt
+
+Genetic correlation of the image
+--------------------------------
+Mean genetic correlation: 0.6246 (0.0632)
+Median genetic correlation: 0.6442
+Min genetic correlation: -0.0293
+
+Save the genetic correlation results to SFO_heri_gc_gc.npz
+
+Analysis finished at Mon Jun  3 17:47:27 2024
+Total time elapsed: 35.26s

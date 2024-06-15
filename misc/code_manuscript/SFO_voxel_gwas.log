@@ -1,0 +1,29 @@
+******************************************************************************
+* Highly-Efficient Imaging Genetics (HEIG)
+* Version 1.0.0
+* Zhiwen Jiang and Hongtu Zhu
+* Department of Biostatistics, University of North Carolina at Chapel Hill
+* GNU General Public License v3
+* Correspondence: owenjf@live.unc.edu, zhiwenowenjiang@gmail.com
+******************************************************************************
+
+heig.py \
+--voxel-gwas \
+--out SFO_voxel_gwas \
+--n-ldrs 19 \
+--ldr-sumstats SFO/FA_SFO_phase123_white_unrel0.05_top19_6msnp \
+--bases SFO/FA_SFO_phase123_white_unrel0.05_bases_top39.npy \
+--inner-ldr SFO/FA_SFO_phase123_white_unrel0.05_proj_innerldr_top39.npy \
+--sig-thresh 1.91e-10 \
+
+Read inner product of LDRs from SFO/FA_SFO_phase123_white_unrel0.05_proj_innerldr_top39.npy
+39 bases read from SFO/FA_SFO_phase123_white_unrel0.05_bases_top39.npy
+6635836 SNPs read from LDR summary statistics SFO/FA_SFO_phase123_white_unrel0.05_top19_6msnp
+Keep the top 19 components.
+
+6635836 SNP(s) in total.
+Recovering voxel-level GWAS results ...
+Save the output to SFO_voxel_gwas.txt
+
+Analysis finished at Mon Jun  3 17:45:12 2024
+Total time elapsed: 1.0m:2.990000000000002s
