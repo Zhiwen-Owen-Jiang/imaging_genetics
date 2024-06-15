@@ -1,3 +1,7 @@
+### Prerequisite
+
+Disk space of 10 GB is required for this analysis. A macOS or Linux machine with at least 8 GB RAM is required.
+
 ### Setup
 
 Downloading HEIG v1.0.0 at https://github.com/Zhiwen-Owen-Jiang/heig/releases/tag/v1.0.0, and following instructions at https://github.com/Zhiwen-Owen-Jiang/heig to build up the environment. After that, make sure your current directory is `heig-1.0.0`. 
@@ -5,8 +9,8 @@ Downloading HEIG v1.0.0 at https://github.com/Zhiwen-Owen-Jiang/heig/releases/ta
 The shared data for reproducing the results is at https://doi.org/10.5281/zenodo.11404334. We take SFO for example. Downloading the data and unzipping it by
 
 ```
-wget -O ukb_wm_microstructure_phase123_white_unrel0.05_SFO.tar.gz https://zenodo.org/records/11404334/files/ukb_wm_microstructure_phase123_white_unrel0.05_SFO.tar.gz?download=1
-wget -O ldmatrix_hapmap3.tar.gz https://zenodo.org/records/11404334/files/ldmatrix_hapmap3.tar.gz?download=1
+wget -O ukb_wm_microstructure_phase123_white_unrel0.05_SFO.tar.gz 'https://zenodo.org/records/11404334/files/ukb_wm_microstructure_phase123_white_unrel0.05_SFO.tar.gz?download=1'
+wget -O ldmatrix_hapmap3.tar.gz 'https://zenodo.org/records/11404334/files/ldmatrix_hapmap3.tar.gz?download=1'
 tar -xvzf ukb_wm_microstructure_phase123_white_unrel0.05_SFO.tar.gz
 tar -xvzf ldmatrix_hapmap3.tar.gz
 ```
@@ -106,8 +110,7 @@ We check the first two rows to get column names
 ```
 head -n 2 insomnia_ukb2b_EUR_sumstats_20190311_with_chrX_mac_100.txt
 ```
-
-### Code for preprocessing summary statistics
+Then we preprocess the summary statistics
 
 ```
 python heig.py \
@@ -131,6 +134,7 @@ rs12184267  T   C   381646
 rs12184277  G   A   382038
 rs12184279  A   C   382066
 ```
+We provided the `.log` file at https://github.com/Zhiwen-Owen-Jiang/heig/tree/pub/misc/code_manuscript.
 
 ### Code for cross-trait genetic correlation analysis
 

@@ -1,0 +1,34 @@
+******************************************************************************
+* Highly-Efficient Imaging Genetics (HEIG)
+* Version 1.0.0
+* Zhiwen Jiang and Hongtu Zhu
+* Department of Biostatistics, University of North Carolina at Chapel Hill
+* GNU General Public License v3
+* Correspondence: owenjf@live.unc.edu, zhiwenowenjiang@gmail.com
+******************************************************************************
+
+heig.py \
+--sumstats \
+--out insomnia_ukb2b_EUR_sumstats_20190311_with_chrX_mac_100 \
+--y2-gwas insomnia_ukb2b_EUR_sumstats_20190311_with_chrX_mac_100.txt \
+--n-col NMISS \
+--snp-col RSID_UKB \
+--a1-col A1 \
+--a2-col A2 \
+--z-col STAT \
+
+Reading and processing the non-imaging GWAS summary statistics file ...
+
+Median value of Z is 0.0097, which is reasonable.
+Pruning SNPs for insomnia_ukb2b_EUR_sumstats_20190311_with_chrX_mac_100.txt ...
+12663596 SNPs in the raw data.
+Removed 16929 duplicated SNPs.
+Removed 0 SNPs with any missing or infinite values.
+Removed 2740248 non SNPs and strand-ambiguous SNPs.
+Removed 0 SNPs with N < 257978.
+9906419 SNPs remaining after pruning.
+
+Save the processed summary statistics to insomnia_ukb2b_EUR_sumstats_20190311_with_chrX_mac_100.sumstats and insomnia_ukb2b_EUR_sumstats_20190311_with_chrX_mac_100.snpinfo
+
+Analysis finished at Sat Jun  1 20:27:52 2024
+Total time elapsed: 58.59s
