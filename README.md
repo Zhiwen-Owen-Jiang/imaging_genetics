@@ -1,4 +1,4 @@
-# Highly-Efficient Imaging Genetics (HEIG)
+# Highly Efficient Imaging Genetics (HEIG)
 HEIG is a statistical framework for efficiently conducting joint analysis for large-scale imaging and genetic data. Compared to traditional methods, HEIG reduces computational time and storage burden by over 100 times, significantly boosts statistical power in association analysis, and most importantly, defines the standard to share the voxel-level GWAS summary statistics to the community. 
 
 The analysis can be performed by HEIG (will have more in the near future):
