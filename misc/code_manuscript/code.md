@@ -1,6 +1,6 @@
 ### Prerequisite
 
-Disk space of 10 GB is required for this analysis. A macOS or Linux machine with at least 8 GB RAM is required.
+Disk space of 16 GB is required for this analysis. A macOS or Linux machine with at least 8 GB RAM is required.
 
 ### Setup
 
