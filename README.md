@@ -8,8 +8,8 @@ The analysis can be performed by HEIG (will have more in the near future):
 - Cross-trait genetic correlation between voxels and non-imaging phenotypes
 
 ## Version
-[v1.0.1](https://github.com/Zhiwen-Owen-Jiang/heig/releases/tag/v.1.0.1): Fixed a bug in FPCA where the bases should be transposed. This bug does not affect our current results in the manuscript. Both `v1.0.0` and `v1.0.1` can be used to reproduce results.
-[v1.0.0](https://github.com/Zhiwen-Owen-Jiang/heig/releases/tag/v1.0.0): The initial version of HEIG.
+- [v1.0.1](https://github.com/Zhiwen-Owen-Jiang/heig/releases/tag/v.1.0.1): Fixed a bug in FPCA where the bases should be transposed. This bug does not affect our current results in the manuscript. Both `v1.0.0` and `v1.0.1` can be used to reproduce results.
+- [v1.0.0](https://github.com/Zhiwen-Owen-Jiang/heig/releases/tag/v1.0.0): The initial version of HEIG.
 
 ## System Requirements
 ### OS Requirements
