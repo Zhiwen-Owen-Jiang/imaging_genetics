@@ -238,7 +238,7 @@ def run(args, log):
     ldr_df = pd.DataFrame(ldr, index=common_idxs)
     ldr_df.to_csv(f"{args.out}_ldr_top{n_opt}.txt", sep='\t')
     np.save(f"{args.out}_proj_innerldr_top{n_opt}.npy", proj_inner_ldr)
-    np.save(f"{args.out}_bases_top{n_opt}.npy", ipca.components_)
+    np.save(f"{args.out}_bases_top{n_opt}.npy", ipca.components_.T)
     np.save(f"{args.out}_eigenvalues_top{n_top}.npy", values)
 
     log.info((f"The effective number of independent voxels is {round(eff_num, 3)}, "
