@@ -8,7 +8,7 @@ The analysis can be performed by HEIG (will have more in the near future):
 - Cross-trait genetic correlation between voxels and non-imaging phenotypes
 
 ## Version
-[v1.0.0](https://github.com/Zhiwen-Owen-Jiang/heig/releases/tag/v1.0.0): the initial version of HEIG.
+- [v1.0.0](https://github.com/Zhiwen-Owen-Jiang/heig/releases/tag/v1.0.0): The initial version of HEIG.
 
 ## System Requirements
 ### OS Requirements
