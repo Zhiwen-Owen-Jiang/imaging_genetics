@@ -4,9 +4,7 @@ import numpy as np
 import pandas as pd
 import hail as hl
 from heig.wgs.staar import VariantSetTest
-from heig.wgs.coding import (
-    extract_variant_type, Annotation_name_catalog, Annotation_name
-)
+from heig.wgs.utils import *
 
 
 # prepared dataframe
