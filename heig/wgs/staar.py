@@ -52,6 +52,7 @@ class VariantSetTest:
         self.inner_vset = np.dot(self.vset.T, self.vset)  # Z'Z, (m, m)
         # self.half_ldr_score = self.vset_ldrs - np.dot(np.dot(self.vset_covar, self.inner_covar_inv),
         #                                               self.covar_ldrs)  # Z'(I-M)\Xi, (m, r)
+        ## this step should be done in hail linear_regression_rows, hail.linalg.BlockMatrix
         self.half_ldr_score = np.dot(self.vset.T, self.resid_ldr) # Z'(I-M)\Xi, (m, r)
         self.cov_mat = self.inner_vset - np.dot(np.dot(self.vset_covar, self.inner_covar_inv),
                                                 self.vset_covar.T)  # Z'(I-M)Z, (m, m)

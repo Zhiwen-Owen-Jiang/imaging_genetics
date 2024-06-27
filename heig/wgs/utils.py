@@ -107,7 +107,7 @@ def fillna_flip_snps(snps):
 
 def get_genotype_numpy(snps, idx):
     subset_snps = snps.filter_rows(idx)
-    field = subset_snps.GT.n_alt_alleles()
-    collected_data = subset_snps.rows().select(field).collect()
-    subset_snps_numpy = np.array([x[field] for x in collected_data])
+    n_snps = subset_snps.count_rows()
+    collected_data_list = subset_snps.GT.n_alt_alleles().collect()
+    subset_snps_numpy = np.array(collected_data_list).reshape(n_snps, -1)
     return subset_snps_numpy
