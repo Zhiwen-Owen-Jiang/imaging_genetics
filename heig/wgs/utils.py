@@ -1,4 +1,5 @@
 import numpy as np
+import hail as hl
 
 
 Annotation_name_catalog = {
@@ -86,23 +87,77 @@ def extract_gene(start, end, snps, gene_name=None):
     return snps
 
 
-def fillna_flip_snps(snps):
+def flip_snps(snps_mt):
     """
-    Filling NAs in genotypes as 0, and flipping those with MAF > 0.5
+    Flipping variants with MAF > 0.5, and creating an annotation for maf
+    TODO: make sure the MT has info field
 
     Parameters:
     ------------
-    snps: a numpy.array of genotype (n, m)
+    snps_mt: a MatrixTable of genotype (n, m)
     
     Returns:
     ---------
-    snps: a numpy.array of genotype (n, m)
+    snps_mt: a MatrixTable of genotype (n, m)
         
     """
-    snps = np.nan_to_num(snps)
-    maf = np.mean(snps, axis=0) // 2
-    snps[:, maf > 0.5] = 2 - snps[:, maf > 0.5]
-    return snps
+    snps_mt = snps_mt.annotate_entries(
+    flipped_n_alt_alleles=hl.if_else(
+        snps_mt.info.AF[0] > 0.5,
+        2 - snps_mt.GT.n_alt_alleles(),
+        snps_mt.GT.n_alt_alleles()
+        )
+    )   
+    snps_mt = snps_mt.annotate_rows(
+        maf=hl.if_else(
+            snps_mt.info.AF[0] > 0.5,
+            1 - snps_mt.info.AF[0],
+            snps_mt.info.AF[0]
+        )
+    ) 
+    return snps_mt
+
+
+def extract_maf(snps_mt, maf_thresh=0.01):
+    """
+    Extracting variants with a MAF < maf_thresh
+    
+    Parameters:
+    ------------
+    snps_mt: a MatrixTable of genotype (n, m)
+    maf_thresh: a float number between 0 and 0.5
+    
+    Returns:
+    ---------
+    snps_mt: a MatrixTable of genotype (n, m)
+    
+    """
+    if 'maf' not in snps_mt.row:
+        raise ValueError('generate a `maf` row before using `filter_maf`')
+    snps_mt = snps_mt.filter_rows(snps_mt.maf <= maf_thresh)
+    return snps_mt
+
+
+def annotate_rare_variants(snps_mt, mac_thresh=10):
+    """
+    Annotating if variants have a MAC < mac_thresh
+    
+    Parameters:
+    ------------
+    snps_mt: a MatrixTable of genotype (n, m)
+    mac_thresh: a int number greater than 0
+    
+    Returns:
+    ---------
+    snps_mt: a MatrixTable of genotype (n, m)
+    
+    """
+    snps_mt = snps_mt.annotate_rows(
+        is_rare=hl.if_else(((snps_mt.info.AC < mac_thresh) | 
+                    (snps_mt.info.AN - snps_mt.info.AC < mac_thresh)),
+                   True, False)
+    )
+    return snps_mt
 
 
 def get_genotype_numpy(snps, idx):

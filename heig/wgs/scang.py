@@ -18,16 +18,58 @@ from staar import cauchy_combination
 def threshold(lmax, lmin, steplength, weight_B, weight_S, filter):
     pass
 
-def maxO():
-    pass
+def maxO(p, Lmax, Lmin, steplength, x,
+         weights_B, weights_S, Cov,
+         fitler, times):
+    """
+    x: (times, n_variants)
+    weights_B: (n_variants, n_weights)
+    
+    """
+    n_variants, n_weights = weights_B.shape
 
-def scang_search(G, X, sigma, residuals, times, 
+    Covw_B = np.zeros((n_weights, n_variants, n_variants))
+    Covw_S = np.zeros((n_weights, n_variants, n_variants))
+    for i in range(n_weights):
+        Covw_B[i] = Cov * weights_B[:, i] * weights_B[:, i].T
+        Covw_S[i] = Cov * weights_S[:, i] * weights_S[:, i].T
+    Covw2_S = Covw_S ** 2
+
+    filtervalue_b = chi2.isf(filter, 1)
+    lengthnum = int((Lmax-Lmin)/steplength) + 1
+
+    for ij in range(lengthnum):
+        window_i = Lmin + ij*steplength
+        filtervalue = (chi2.isf(filter, window_i) - window_i) / np.sqrt(2*window_i)
+
+        sum0_s = np.dot(weights_S[:window_i].T ** 2, x[:, :window_i].T ** 2) # (n_weights, times)
+        sum0_b = np.dot(weights_B[:window_i].T, x[:, :window_i].T) # (n_weights, times)
+
+        c1 = np.zeros(n_weights)
+        for i in range(n_weights):
+            c1[i] = np.sum(np.diag(Covw_S[i])[:window_i])
+
+        if window_i > 1:
+            w = np.sum(Covw_B[:, :window_i, :window_i], axis=(1,2))
+            c2 = np.sum(Covw2_S[:, :window_i, :window_i], axis=(1,2))
+        else:
+            w = Covw_B[:, 0, 0]
+            c2 = Covw2_S[:, 0, 0]
+
+        ## Burden
+        sumx_b = sum0_b ** 2 / w
+        ## SKAT
+        tstar = (sum0_s - c1) / np.sqrt(2 * c2)
+
+
+
+def scang_search(G, X, sigma, residuals,
                  threshold_o, threshold_s, threshold_b, 
                  Lmax, Lmin, steplength, begid,
-                 weight_B, weight_S, filter, f):
-    n_variants, n_weights = weight_B.shape
+                 weights_B, weights_S, filter, f):
+    n_variants, n_weights = weights_B.shape
 
-    u_score = np.dot(residuals.T, G)
+    u_score = np.dot(G.T, residuals) # (n_variants, )
     tX_G = np.dot(X.T, G)
     Cov = np.dot(G.T, G) - np.dot(np.dot(tX_G.T, np.linalg.inv(np.dot(X.T, X))), tX_G)
     Cov *= sigma**2
@@ -35,10 +77,10 @@ def scang_search(G, X, sigma, residuals, times,
     Covw_B = np.zeros((n_weights, n_variants, n_variants))
     Covw_S = np.zeros((n_weights, n_variants, n_variants))
     for i in range(n_weights):
-        Covw_B[i] = Cov * weight_B[:, i] * weight_B[:, i].T
-        Covw_S[i] = Cov * weight_S[:, i] * weight_S[:, i].T
+        Covw_B[i] = Cov * weights_B[:, i] * weights_B[:, i].T
+        Covw_S[i] = Cov * weights_S[:, i] * weights_S[:, i].T
 
-    lengthnum = (Lmax-Lmin)/steplength + 1
+    lengthnum = int((Lmax-Lmin)/steplength) + 1
 
     candidate = list()
     candidate_s = list()
@@ -46,20 +88,20 @@ def scang_search(G, X, sigma, residuals, times,
     summax = -100000.0
     summax_s = -100000.0
     summax_b = -100000.0
-    filtervalue_b = chi2.ppf(filter, 1)
+    filtervalue_b = chi2.isf(filter, 1)
 
     for ij in range(lengthnum):
         window_i = Lmin + ij*steplength
-        filtervalue = (chi2.ppf(filter, window_i) - window_i) / np.sqrt(2*window_i)
+        filtervalue = (chi2.isf(filter, window_i) - window_i) / np.sqrt(2*window_i)
         
         ## Q_burden and Q_skat
-        sum0_s = np.dot(u_score ** 2, weight_S ** 2) # (n_weights, )
-        sum0_b = np.dot(u_score, weight_B) # (n_weights, )
+        sum0_s = np.dot(weights_S[:window_i].T ** 2, u_score[:window_i] ** 2) # (n_weights, )
+        sum0_b = np.dot(weights_B[:window_i].T, u_score[:window_i]) # (n_weights, )
 
         ## moments
         w1 = np.zeros(n_weights)
         for i in range(n_weights):
-            w1[i] = np.sum(np.diag(Covw_S[i])[: window_i])
+            w1[i] = np.sum(np.diag(Covw_S[i])[:window_i])
 
         w2 = np.zeros(n_weights)
         ii, jj = np.triu_indices(window_i, 1)
@@ -86,10 +128,10 @@ def scang_search(G, X, sigma, residuals, times,
         sump_s = np.zeros(n_weights)
         sump_s[tstar > filtervalue] = sum0_s[tstar > filtervalue]
 
-        if ((sumx_b > filtervalue_b) | (sump_s < filter)).any():
+        ## Here sum0_s should be greater than a statistic
+        if ((sumx_b > filtervalue_b) | (sum0_s > filtervalue)).any():
             sump_b = chi2.ppf(sumx_b, 1)
             sump_s[tstar <= filtervalue] = sum0_s[tstar <= filtervalue]
-
 
             CCT_p = np.zeros(2 * n_weights)
             CCT_p[range(0, n_weights, 2)] = sump_s
@@ -112,6 +154,7 @@ def scang_search(G, X, sigma, residuals, times,
             if sump_ob > threshold_b: 
                 candidate_b.append(np.array([sump_ob, 1, window_i, 0]))
 
+            ## top 1 region
             if sump_o > summax:
                 summax = sump_o
                 candidatemax = np.array([sump_o, 1 + begid - 1, window_i + begid - 1, 0])
@@ -142,11 +185,11 @@ def scang_search(G, X, sigma, residuals, times,
             sump_s = 1
             
             ## burden
-            sum0_b = sum0_b - u_score[j-1]*weight_B[j-1] + u_score[j+window_i-1]*weight_B[j+window_i-1]
+            sum0_b = sum0_b - u_score[j-1]*weights_B[j-1] + u_score[j+window_i-1]*weights_B[j+window_i-1]
             sumx_b = sum0_b ** 2 / w
 
             ## SKAT
-            sum0_s = sum0_s - u_score[j-1] ** 2 * weight_S[j-1] ** 2 + u_score[j+window_i-1] ** 2 * weight_S[j+window_i-1] ** 2
+            sum0_s = sum0_s - u_score[j-1] ** 2 * weights_S[j-1] ** 2 + u_score[j+window_i-1] ** 2 * weights_S[j+window_i-1] ** 2
             tstar = (sum0_s - c1) / np.sqrt(2 * c2)
             ## Here we only keep the test statistics but not compute the exact p-value
             sump_s[tstar > filtervalue] = sum0_s[tstar > filtervalue]
@@ -270,6 +313,19 @@ def scang_search(G, X, sigma, residuals, times,
                }
     
     return results
+
+
+def search(u_scores, wcov_mat, Lmin, Lmax, 
+           threshold_o, threshold_s, threshold_b, ):
+    """
+    u_scores: normalized weighted scores WZ'(I-M)\Xi\Phi/var (m, N) 
+    wcov_mat: weighted covariance matrix WCovW (m, m), all voxels share the same one
+    
+    """
+    
+
+
+
 
 
 

@@ -119,7 +119,7 @@ def single_gene_analysis(snps, start, end, variant_type, vset_test):
     coding = Coding(snps, variant_type)
     for cate, idx in coding.category_dict.items():
         phred = coding.anno_phred[idx].to_numpy()
-        vset = fillna_flip_snps(get_genotype_numpy(snps, idx))
+        vset = flip_snps(get_genotype_numpy(snps, idx))
         vset_test.input_vset(vset, phred)
         pvalues = vset_test.do_inference()
         cate_pvalues[cate] = pvalues
