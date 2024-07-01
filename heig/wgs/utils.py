@@ -70,7 +70,7 @@ def extract_variant_type(snps_mt, variant_type):
     return snps_mt
 
 
-def extract_gene(start, end, snps_mt, gene_name=None):
+def extract_gene(snps_mt, start, end, gene_name=None):
     """
     Extacting a gene with the gene name
     snps_mt should have a position column 
@@ -176,6 +176,17 @@ def annotate_rare_variants(snps_mt, mac_thresh=10):
                     (snps_mt.info.AN - snps_mt.info.AC[-1] < mac_thresh)),
                    True, False)
     )
+    return snps_mt
+
+
+def preprocess(snps_mt, *args, variant_type='snv', maf_thresh=0.01, mac_thresh=10, **kwargs):
+    snps_mt = hl.variant_qc(snps_mt, name='info')
+    snps_mt = extract_variant_type(snps_mt, variant_type)
+    snps_mt = extract_maf(snps_mt, maf_thresh)
+    snps_mt = flip_snps(snps_mt)
+    snps_mt = annotate_rare_variants(snps_mt, mac_thresh)
+    if args or kwargs:
+        snps_mt = extract_gene(snps_mt, *args, **kwargs)
     return snps_mt
 
 

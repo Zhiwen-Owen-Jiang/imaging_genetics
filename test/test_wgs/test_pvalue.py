@@ -2,7 +2,7 @@ import unittest
 import numpy as np
 from numpy.testing import assert_array_almost_equal
 
-from heig.wgs.saddle import (
+from heig.wgs.pvalue import (
     saddle,
     _handle_invalid_pvalues
 )

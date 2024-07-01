@@ -166,6 +166,4 @@ def run(args, log):
     resid_ldrs = resid_ldrs[common_ids]
 
     # single gene analysis (do parallel)
-    res = single_gene_analysis(snps, start, end, vset_test)
-
-   
+    res = single_gene_analysis(snps, start, end, vset_test)   
