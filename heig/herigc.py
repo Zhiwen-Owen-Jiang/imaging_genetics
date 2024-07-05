@@ -185,7 +185,7 @@ def read_process_data(args, log):
     else:
         y2_gwas = None
 
-     # extract SNPs
+    # extract SNPs
     if args.extract is not None:
         keep_snps = ds.read_extract(args.extract)
         log.info(f"{len(keep_snps)} SNPs in --extract.")

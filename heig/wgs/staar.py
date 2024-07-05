@@ -1,12 +1,12 @@
 import numpy as np
+import pandas as pd
 from scipy.stats import chi2, cauchy, beta
 from heig.wgs.pvalue import saddle
-import heig.input.dataset as ds
 from hail.linalg import BlockMatrix
 
 
 class VariantSetTest:
-    def __init__(self, bases, inner_ldr, resid_ldr, covar, var):
+    def __init__(self, bases, inner_ldr, resid_ldr, covar, var, block_size=2048):
         """
         bases: (N, r) np.array, functional bases
         inner_ldr: (r, r) np.array, inner product of projected LDRs
@@ -17,18 +17,16 @@ class VariantSetTest:
         """
         self.bases = bases
         self.inner_ldr = inner_ldr
-        self.covar = BlockMatrix.from_numpy(covar, block_size=2048)
+        self.covar = BlockMatrix.from_numpy(covar, block_size=block_size)
         self.var = var
         self.n, self.p = covar.shape
-        self.resid_ldr = BlockMatrix.from_numpy(resid_ldr, block_size=2048)
+        self.resid_ldr = BlockMatrix.from_numpy(resid_ldr, block_size=block_size)
         self.N = bases.shape[0]
+        self.block_size = block_size
 
         # null model
-        self.inner_covar_inv = BlockMatrix.from_numpy(np.linalg.inv(np.dot(covar.T, covar)), block_size=2048)  # (p, p)
-        self.covar_ldr = BlockMatrix.from_numpy(np.dot(covar.T, resid_ldr), block_size=2048)  # (p, r)
-        # self.var = np.sum(np.dot(self.bases, self.inner_ldr)
-        #                   * self.bases.T, axis=1) / (self.n - self.p)  # (N, )
-        
+        self.inner_covar_inv = BlockMatrix.from_numpy(np.linalg.inv(np.dot(covar.T, covar)), block_size=block_size) # (p, p)
+        self.covar_ldr = BlockMatrix.from_numpy(np.dot(covar.T, resid_ldr), block_size=block_size) # (p, r)
 
     def input_vset(self, vset, annotation_pred=None):
         """
@@ -44,13 +42,10 @@ class VariantSetTest:
         """
         self.maf = np.array(vset.maf.collect())
         self.is_rare = np.array(vset.is_rare.collect())
-        vset = BlockMatrix.from_entry_expr(vset.flipped_n_alt_alleles, mean_impute=True, block_size=2048) # (m, n)
+        vset = BlockMatrix.from_entry_expr(vset.flipped_n_alt_alleles, mean_impute=True, 
+                                           block_size=self.block_size) # (m, n)
         vset_covar = vset @ self.covar  # Z'X, (m, p)
-        # self.vset_ldrs = np.dot(self.vset.T, self.ldrs)  # Z'\Xi, (m, r)
         inner_vset = vset @ vset.T  # Z'Z, (m, m)
-        # self.half_ldr_score = self.vset_ldrs - np.dot(np.dot(self.vset_covar, self.inner_covar_inv),
-        #                                               self.covar_ldrs)  # Z'(I-M)\Xi, (m, r)
-        ## this step should be done in hail linear_regression_rows, hail.linalg.BlockMatrix
         half_ldr_score = vset @ self.resid_ldr # Z'(I-M)\Xi, (m, r)
         cov_mat = inner_vset - vset_covar @ self.inner_covar_inv @ vset_covar.T  # Z'(I-M)Z, (m, m)
 
@@ -58,6 +53,7 @@ class VariantSetTest:
         self.half_score = np.dot(self.half_ldr_score, self.bases.T) # (m, N)
         self.cov_mat = cov_mat.to_numpy()
         self.weights = self._get_weights(annotation_pred)
+        self.n_variants = self.half_ldr_score.shape[0]
 
     def _get_weights(self, annot=None):
         """
@@ -78,24 +74,27 @@ class VariantSetTest:
         weights_dict = dict()
 
         if annot is None:
-            weights_dict['skat'] = np.vstack([w1, w2])
-            weights_dict['burden'] = np.vstack([w1, w2])
-            weights_dict['acatv'] = np.vstack([w1 / w3, w2 / w3]) ** 2
+            weights_dict['skat(1,25)'] = w1
+            weights_dict['skat(1,1)'] = w2
+            weights_dict['burden(1,25)'] = w1
+            weights_dict['burden(1,1)'] = w2
+            weights_dict['acatv(1,25)'] = w1 / w3 ** 2
+            weights_dict['acatv(1,25)'] = w2 / w3 ** 2
         else:
             annot_rank = 1 - 10 ** (-annot/10)
             annot_rank = annot_rank.T
-            weights_dict['skat'] = self._combine_weights(w1, w2, 
-                                                         np.sqrt(annot_rank))
-            weights_dict['burden'] = self._combine_weights(w1, w2, annot_rank)
-            weights_dict['acatv'] = self._combine_weights((w1 / w3) ** 2,
-                                                          (w2 / w3) ** 2,
-                                                          annot_rank)
+            weights_dict['skat(1,25)'] = self._combine_weights(w1, np.sqrt(annot_rank))
+            weights_dict['skat(1,1)'] = self._combine_weights(w2, np.sqrt(annot_rank))
+            weights_dict['burden(1,25)'] = self._combine_weights(w1, annot_rank)
+            weights_dict['burden(1,1)'] = self._combine_weights(w2, annot_rank)
+            weights_dict['acatv(1,25)'] = self._combine_weights((w1 / w3) ** 2, annot_rank)
+            weights_dict['acatv(1,1)'] = self._combine_weights((w2 / w3) ** 2, annot_rank)
+
         return weights_dict
 
-    def _combine_weights(self, w1, w2, w_annot):
-        w1_annot = w_annot * w1
-        w2_annot = w_annot * w2
-        weights = np.vstack([w1, w1_annot, w2, w2_annot])
+    def _combine_weights(self, w, w_annot):
+        w_annot = w_annot * w
+        weights = np.vstack([w, w_annot])
         return weights
 
     def _skat_test(self, weights):
@@ -210,7 +209,7 @@ class VariantSetTest:
 
         return pvalues
 
-    def do_inference(self):
+    def do_inference(self, anno_name):
         """
         Doing inference for the variant set using multiple weights and methods.
         Using cauchy combination to get final pvalues.
@@ -220,46 +219,44 @@ class VariantSetTest:
         results: a dict of results, each value is a np.array of pvalues (q+1, N)
 
         """
-        n_weights = self.weights['skat'].shape[0]
-        half_n_weights = n_weights // 2
-        skat_pvalues = np.zeros((n_weights, self.N))
-        burden_pvalues = np.zeros((n_weights, self.N))
-        acatv_pvalues = np.zeros((n_weights, self.N))
+        n_weights = self.weights['skat(1,25)'].shape[0]
+        skat_1_25_pvalues = np.zeros((n_weights, self.N))
+        skat_1_1_pvalues = np.zeros((n_weights, self.N))
+        burden_1_25_pvalues = np.zeros((n_weights, self.N))
+        burden_1_1_pvalues = np.zeros((n_weights, self.N))
+        acatv_1_25_pvalues = np.zeros((n_weights, self.N))
+        acatv_1_1_pvalues = np.zeros((n_weights, self.N))
 
         for i in range(n_weights):
-            skat_pvalues[i] = self._skat_test(self.weights['skat'][i])
-            burden_pvalues[i] = self._burden_test(self.weights['burden'][i])
-            acatv_pvalues[i] = self._acatv_test(self.weights['acatv'][i])
+            skat_1_25_pvalues[i] = self._skat_test(self.weights['skat(1,25)'][i])
+            skat_1_1_pvalues[i] = self._skat_test(self.weights['skat(1,1)'][i])
+            burden_1_25_pvalues[i] = self._burden_test(self.weights['burden(1,25)'][i])
+            burden_1_1_pvalues[i] = self._burden_test(self.weights['burden(1,1)'][i])
+            acatv_1_25_pvalues[i] = self._acatv_test(self.weights['acatv(1,25)'][i])
+            acatv_1_1_pvalues[i] = self._acatv_test(self.weights['acatv(1,1)'][i])
 
-        all_pvalues = np.vstack([skat_pvalues, burden_pvalues, acatv_pvalues])
-        results_STAAR_O = cauchy_combination(all_pvalues)
-        results_ACAT_O = cauchy_combination(np.vstack([skat_pvalues[[0, half_n_weights]],
-                                                      burden_pvalues[[0, half_n_weights]],
-                                                      acatv_pvalues[[0, half_n_weights]]]))
-        pvalues_STAAR_S_1_25 = cauchy_combination(skat_pvalues[:half_n_weights])
-        pvalues_STAAR_S_1_1 = cauchy_combination(skat_pvalues[half_n_weights:])
-        pvalues_STAAR_B_1_25 = cauchy_combination(burden_pvalues[:half_n_weights])
-        pvalues_STAAR_B_1_1 = cauchy_combination(burden_pvalues[half_n_weights:])
-        pvalues_STAAR_A_1_25 = cauchy_combination(acatv_pvalues[:half_n_weights])
-        pvalues_STAAR_A_1_1 = cauchy_combination(acatv_pvalues[half_n_weights:])
+        all_pvalues = np.vstack([skat_1_25_pvalues, skat_1_1_pvalues, 
+                                 burden_1_25_pvalues, burden_1_1_pvalues, 
+                                 acatv_1_25_pvalues, acatv_1_1_pvalues])
+        results_STAAR_O = pd.DataFrame(cauchy_combination(all_pvalues), columns=['STAAR-O'])
+        results_ACAT_O = cauchy_combination(np.vstack([skat_1_25_pvalues[0], skat_1_1_pvalues[0],
+                                                       burden_1_25_pvalues[0], burden_1_1_pvalues[0],
+                                                       acatv_1_25_pvalues[0], acatv_1_1_pvalues[0]]))
+        results_ACAT_O = pd.DataFrame(results_ACAT_O, columns=['ACAT-O'])
+        all_results = [results_STAAR_O, results_ACAT_O]
 
-        results = dict()
-        results['results_STAAR_O'] = results_STAAR_O
-        results['results_ACAT_O'] = results_ACAT_O
-        results['results_STAAR_S_1_25'] = np.vstack([skat_pvalues[:half_n_weights], 
-                                          pvalues_STAAR_S_1_25])
-        results['results_STAAR_S_1_1'] = np.vstack([skat_pvalues[half_n_weights:], 
-                                          pvalues_STAAR_S_1_1])
-        results['results_STAAR_B_1_25'] = np.vstack([burden_pvalues[:half_n_weights], 
-                                          pvalues_STAAR_B_1_25])
-        results['results_STAAR_B_1_1'] = np.vstack([burden_pvalues[half_n_weights:], 
-                                          pvalues_STAAR_B_1_1])
-        results['results_STAAR_A_1_25'] = np.vstack([acatv_pvalues[:half_n_weights], 
-                                          pvalues_STAAR_A_1_25])
-        results['results_STAAR_A_1_1'] = np.vstack([acatv_pvalues[half_n_weights:], 
-                                          pvalues_STAAR_A_1_1])
+        for pvalues, test_method in ((skat_1_25_pvalues, 'SKAT(1,25)'), (skat_1_1_pvalues, 'SKAT(1,1)'), 
+                                     (burden_1_25_pvalues, 'Burden(1,25)'), (burden_1_1_pvalues, 'Burden(1,1)'),
+                                     (acatv_1_25_pvalues, 'AVAT-V(1,25)'), (acatv_1_1_pvalues, 'AVAT-V(1,1)')):
+            if n_weights > 1:
+                comb_pvalues = cauchy_combination(pvalues)
+            else:
+                comb_pvalues = None
+            all_pvalues = format_results(pvalues, comb_pvalues, test_method, anno_name)
+            all_results.append(all_pvalues)
+        all_results_df = pd.concat(*all_results, axis=1)
 
-        return results
+        return all_results_df
 
 
 def cauchy_combination(pvalues, weights=None, axis=0):
@@ -295,3 +292,31 @@ def remove_relatedness(ldrs, chr_preds, chr):
     loco_preds = np.sum(chr_preds[:, :, mask], axis=2)
 
     return ldrs - loco_preds
+
+
+def format_results(indiv_pvalues, comb_pvalues, method_name, indiv_annot_name):
+    """
+    Formating test results. Individual p-values go first followed by combined p-values.
+
+    Parameters:
+    ------------
+    indiv_pvalues: (N, 1) array
+    comb_pvalues: (N, ) array
+    indiv_annot_name: name of each functional annotation
+    method_name: test method with beta distribution parameters, such as SKAT(1,25)
+
+    Returns:
+    ---------
+    cct_pvalues: (N, ) array
+    
+    """
+    if comb_pvalues is not None:
+        col_names = [method_name]
+        for annot in indiv_annot_name:
+            col_names.append(f"{method_name}-{annot}")
+        col_names.append(f"STAAR-{method_name}")
+        res = pd.DataFrame(np.column_stack([indiv_pvalues, comb_pvalues]), columns=col_names)
+    else:
+        res = pd.DataFrame(indiv_pvalues, columns=method_name)
+
+    return res

@@ -55,18 +55,11 @@ class Noncoding:
         else:
             anno_cols = [Annotation_name_catalog[anno_name]
                          for anno_name in Annotation_name]
-
-            # anno_phred = self.snps.fa[anno_cols].to_pandas()
-            # anno_phred['cadd_phred'] = anno_phred['cadd_phred'].fillna(0)
-            # anno_local_div = -10 * np.log10(1 - 10 ** (-anno_phred['apc_local_nucleotide_diversity']/10))
-            # anno_phred['apc_local_nucleotide_diversity2'] = anno_local_div
-
             anno_phred = self.snps.filter_rows(
                 variant_idx).fa.select(*anno_cols)
             anno_phred = anno_phred.annotate(
                 cadd_phred=hl.coalesce(anno_phred.cadd_phred, 0))
-            anno_local_div = -10 * \
-                np.log10(1 - 10 ** (-anno_phred.apc_local_nucleotide_diversity/10))
+            anno_local_div = -10 * np.log10(1 - 10 ** (-anno_phred.apc_local_nucleotide_diversity/10))
             anno_phred = anno_phred.annotate(
                 apc_local_nucleotide_diversity2=anno_local_div)
         return anno_phred
@@ -128,8 +121,7 @@ class UpDown(Noncoding):
         gencode_info = self.snps.fa[Annotation_name_catalog['GENCODE.Info']].to_numpy(
         )
         # is_in = np.char.find(gencode_info, gene_name) != -1
-        is_in = np.char.find(self.split_anno(
-            gencode_info, ',', -1), self.gene_name) != -1
+        is_in = np.char.find(self.split_anno(gencode_info, ',', -1), self.gene_name) != -1
         variant_idx = (is_in) & (self.gencode_category == type)
         # self.snps = self.snps.filter_rows((is_in) & (self.gencode_category == type))
         return variant_idx

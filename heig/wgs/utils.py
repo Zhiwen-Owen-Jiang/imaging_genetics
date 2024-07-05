@@ -1,5 +1,9 @@
 import hail as hl
+import pandas as pd
 
+
+__all__ = ['Annotation_name_catalog', 'Annotation_catalog_name',
+           'Annotation_name', 'preprocess_mt']
 
 Annotation_name_catalog = {
     'rs_num': 'rsid',
@@ -70,13 +74,14 @@ def extract_variant_type(snps_mt, variant_type):
     return snps_mt
 
 
-def extract_gene(snps_mt, start, end, gene_name=None):
+def extract_gene(snps_mt, chr, start, end, gene_name=None):
     """
     Extacting a gene with the gene name
     snps_mt should have a position column 
 
     Parameters:
     ------------
+    chr: target chromosome
     start: start position
     end: end position
     snps_mt: a MatrixTable of annotated vcf
@@ -88,7 +93,9 @@ def extract_gene(snps_mt, start, end, gene_name=None):
 
     """
     if gene_name is None:
-        snps_mt = snps_mt.filter_rows((snps_mt.locus.position >= start) & (snps_mt.locus.position <= end))
+        snps_mt = snps_mt.filter_rows((snps_mt.locus.contig == chr) & 
+                                      (snps_mt.locus.position >= start) & 
+                                      (snps_mt.locus.position <= end))
     else:
         gencode_info = snps_mt.fa[Annotation_name_catalog['GENCODE.Info']]
         snps_mt = snps_mt.filter_rows(gene_name in gencode_info)
@@ -179,7 +186,25 @@ def annotate_rare_variants(snps_mt, mac_thresh=10):
     return snps_mt
 
 
-def preprocess(snps_mt, *args, variant_type='snv', maf_thresh=0.01, mac_thresh=10, **kwargs):
+def extract_snps(snps_mt, keep_snps):
+    keep_snps = hl.literal(set(keep_snps['SNP']))
+    snps_mt = snps_mt.filter_rows(keep_snps.contains(snps_mt.rsid))
+    return snps_mt
+
+
+def extract_idvs(snps_mt, keep_idvs):
+    keep_idvs = keep_idvs.get_level_values('IID').tolist()
+    keep_idvs = hl.literal(set(keep_idvs))
+    snps_mt = snps_mt.filter_cols(keep_idvs.contains(snps_mt.s))
+    return snps_mt
+
+
+def preprocess_mt(snps_mt, *args, keep_snps=None, keep_idvs=None,
+                  variant_type='snv', maf_thresh=0.01, mac_thresh=10, **kwargs):
+    if isinstance(keep_snps, pd.DataFrame):
+        snps_mt = extract_snps(snps_mt, keep_snps)
+    if isinstance(keep_idvs, pd.MultiIndex):
+        snps_mt = extract_idvs(snps_mt, keep_idvs)
     snps_mt = hl.variant_qc(snps_mt, name='info')
     snps_mt = extract_variant_type(snps_mt, variant_type)
     snps_mt = extract_maf(snps_mt, maf_thresh)
