@@ -55,11 +55,7 @@ def do_annotation(xsv, out, chr, i, db_path):
     subprocess.run(code, shell=True)
 
 
-def variant_type(snps, variant_type):
-    """
-    variant_type is in ('variant', 'snv', 'indel')
-
-    """
+def check_input(args, log):
     pass
 
 

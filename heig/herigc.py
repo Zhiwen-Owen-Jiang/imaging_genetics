@@ -168,9 +168,8 @@ def read_process_data(args, log):
 
     # keep selected LDRs
     if args.n_ldrs is not None:
+        bases, inner_ldr, ldr_gwas = keep_ldrs(args.n_ldrs, bases, inner_ldr, ldr_gwas)
         log.info(f'Keep the top {args.n_ldrs} LDRs.')
-        bases, inner_ldr, ldr_gwas = keep_ldrs(
-            args.n_ldrs, bases, inner_ldr, ldr_gwas)
     
     # check numbers of LDRs are the same
     if bases.shape[1] != inner_ldr.shape[0] or bases.shape[1] != ldr_gwas.z.shape[1]:

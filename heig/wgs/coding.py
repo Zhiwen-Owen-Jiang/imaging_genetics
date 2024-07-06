@@ -10,12 +10,6 @@ import heig.input.dataset as ds
 from heig.wgs.utils import *
 
 
-"""
-TODO:
-1. missense and disruptive_missense
-
-"""
-
 class Coding:
     def __init__(self, snps_mt, variant_type, use_annotation_weights=True):
         """
@@ -106,7 +100,7 @@ def single_gene_analysis(snps_mt, variant_type, vset_test,
 
     Parameters:
     ------------
-    snps_mt: a MatrixTable of annotated vcf
+    snps_mt: a MatrixTable of annotated geno
     variant_type: one of ('variant', 'snv', 'indel')
     vset_test: an instance of VariantSetTest
     variant_category: which category of variants to analyze,
@@ -154,7 +148,16 @@ def single_gene_analysis(snps_mt, variant_type, vset_test,
 
 def process_missense(m_pvalues, dm_pvalues):
     """
-    Doing Cauchy combination for missense
+    Incoporating disruptive missense results into missense
+
+    Parameters:
+    ------------
+    m_pvalues: pvalues of missense variants
+    dm_pvalues: pvalues of disruptive missense variants
+
+    Returns:
+    ---------
+    m_pvalues: pvalues of missense variants incoporating disruptive missense results
     
     """
     m_pvalues['SKAT(1,25)-Disruptive'] = dm_pvalues['SKAT(1,25)']
@@ -165,12 +168,13 @@ def process_missense(m_pvalues, dm_pvalues):
     m_pvalues['ACAT-V(1,1)-Disruptive'] = dm_pvalues['ACAT-V(1,1)']
 
     columns = m_pvalues.columns.values
-    skat_1_25 = _extract_columns(columns, 'SKAT(1,25)')
-    skat_1_1 = _extract_columns(columns, 'SKAT(1,1)')
-    burden_1_25 = _extract_columns(columns, 'Burden(1,25)')
-    burden_1_1 = _extract_columns(columns, 'Burden(1,1)')
-    acatv_1_25 = _extract_columns(columns, 'ACAT-V(1,25)')
-    acatv_1_1 = _extract_columns(columns, 'ACAT-V(1,1)')
+    np.array([column.startswith('SKAT(1,25)') for column in columns])
+    skat_1_25 = np.array([column.startswith('SKAT(1,25)') for column in columns])
+    skat_1_1 = np.array([column.startswith('SKAT(1,1)') for column in columns])
+    burden_1_25 = np.array([column.startswith('Burden(1,25)') for column in columns])
+    burden_1_1 = np.array([column.startswith('Burden(1,1)') for column in columns])
+    acatv_1_25 = np.array([column.startswith('ACAT-V(1,25)') for column in columns])
+    acatv_1_1 = np.array([column.startswith('ACAT-V(1,1)') for column in columns])
 
     m_pvalues['STAAR-S(1,25)'] = cauchy_combination(m_pvalues.loc[:, skat_1_25].values.T)
     m_pvalues['STAAR-S(1,1)'] = cauchy_combination(m_pvalues.loc[:, skat_1_1].values.T)
@@ -186,13 +190,9 @@ def process_missense(m_pvalues, dm_pvalues):
     return m_pvalues
 
 
-def _extract_columns(columns, prefix):
-    return np.array([column.startswith(prefix) for column in columns])
-
-
 def format_output(cate_pvalues, start, end, n_variants, n_voxels, variant_category):
     """
-    organize pvalues to a structured format
+    organizing pvalues to a structured format
 
     Parameters:
     ------------
@@ -224,8 +224,8 @@ def check_input(args, log):
         raise ValueError('--bases is required')
     if args.inner_ldr is None:
         raise ValueError('--inner-ldr is required')
-    if args.vcf_mt is None:
-        raise ValueError('--vcf-mt is required')
+    if args.geno_mt is None:
+        raise ValueError('--geno-mt is required')
     if args.null_model is None:
         raise ValueError('--null-model is required')
     if args.range is None:
@@ -236,8 +236,8 @@ def check_input(args, log):
         raise FileNotFoundError(f"{args.bases} does not exist")
     if not os.path.exists(args.inner_ldr):
         raise FileNotFoundError(f"{args.inner_ldr} does not exist")
-    if not os.path.exists(args.vcf_mt):
-        raise FileNotFoundError(f"{args.vcf_mt} does not exist")
+    if not os.path.exists(args.geno_mt):
+        raise FileNotFoundError(f"{args.geno_mt} does not exist")
     if not os.path.exists(args.null_model):
         raise FileNotFoundError(f"{args.null_model} does not exist")
 
@@ -365,8 +365,8 @@ def run(args, log):
 
     # keep selected LDRs
     if args.n_ldrs is not None:
-        log.info(f'Keep the top {args.n_ldrs} LDRs.')
         bases, inner_ldr, resid_ldr = keep_ldrs(args.n_ldrs, bases, inner_ldr, resid_ldr)
+        log.info(f'Keep the top {args.n_ldrs} LDRs.')
 
     # keep subjects
     if args.keep is not None:
@@ -383,7 +383,9 @@ def run(args, log):
         keep_snps = None
 
     vset_test = VariantSetTest(bases, inner_ldr, resid_ldr, covar, var)
-    snps_mt = hl.read_matrix_table(args.vcf_mt)
+    snps_mt = hl.read_matrix_table(args.geno_mt)
+    if 'fa' not in snps_mt.row:
+        raise ValueError('--geno-mt must be annotated before doing analysis')
     snps_mt = preprocess_mt(snps_mt, keep_snps=keep_snps, keep_idvs=keep_idvs, 
                             variant_type=args.variant_type, 
                             maf_min=args.maf_min, maf_max=args.maf_max, 
