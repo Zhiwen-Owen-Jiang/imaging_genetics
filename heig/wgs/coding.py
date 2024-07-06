@@ -1,3 +1,4 @@
+import os
 import hail as hl
 import shutil
 import h5py
@@ -8,15 +9,11 @@ import heig.input.dataset as ds
 from heig.wgs.utils import *
 
 """
-Can do multiple genes in parallel
-
-1. Covariates, ldrs, and genotypes need to merge and align
-2. Assume varints have been filtered (SNV, indel)
-3. the gene has been selected
-4. NAs in gene has been filled and every varint is in minor allele
+TODO: 
+1. change the format from wide to long
+2. add support for --voxel and --sig-thresh
 
 """
-
 
 class Coding:
     def __init__(self, snps_mt, variant_type, use_annotation_weights=True):
@@ -63,9 +60,22 @@ class Coding:
         return anno_phred, anno_name
 
     def get_category(self, variant_type):
+        """
+        Extracting different categories of variants
+
+        Parameters:
+        ------------
+        variant_type: one of ('variant', 'snv', 'indel')
+
+        Returns:
+        ---------
+        category_dict: a dict containing variant indices
+        
+        """
         category_dict = dict()
         category_dict['plof'] = (((self.gencode_exonic_category in {'stopgain', 'stoploss'}) |
-                                 (self.gencode_category in {'splicing', 'exonic;splicing', 'ncRNA_splicing', 'ncRNA_exonic;splicing'})))
+                                 (self.gencode_category in {'splicing', 'exonic;splicing', 
+                                                            'ncRNA_splicing', 'ncRNA_exonic;splicing'})))
         category_dict['synonymous'] = self.gencode_exonic_category == 'synonymous SNV'
         category_dict['missense'] = self.gencode_exonic_category == 'nonsynonymous SNV'
         category_dict['disruptive_missense'] = category_dict['missense'] & (self.metasvm_pred == 'D')
@@ -114,25 +124,30 @@ def single_gene_analysis(snps_mt, variant_type, vset_test,
     coding = Coding(snps_mt, variant_type, use_annotation_weights)
 
     # individual analysis
+    log.info(f'Save preprocessed genotype data to {temp_path}')
     snps_mt.write(temp_path, overwrite=True)
     snps_mt = hl.read_matrix_table(temp_path)
-    cate_pvalues = dict()
-    for cate, idx in coding.category_dict.items():
-        if variant_category != 'all' and variant_category != cate: 
-            cate_pvalues[cate] = None
-        else:
-            if coding.anno_phred is not None:
-                phred_cate = np.array(coding.anno_phred[idx].collect())
+    try:
+        cate_pvalues = dict()
+        for cate, idx in coding.category_dict.items():
+            if variant_category != 'all' and variant_category != cate: 
+                cate_pvalues[cate] = None
             else:
-                phred_cate = None
-            snps_mt_cate = snps_mt.filter_rows(idx)
-            vset_test.input_vset(snps_mt_cate, phred_cate)
-            pvalues = vset_test.do_inference()
-            cate_pvalues[cate] = {'n_variants': vset_test.n_variants, 'pvalues': pvalues}
-    if 'missense' in cate_pvalues:
-        cate_pvalues['missense'] = process_missense(cate_pvalues['missense'], 
-                                                    cate_pvalues['disruptive_missense'])
-    shutil.rmtree(temp_path)
+                if coding.anno_phred is not None:
+                    phred_cate = np.array(coding.anno_phred[idx].collect())
+                else:
+                    phred_cate = None
+                snps_mt_cate = snps_mt.filter_rows(idx)
+                vset_test.input_vset(snps_mt_cate, phred_cate)
+                log.info(f'Doing analysis for {cate} ...')
+                pvalues = vset_test.do_inference()
+                cate_pvalues[cate] = {'n_variants': vset_test.n_variants, 'pvalues': pvalues}
+        if 'missense' in cate_pvalues:
+            cate_pvalues['missense'] = process_missense(cate_pvalues['missense'], 
+                                                        cate_pvalues['disruptive_missense'])
+    finally:
+        shutil.rmtree(temp_path)
+        log.info(f'Removed preprocessed genotype data at {temp_path}')
     return cate_pvalues
 
 
@@ -148,6 +163,21 @@ def format_output(cate_pvalues, start, end, n_variants, n_voxels, variant_catego
     """
     organize pvalues to a structured format
 
+    Parameters:
+    ------------
+    cate_pvalues: a pd.DataFrame of pvalues of the variant category
+    start: start position of the gene
+    end: end position of the gene
+    n_variants: #variants of the category
+    n_voxels: #voxels of the image
+    variant_category: which category of variants to analyze,
+    one of ('all', 'plof', 'plof_ds', 'missense', 'disruptive_missense',
+    'synonymous', 'ptv', 'ptv_ds')
+    
+    Returns:
+    ---------
+    output: a pd.DataFrame of pvalues with metadata
+
     """
     meta_data = pd.DataFrame({'INDEX': range(1, n_voxels+1), 
                               'VARIANT_CATEGORY': variant_category,
@@ -158,22 +188,152 @@ def format_output(cate_pvalues, start, end, n_variants, n_voxels, variant_catego
 
 
 def check_input(args, log):
-    pass
+    # required arguments
+    if args.bases is None:
+        raise ValueError('--bases is required')
+    if args.inner_ldr is None:
+        raise ValueError('--inner-ldr is required')
+    if args.vcf_mt is None:
+        raise ValueError('--vcf-mt is required')
+    if args.null_model is None:
+        raise ValueError('--null-model is required')
+    if args.range is None:
+        raise ValueError('--range is required')
+    
+    # required files must exist
+    if not os.path.exists(args.bases):
+        raise FileNotFoundError(f"{args.bases} does not exist")
+    if not os.path.exists(args.inner_ldr):
+        raise FileNotFoundError(f"{args.inner_ldr} does not exist")
+    if not os.path.exists(args.vcf_mt):
+        raise FileNotFoundError(f"{args.vcf_mt} does not exist")
+    if not os.path.exists(args.null_model):
+        raise FileNotFoundError(f"{args.null_model} does not exist")
+
+    # optional arguments
+    if args.voxel is not None and args.voxel <= 0:
+        raise ValueError('--voxel should be greater than 0 (one-based index)')
+    
+    if args.sig_thresh is not None and (args.sig_thresh <= 0 or args.sig_thresh >= 1):
+        raise ValueError(
+            '--sig-thresh should be greater than 0 and less than 1')
+    
+    if args.n_ldrs is not None and args.n_ldrs <= 0:
+        raise ValueError('--n-ldrs should be greater than 0')
+    
+    if args.maf_min is not None:
+        if args.maf_min >= 0.5 or args.maf_min <= 0:
+            raise ValueError('--maf-min must be greater than 0 and less than 0.5')
+    else:
+        args.maf_min = 0
+
+    if args.variant_type is None:
+        args.variant_type = 'snv'
+        log.info(f"Set --variant-type as default 'snv'")
+    else:
+        args.variant_type = args.variant_type.lower()
+        if args.variant_typenot in {'snv', 'variant', 'indel'}:
+            raise ValueError("--variant-type must be one of ('variant', 'snv', 'indel')")
+        
+    if args.variant_category is None:
+        args.variant_category = 'all'
+        log.info(f"Set --variant-category as default 'all'")
+    else:
+        args.variant_category = args.variant_category.lower()
+        if args.variant_category in {'all', 'plof', 'plof_ds', 'missense', 
+                                     'disruptive_missense','synonymous', 'ptv', 'ptv_ds'}:
+            raise ValueError(("--variant-category must be one of "
+                              "('all', 'plof', 'plof_ds', 'missense', 'disruptive_missense', "
+                              "'synonymous', 'ptv', 'ptv_ds')"))
+    
+    if args.maf_max is None:
+        args.maf_max = 0.01
+        log.info(f"Set --maf-max as default 0.01")
+    elif args.maf_max >= 0.5 or args.maf_max <= 0 or args.maf_max <= args.maf_min:
+        raise ValueError(('--maf-max must be greater than 0, less than 0.5, '
+                          'and greater than --maf-min'))
+    
+    if args.mac_thresh is None:
+        args.mac_thresh = 10
+        log.info(f"Set --mac-thresh as default 10")
+    elif args.mac_thresh < 0:
+        raise ValueError('--mac-thresh must be greater than 0')
+    args.mac_thresh = int(args.mac_thresh)
+
+    if args.use_annotation_weights is None:
+        args.use_annotation_weights = False
+        log.info(f"Set --use-annotation-weights as False")
+
+    args.temp_path = 'temp'
+    i = 0
+    while os.path.exists(args.temp_path):
+        args.temp_path += str(i)
+        i += 1
+
+    # process arguments
+    try:
+        start, end = args.range.split(',')
+        start_chr, start_pos = [int(x) for x in start.split(':')]
+        end_chr, end_pos = [int(x) for x in end.split(':')]
+    except:
+        raise ValueError(
+            '--range should be in this format: <CHR>:<POS1>,<CHR>:<POS2>')
+    if start_chr != end_chr:
+        raise ValueError((f'starting with chromosome {start_chr} '
+                            f'while ending with chromosome {end_chr} '
+                            'is not allowed'))
+    if start_pos > end_pos:
+        raise ValueError((f'starting with {start_pos} '
+                            f'while ending with position is {end_pos} '
+                            'is not allowed'))
+
+    if args.voxel is not None:
+        try:
+            args.voxel = int(args.voxel)
+            voxel_list = np.array([args.voxel - 1])
+        except ValueError:
+            if os.path.exists(args.voxel):
+                voxel_list = ds.read_voxel(args.voxel)
+            else:
+                raise FileNotFoundError(f"--voxel does not exist")
+    else:
+        voxel_list = None
+    
+    return start_chr, start_pos, end_pos, voxel_list
 
 
 def run(args, log):
     # checking if input is valid
-    chr, start, end, keep_snps = check_input(args, log)
+    chr, start, end, voxel_list = check_input(args, log)
 
     # reading data for unrelated subjects
+    log.info(f'Read null model from {args.null_model}')
     with h5py.File(args.null_model, 'r') as file:
         covar = file['covar'][:]
         resid_ldr = file['resid_ldr'][:]
         var = file['var'][:]
         ids = file['ids'][:]
 
+    # read bases and inner_ldr
     bases = np.load(args.bases)
+    log.info(f'{bases.shape[1]} bases read from {args.bases}')
     inner_ldr = np.load(args.inner_ldr)
+    log.info(f'Read inner product of LDRs from {args.inner_ldr}')
+
+    # subset voxels
+    if isinstance(voxel_list, list):
+        if np.max(voxel_list) + 1 <= bases.shape[0] and np.min(voxel_list) >= 0:
+            log.info(f'{len(voxel_list)} voxels included.')
+        else:
+            raise ValueError('--voxel index (one-based) out of range')
+    else:
+        voxel_list = np.arange(bases.shape[0])
+    bases = bases[voxel_list]
+
+    # keep selected LDRs
+    if args.n_ldrs is not None:
+        log.info(f'Keep the top {args.n_ldrs} LDRs.')
+        bases, inner_ldr, resid_ldr = keep_ldrs(args.n_ldrs, bases, inner_ldr, resid_ldr)
 
     # keep subjects
     if args.keep is not None:
@@ -190,9 +350,11 @@ def run(args, log):
         keep_snps = None
 
     vset_test = VariantSetTest(bases, inner_ldr, resid_ldr, covar, var)
-    snps_mt = hl.read_matrix_table(args.avcfmt)
-    snps_mt = preprocess_mt(snps_mt, variant_type=args.variant_type, 
-                            maf_thresh=args.maf_thresh, mac_thresh=args.mac_thresh, 
+    snps_mt = hl.read_matrix_table(args.vcf_mt)
+    snps_mt = preprocess_mt(snps_mt, keep_snps=keep_snps, keep_idvs=keep_idvs, 
+                            variant_type=args.variant_type, 
+                            maf_min=args.maf_min, maf_max=args.maf_max, 
+                            mac_thresh=args.mac_thresh, 
                             chr=chr, start=start, end=end)
 
     # extracting common ids
@@ -204,8 +366,8 @@ def run(args, log):
 
     # single gene analysis
     cate_pvalues = single_gene_analysis(snps_mt, args.variant_type, vset_test,
-                               args.variant_category, args.use_annotation_weights,
-                               args.temp_path, log)
+                                        args.variant_category, args.use_annotation_weights,
+                                        args.temp_path, log)
     
     # format output
     n_voxels = bases.shape[0]

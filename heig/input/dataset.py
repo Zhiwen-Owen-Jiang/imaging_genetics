@@ -297,6 +297,30 @@ def read_extract(extract_files):
     return keep_snps_
 
 
+def read_voxel(voxel_file):
+    """
+    Reading a list of one-based voxels
+
+    Parameters:
+    ------------
+    voxel_file: a file of voxels without headers
+
+    Returns:
+    ---------
+    voxel_list: a np.array of zero-based voxels (N, )
+    
+    """
+    voxels = pd.read_csv(voxel_file, header=None, sep='\s+', usecols=[0])
+    try:
+        int(voxels.iloc[0, 0])
+    except ValueError:
+        raise ValueError('headers are not allowed in --voxel')
+    voxel_list = (voxels[0] - 1).values
+
+    return voxel_list
+
+
+
 def parse_input(arg):
     """
     Parsing files for LD matrix/LDR gwas

@@ -3,7 +3,7 @@ import pandas as pd
 
 
 __all__ = ['Annotation_name_catalog', 'Annotation_catalog_name',
-           'Annotation_name', 'preprocess_mt']
+           'Annotation_name', 'preprocess_mt', 'keep_ldrs']
 
 Annotation_name_catalog = {
     'rs_num': 'rsid',
@@ -134,20 +134,26 @@ def flip_snps(snps_mt):
     return snps_mt
 
 
-def extract_maf(snps_mt, maf_thresh=0.01):
+def extract_maf(snps_mt, maf_min=None, maf_max=0.01):
     """
-    Extracting variants with a MAF < maf_thresh
+    Extracting variants with a MAF < maf_max
     
     Parameters:
     ------------
     snps_mt: a MatrixTable of genotype (n, m)
-    maf_thresh: a float number between 0 and 0.5
+    maf_max: a float number between 0 and 0.5
+    maf_min: a float number between 0 and 0.5, 
+             shoule be smaller than maf_max
     
     Returns:
     ---------
     snps_mt: a MatrixTable of genotype (n, m)
     
     """
+    if maf_min is None:
+        maf_min = 0
+    if maf_min >= maf_max:
+        raise ValueError('maf_min is greater than maf_max')
     if 'info' not in snps_mt.row:
         snps_mt = hl.variant_qc(snps_mt, name='info')
     if 'maf' not in snps_mt.row:
@@ -158,7 +164,8 @@ def extract_maf(snps_mt, maf_thresh=0.01):
                 snps_mt.info.AF[-1]
             )
         )
-    snps_mt = snps_mt.filter_rows(snps_mt.maf <= maf_thresh)
+    snps_mt = snps_mt.filter_rows((snps_mt.maf >= maf_min) & 
+                                  (snps_mt.maf <= maf_max))
     return snps_mt
 
 
@@ -200,19 +207,36 @@ def extract_idvs(snps_mt, keep_idvs):
 
 
 def preprocess_mt(snps_mt, *args, keep_snps=None, keep_idvs=None,
-                  variant_type='snv', maf_thresh=0.01, mac_thresh=10, **kwargs):
+                  variant_type='snv', maf_min=None, maf_max=0.01,
+                  mac_thresh=10, **kwargs):
     if isinstance(keep_snps, pd.DataFrame):
         snps_mt = extract_snps(snps_mt, keep_snps)
     if isinstance(keep_idvs, pd.MultiIndex):
         snps_mt = extract_idvs(snps_mt, keep_idvs)
     snps_mt = hl.variant_qc(snps_mt, name='info')
     snps_mt = extract_variant_type(snps_mt, variant_type)
-    snps_mt = extract_maf(snps_mt, maf_thresh)
+    snps_mt = extract_maf(snps_mt, maf_min, maf_max)
     snps_mt = flip_snps(snps_mt)
     snps_mt = annotate_rare_variants(snps_mt, mac_thresh)
     if args or kwargs:
         snps_mt = extract_gene(snps_mt, *args, **kwargs)
+    if snps_mt.rows().count() == 0:
+        raise ValueError('no variant remaining after preprocessing')
     return snps_mt
+
+
+def keep_ldrs(n_ldrs, bases, inner_ldr, resid_ldr):
+    if bases.shape[1] < n_ldrs:
+        raise ValueError('the number of bases is less than --n-ldrs')
+    if inner_ldr.shape[0] < n_ldrs:
+        raise ValueError('the dimension of inner product of LDR is less than --n-ldrs')
+    if resid_ldr.shape[1] < n_ldrs:
+        raise ValueError('LDR residuals are less than --n-ldrs')
+    bases = bases[:, :n_ldrs]
+    inner_ldr = inner_ldr[:n_ldrs, :n_ldrs]
+    resid_ldr = resid_ldr[:, :n_ldrs]
+
+    return bases, inner_ldr, resid_ldr
 
 
 if __name__ == '__main__':

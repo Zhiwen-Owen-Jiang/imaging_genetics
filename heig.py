@@ -10,7 +10,7 @@ os.environ['NUMEXPR_MAX_THREADS'] = '8'
 numexpr.set_num_threads(int(os.environ['NUMEXPR_MAX_THREADS']))
 
 
-VERSION = '1.0.0'
+VERSION = '1.1.0'
 MASTHEAD = "******************************************************************************\n"
 MASTHEAD += "* Highly-Efficient Imaging Genetics (HEIG)\n"
 MASTHEAD += f"* Version {VERSION}\n"
@@ -39,6 +39,8 @@ voxelgwas_parser = parser.add_argument_group(
     title="Arguments specific to recovering voxel-level GWAS results")
 gwas_parser = parser.add_argument_group(
     title="Arguments specific to doing genome-wide association analysis")
+wgs_coding_parser = parser.add_argument_group(
+    title='Arguments specific to whole genome sequencing analysis for coding variants')
 
 # module arguments
 herigc_parser.add_argument('--heri-gc', action='store_true',
@@ -55,6 +57,8 @@ voxelgwas_parser.add_argument('--voxel-gwas', action='store_true',
                               help='Recovering voxel-level GWAS results.')
 gwas_parser.add_argument('--gwas', action='store_true',
                          help='Doing genome-wide association analysis.')
+wgs_coding_parser.add_argument('--wgs-coding', action='store_true',
+                        help='whole genome sequencing analysis for coding variants.')
 
 # common arguments
 common_parser.add_argument('--out',
@@ -98,6 +102,20 @@ common_parser.add_argument('--bfile',
                                  'and seperated by a comma, e.g., `prefix1,prefix2`. '
                                  'When doing GWAS, only one prefix is allowed. '
                                  'Supported modules: --ld-matrix, --gwas.'))
+common_parser.add_argument('--range',
+                           help=('A segment of chromosome, e.g. `3:1000000,3:2000000`, '
+                                 'from chromosome 3 bp 1000000 to chromosome 3 bp 2000000. '
+                                 'Cross-chromosome is not allowed. And the end position must '
+                                 'be greater than the start position. '
+                                 'Supported modules: --voxel-gwas, --wgs-coding.'))
+common_parser.add_argument('--sig-thresh', type=float,
+                           help=('p-Value threshold for significance, '
+                                 'can be specified in a decimal 0.00000005 '
+                                 'or in scientific notation 5e-08.' 
+                                 'Supported modules: --voxel-gwas, --wgs-coding.'))
+common_parser.add_argument('--voxel',
+                              help=('one-based index of voxel or a file containing voxels. '
+                                    'Supported modules: --voxel-gwas, --wgs-coding.'))
 
 # arguments for herigc.py
 herigc_parser.add_argument('--ld-inv',
@@ -209,17 +227,12 @@ sumstats_parser.add_argument('--fast-sumstats', action='store_true',
                                    'where only the first LDR is subject to quality checking and SNP pruning.'))
 
 # arguments for voxelgwas.py
-voxelgwas_parser.add_argument('--sig-thresh', type=float,
-                              help=('p-Value threshold for significance, '
-                                    'can be specified in a decimal 0.00000005 '
-                                    'or in scientific notation 5e-08.'))
-voxelgwas_parser.add_argument('--voxel', type=int,
-                              help='one-based index of voxel.')
-voxelgwas_parser.add_argument('--range',
-                              help=('A segment of chromosome, e.g. `3:1000000,3:2000000`, '
-                                    'from chromosome 3 bp 1000000 to chromosome 3 bp 2000000. '
-                                    'Cross-chromosome is not allowed. And the end position must '
-                                    'be greater than the start position.'))
+# voxelgwas_parser.add_argument('--sig-thresh', type=float,
+#                               help=('p-Value threshold for significance, '
+#                                     'can be specified in a decimal 0.00000005 '
+#                                     'or in scientific notation 5e-08.'))
+# voxelgwas_parser.add_argument('--voxel', type=int,
+#                               help='one-based index of voxel.')
 
 # arguments for gwas.py
 gwas_parser.add_argument('--ldrs',
@@ -232,6 +245,26 @@ gwas_parser.add_argument('--mem', type=int,
                          help='RAM to use (GB).')
 gwas_parser.add_argument('--geno-mt',
                          help='MatrixTable of genotype.')
+
+# arguments for coding.py
+wgs_coding_parser.add_argument('--vcf-mt',
+                               help='Directory to annotated VCF MatrixTable.')
+wgs_coding_parser.add_argument('--null-model',
+                               help='Directory to null model')
+wgs_coding_parser.add_argument('--variant-type',
+                               help=("Variant type (case insensitive), "
+                                     "must be one of ('variant', 'snv', 'indel')"))
+wgs_coding_parser.add_argument('--variant-category',
+                               help=("Variant category (case insensitive), "
+                                     "must be one of ('all', 'plof', 'plof_ds', 'missense', "
+                                     "'disruptive_missense', 'synonymous', 'ptv', 'ptv_ds'), "
+                                     "where 'all' means all categories."))
+wgs_coding_parser.add_argument('--maf-max', type=float,
+                               help='Maximum minor allele frequency for screening SNPs.')
+wgs_coding_parser.add_argument('--mac-thresh', type=int,
+                               help='Minimum minor allele count for distinguishing very rare variants.')
+wgs_coding_parser.add_argument('--use-annotation-weights', action='store_true',
+                               help='If using annotation weights')
 
 
 def check_accepted_args(module, args, log):
