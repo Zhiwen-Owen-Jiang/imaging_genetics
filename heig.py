@@ -130,8 +130,10 @@ common_parser.add_argument('--ldrs',
 common_parser.add_argument('--geno-mt',
                            help='Directory to genotype MatrixTable. Supported modules: --gwas, --wgs-coding.')
 common_parser.add_argument('--grch37', action='store_true',
-                         help=('Using reference genome GRCh37. Otherwise using GRCh38. '
-                               'Supported modules: --gwas, --annot-vcf.'))
+                           help=('Using reference genome GRCh37. Otherwise using GRCh38. '
+                                 'Supported modules: --gwas, --annot-vcf.'))
+common_parser.add_argument('--threads', type=int,
+                           help='Number of computational threads to use.')
 
 # arguments for herigc.py
 herigc_parser.add_argument('--ld-inv',
@@ -259,8 +261,6 @@ annot_vcf_parser.add_argument('--xsv',
                               help='Directory to xsv software.')
 
 # arguments for gwas.py
-gwas_parser.add_argument('--threads', type=int,
-                         help='Number of computational threads to use.')
 gwas_parser.add_argument('--mem', type=int,
                          help='RAM to use (GB).')
 
@@ -305,9 +305,9 @@ def check_accepted_args(module, args, log):
                        'inner_ldr', 'bases'},
         'gwas': {'out', 'gwas', 'ldrs', 'n_ldrs', 'grch37', 'threads', 'mem', 'geno_mt'
                  'covar', 'cat_covar_list', 'bfile'},
-        'annot_vcf': {'out', 'grch37', 'vcf', 'favor_db', 'xsv'},
+        'annot_vcf': {'out', 'grch37', 'vcf', 'favor_db', 'xsv', 'keep', 'extract'},
         'wgs_null': {'out', 'ldrs', 'n_ldrs', 'bases', 'inner_ldr', 'covar',
-                     'cat_covar_list', 'keep'},
+                     'cat_covar_list', 'keep', 'threads'},
         'wgs_coding': {'out', 'geno_mt', 'null_model', 'variant_type', 'variant_category',
                        'maf_max', 'maf_min', 'mac_thresh', 'use_annotation_weights',
                        'n_ldrs', 'bases', 'inner_ldr', 'keep', 'extract', 'range',

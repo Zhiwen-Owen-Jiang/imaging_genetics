@@ -2,7 +2,10 @@ import os
 import subprocess
 import hail as hl
 import pandas as pd
+from concurrent.futures import ThreadPoolExecutor
 from heig.utils import find_loc
+import heig.input.dataset as ds
+from heig.wgs.utils import extract_idvs, extract_snps
 
 
 def process_snp_info(snp_info):
@@ -134,6 +137,10 @@ def check_input(args, log):
     if not os.path.exists(args.favor_db):
         raise FileNotFoundError(f"{args.favor_db} does not exist")
     
+    # optional arguments
+    if args.threads is None:
+        args.threads = 1
+    
     # process arguments
     if args.grch37 is None or not args.grch37:
         geno_ref = 'GRCh38'
@@ -146,11 +153,24 @@ def check_input(args, log):
 def run(args, log):
     # check input and init
     geno_ref = check_input(args, log)
+    log.info(f'Set {geno_ref} as the reference.')
     hl.init(quiet=True, default_reference=geno_ref)
 
     # convert VCF to MatrixTable
     log.info(f'Read VCF from {args.vcf}')
     vcf_mt = hl.import_vcf(args.vcf)
+
+    # keep idvs
+    if args.keep is not None:
+        keep_idvs = ds.read_keep(args.keep)
+        log.info(f'{len(keep_idvs)} subjects in --keep.')
+        vcf_mt = extract_idvs(vcf_mt, keep_idvs)
+        
+    # extract SNPs
+    if args.extract is not None:
+        keep_snps = ds.read_extract(args.extract)
+        log.info(f"{len(keep_snps)} variants in --extract.")
+        vcf_mt = extract_snps(vcf_mt, keep_snps)
 
     # read and process snp info
     snp_info = vcf_mt.rows().select().to_pandas()
@@ -173,10 +193,16 @@ def run(args, log):
         snp_info_i['VarInfo'] = snp_info_i.apply(lambda x: f"{x['CHR']}-{x['POS']}-{x['REF']}-{x['ALT']}", axis=1)
         snp_info_i['VarInfo'].to_csv(os.path.join(args.out, f'chr{chr}', f'VarInfo_chr{chr}_{i+1}.csv'),
                           index=None)
-        extract_annotation(args.xsv, chr, i, args.out, args.favor_db)
         start = end
+    
+    log.info(f'Extract functional annotations for each block using {args.threads} threads ...')
+    with ThreadPoolExecutor(max_workers=args.threads) as executor:
+        for i in range(db_info.shape[0]):
+        #     extract_annotation(args.xsv, chr, i, args.out, args.favor_db)
+            executor.submit(extract_annotation, args.xsv, chr, i, args.out, args.favor_db)
 
     # merge pieces
+    log.info('Merge separate blocks.')
     merge_command = f'{args.xsv} cat rows '
     all_annot_dir = [os.path.join(args.out, f'chr{chr}', f'Anno_chr{chr}_{i+1}.csv') for i in range(db_info.shape[0])]
     merge_command += ' '.join(all_annot_dir)
@@ -185,6 +211,7 @@ def run(args, log):
     subprocess.run(merge_command, shell=True)
 
     # subset
+    log.info('Extract a subset of annotations.')
     annot_column = [1, 8, 9, 10, 11, 12, 15, 16, 19, 23] + list(range(25, 37))
     annot_column_xsv = ','.join([str(x) for x in annot_column])
     subset_command = f'{args.xsv} select {annot_column_xsv} '
@@ -194,6 +221,7 @@ def run(args, log):
     subprocess.run(subset_command, shell=True)
     
     # read and add annotation to MatrixTable
+    log.info('Annotate the genotypes.')
     annot = hl.import_table(os.path.join(args.out, f'chr{chr}', f'Anno_chr{chr}_STAARpipeline.csv'),
                            impute=True, delimiter=',', quote='"')
     annot_colnames = list(annot.row_value.keys())
