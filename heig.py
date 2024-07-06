@@ -108,11 +108,6 @@ common_parser.add_argument('--range',
                                  'Cross-chromosome is not allowed. And the end position must '
                                  'be greater than the start position. '
                                  'Supported modules: --voxel-gwas, --wgs-coding.'))
-common_parser.add_argument('--sig-thresh', type=float,
-                           help=('p-Value threshold for significance, '
-                                 'can be specified in a decimal 0.00000005 '
-                                 'or in scientific notation 5e-08.' 
-                                 'Supported modules: --voxel-gwas, --wgs-coding.'))
 common_parser.add_argument('--voxel',
                               help=('one-based index of voxel or a file containing voxels. '
                                     'Supported modules: --voxel-gwas, --wgs-coding.'))
@@ -227,10 +222,10 @@ sumstats_parser.add_argument('--fast-sumstats', action='store_true',
                                    'where only the first LDR is subject to quality checking and SNP pruning.'))
 
 # arguments for voxelgwas.py
-# voxelgwas_parser.add_argument('--sig-thresh', type=float,
-#                               help=('p-Value threshold for significance, '
-#                                     'can be specified in a decimal 0.00000005 '
-#                                     'or in scientific notation 5e-08.'))
+voxelgwas_parser.add_argument('--sig-thresh', type=float,
+                              help=('p-Value threshold for significance, '
+                                    'can be specified in a decimal 0.00000005 '
+                                    'or in scientific notation 5e-08.'))
 # voxelgwas_parser.add_argument('--voxel', type=int,
 #                               help='one-based index of voxel.')
 
@@ -256,9 +251,10 @@ wgs_coding_parser.add_argument('--variant-type',
                                      "must be one of ('variant', 'snv', 'indel')"))
 wgs_coding_parser.add_argument('--variant-category',
                                help=("Variant category (case insensitive), "
-                                     "must be one of ('all', 'plof', 'plof_ds', 'missense', "
-                                     "'disruptive_missense', 'synonymous', 'ptv', 'ptv_ds'), "
-                                     "where 'all' means all categories."))
+                                     "must be one or some of ('all', 'plof', 'plof_ds', 'missense', "
+                                     "'disruptive_missense', 'synonymous', 'ptv', 'ptv_ds'); "
+                                     "where 'all' means all categories; "
+                                     "multiple categories should be separated by comma"))
 wgs_coding_parser.add_argument('--maf-max', type=float,
                                help='Maximum minor allele frequency for screening SNPs.')
 wgs_coding_parser.add_argument('--mac-thresh', type=int,

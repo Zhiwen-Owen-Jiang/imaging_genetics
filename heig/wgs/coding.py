@@ -4,14 +4,15 @@ import shutil
 import h5py
 import numpy as np
 import pandas as pd
+from functools import reduce
 from heig.wgs.staar import VariantSetTest, cauchy_combination
 import heig.input.dataset as ds
 from heig.wgs.utils import *
 
+
 """
-TODO: 
-1. change the format from wide to long
-2. add support for --voxel and --sig-thresh
+TODO:
+1. missense and disruptive_missense
 
 """
 
@@ -130,7 +131,7 @@ def single_gene_analysis(snps_mt, variant_type, vset_test,
     try:
         cate_pvalues = dict()
         for cate, idx in coding.category_dict.items():
-            if variant_category != 'all' and variant_category != cate: 
+            if variant_category[0] != 'all' and cate not in variant_category: 
                 cate_pvalues[cate] = None
             else:
                 if coding.anno_phred is not None:
@@ -156,7 +157,37 @@ def process_missense(m_pvalues, dm_pvalues):
     Doing Cauchy combination for missense
     
     """
-    cauchy_combination()
+    m_pvalues['SKAT(1,25)-Disruptive'] = dm_pvalues['SKAT(1,25)']
+    m_pvalues['SKAT(1,1)-Disruptive'] = dm_pvalues['SKAT(1,1)']
+    m_pvalues['Burden(1,25)-Disruptive'] = dm_pvalues['Burden(1,25)']
+    m_pvalues['Burden(1,1)-Disruptive'] = dm_pvalues['Burden(1,1)']
+    m_pvalues['ACAT-V(1,25)-Disruptive'] = dm_pvalues['ACAT-V(1,25)']
+    m_pvalues['ACAT-V(1,1)-Disruptive'] = dm_pvalues['ACAT-V(1,1)']
+
+    columns = m_pvalues.columns.values
+    skat_1_25 = _extract_columns(columns, 'SKAT(1,25)')
+    skat_1_1 = _extract_columns(columns, 'SKAT(1,1)')
+    burden_1_25 = _extract_columns(columns, 'Burden(1,25)')
+    burden_1_1 = _extract_columns(columns, 'Burden(1,1)')
+    acatv_1_25 = _extract_columns(columns, 'ACAT-V(1,25)')
+    acatv_1_1 = _extract_columns(columns, 'ACAT-V(1,1)')
+
+    m_pvalues['STAAR-S(1,25)'] = cauchy_combination(m_pvalues.loc[:, skat_1_25].values.T)
+    m_pvalues['STAAR-S(1,1)'] = cauchy_combination(m_pvalues.loc[:, skat_1_1].values.T)
+    m_pvalues['STAAR-B(1,25)'] = cauchy_combination(m_pvalues.loc[:, burden_1_25].values.T)
+    m_pvalues['STAAR-B(1,1)'] = cauchy_combination(m_pvalues.loc[:, burden_1_1].values.T)
+    m_pvalues['STAAR-A(1,25)'] = cauchy_combination(m_pvalues.loc[:, acatv_1_25].values.T)
+    m_pvalues['STAAR-A(1,1)'] = cauchy_combination(m_pvalues.loc[:, acatv_1_1].values.T)
+
+    all_columns = [skat_1_25, skat_1_1, burden_1_25, burden_1_1, acatv_1_25, acatv_1_1]
+    all_columns = reduce(np.logical_or, all_columns)
+    m_pvalues['STAAR-O)'] = cauchy_combination(m_pvalues.loc[:, all_columns].values.T)
+
+    return m_pvalues
+
+
+def _extract_columns(columns, prefix):
+    return np.array([column.startswith(prefix) for column in columns])
 
 
 def format_output(cate_pvalues, start, end, n_variants, n_voxels, variant_category):
@@ -211,13 +242,6 @@ def check_input(args, log):
         raise FileNotFoundError(f"{args.null_model} does not exist")
 
     # optional arguments
-    if args.voxel is not None and args.voxel <= 0:
-        raise ValueError('--voxel should be greater than 0 (one-based index)')
-    
-    if args.sig_thresh is not None and (args.sig_thresh <= 0 or args.sig_thresh >= 1):
-        raise ValueError(
-            '--sig-thresh should be greater than 0 and less than 1')
-    
     if args.n_ldrs is not None and args.n_ldrs <= 0:
         raise ValueError('--n-ldrs should be greater than 0')
     
@@ -232,19 +256,28 @@ def check_input(args, log):
         log.info(f"Set --variant-type as default 'snv'")
     else:
         args.variant_type = args.variant_type.lower()
-        if args.variant_typenot in {'snv', 'variant', 'indel'}:
+        if args.variant_typenot not in {'snv', 'variant', 'indel'}:
             raise ValueError("--variant-type must be one of ('variant', 'snv', 'indel')")
         
     if args.variant_category is None:
-        args.variant_category = 'all'
+        variant_category = ['all']
         log.info(f"Set --variant-category as default 'all'")
-    else:
-        args.variant_category = args.variant_category.lower()
-        if args.variant_category in {'all', 'plof', 'plof_ds', 'missense', 
-                                     'disruptive_missense','synonymous', 'ptv', 'ptv_ds'}:
-            raise ValueError(("--variant-category must be one of "
-                              "('all', 'plof', 'plof_ds', 'missense', 'disruptive_missense', "
-                              "'synonymous', 'ptv', 'ptv_ds')"))
+    else:   
+        variant_category = list()
+        args.variant_category = [x.lower() for x in args.variant_category.split(',')]
+        for category in args.variant_category:
+            if category == 'all':
+                variant_category = ['all']
+                break
+            if category not in {'all', 'plof', 'plof_ds', 'missense', 
+                                'disruptive_missense','synonymous', 'ptv', 'ptv_ds'}:
+                log.info(f'Ingore invalid variant category {category}.')
+            else:
+                variant_category.append(category)
+        if len(variant_category) == 0:
+            raise ValueError('no valid variant category provided')
+        if 'missense' in variant_category and 'disruptive_missense' not in variant_category:
+            variant_category.append('disruptive_missense')
     
     if args.maf_max is None:
         args.maf_max = 0.01
@@ -263,12 +296,6 @@ def check_input(args, log):
     if args.use_annotation_weights is None:
         args.use_annotation_weights = False
         log.info(f"Set --use-annotation-weights as False")
-
-    args.temp_path = 'temp'
-    i = 0
-    while os.path.exists(args.temp_path):
-        args.temp_path += str(i)
-        i += 1
 
     # process arguments
     try:
@@ -298,13 +325,19 @@ def check_input(args, log):
                 raise FileNotFoundError(f"--voxel does not exist")
     else:
         voxel_list = None
+
+    temp_path = 'temp'
+    i = 0
+    while os.path.exists(temp_path):
+        temp_path += str(i)
+        i += 1
     
-    return start_chr, start_pos, end_pos, voxel_list
+    return start_chr, start_pos, end_pos, voxel_list, variant_category, temp_path
 
 
 def run(args, log):
     # checking if input is valid
-    chr, start, end, voxel_list = check_input(args, log)
+    chr, start, end, voxel_list, variant_category, temp_path = check_input(args, log)
 
     # reading data for unrelated subjects
     log.info(f'Read null model from {args.null_model}')
@@ -366,8 +399,8 @@ def run(args, log):
 
     # single gene analysis
     cate_pvalues = single_gene_analysis(snps_mt, args.variant_type, vset_test,
-                                        args.variant_category, args.use_annotation_weights,
-                                        args.temp_path, log)
+                                        variant_category, args.use_annotation_weights,
+                                        temp_path, log)
     
     # format output
     n_voxels = bases.shape[0]

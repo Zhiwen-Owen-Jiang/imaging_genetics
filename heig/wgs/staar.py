@@ -13,16 +13,13 @@ and use this quantile to quickly screen insignificant results
 """
 
 class VariantSetTest:
-    def __init__(self, bases, inner_ldr, resid_ldr, covar, var, sig_thresh=None, block_size=2048):
+    def __init__(self, bases, inner_ldr, resid_ldr, covar, var, block_size=2048):
         """
         bases: (N, r) np.array, functional bases
         inner_ldr: (r, r) np.array, inner product of projected LDRs
         resid_ldr: (n, r) np.array, LDR residuals
         covar: (n, p) np.array, the same as those used to do projection
         var: (N, ) np.array, voxel-level variance
-        sig_thresh: a significant threshold for Burden and SKAT;
-                    will be converted to the quantile;
-                    test statistics smaller than this will be filtered out
         block_size: block size for BlockMatrix
 
         """
@@ -34,7 +31,6 @@ class VariantSetTest:
         self.resid_ldr = BlockMatrix.from_numpy(resid_ldr, block_size=block_size)
         self.N = bases.shape[0]
         self.block_size = block_size
-        self.sig_thresh = sig_thresh
 
         # null model
         self.inner_covar_inv = BlockMatrix.from_numpy(np.linalg.inv(np.dot(covar.T, covar)), block_size=block_size) # (p, p)
