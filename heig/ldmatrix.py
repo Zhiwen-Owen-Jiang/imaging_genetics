@@ -5,6 +5,7 @@ import numpy as np
 from tqdm import tqdm
 import heig.input.genotype as gt
 import heig.input.dataset as ds
+from heig.utils import find_loc
 
 
 class LDmatrix:
@@ -39,8 +40,7 @@ class LDmatrix:
                              names=['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2', 'MAF',
                                     'block_idx', 'block_idx2', 'ldscore'])
         if not ldinfo.groupby('CHR')['POS'].apply(lambda x: x.is_monotonic_increasing).all():
-            raise ValueError(
-                f'the SNPs in each chromosome are not sorted')
+            raise ValueError(f'the SNPs in each chromosome are not sorted')
         if ldinfo.groupby('CHR')['POS'].apply(lambda x: x.duplicated()).any():
             raise ValueError(f'duplicated SNPs in LD matrix are not allowed')
         return ldinfo
@@ -353,33 +353,6 @@ def partition_genome(ld_bim, part, log):
     return num_snps_part, ld_bim
 
 
-def find_loc(num_list, target):
-    """
-    Finding the target number from a sorted list of numbers by binary search
-
-    Parameters:
-    ------------
-    num_list: a sorted list of numbers
-    target: the target number
-
-    Returns:
-    ---------
-    the exact index or -1
-
-    """
-    l = 0
-    r = len(num_list) - 1
-    while l <= r:
-        mid = (l + r) // 2
-        if num_list[mid] == target:
-            return mid
-        elif num_list[mid] > target:
-            r = mid - 1
-        else:
-            l = mid + 1
-    return r
-
-
 def get_sub_blocks(begin, end):
     """
     Partitioning large LD blocks to smaller ones with size ~1000
@@ -417,8 +390,7 @@ def check_input(args):
         raise ValueError('--ld-regu is required')
     if args.maf_min is not None:
         if args.maf_min >= 0.5 or args.maf_min <= 0:
-            raise ValueError(
-                '--maf-min must be greater than 0 and less than 0.5')
+            raise ValueError('--maf-min must be greater than 0 and less than 0.5')
 
     # check file/directory exists
     if not os.path.exists(args.partition):
@@ -442,8 +414,7 @@ def check_input(args):
         raise ValueError(('two regularization levels must be provided with --prop '
                           'and separated with a comma'))
     if ld_regu >= 1 or ld_regu <= 0 or ld_inv_regu >= 1 or ld_inv_regu <= 0:
-        raise ValueError(
-            'both regularization levels must be greater than 0 and less than 1')
+        raise ValueError('both regularization levels must be greater than 0 and less than 1')
 
     return ld_bfile, ld_inv_bfile, ld_regu, ld_inv_regu
 
@@ -454,8 +425,7 @@ def read_process_snps(bim_dir, log):
                          names=['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2'],
                          dtype={'A1': 'category', 'A2': 'category'})
     ld_bim.drop_duplicates(subset=['SNP'], keep=False, inplace=True)
-    log.info(
-        f'{ld_bim.shape[0]} SNPs remaining after removing duplicated SNPs.')
+    log.info(f'{ld_bim.shape[0]} SNPs remaining after removing duplicated SNPs.')
 
     return ld_bim
 
@@ -473,10 +443,8 @@ def read_process_idvs(fam_dir):
 def filter_maf(ld_bfile, ld_keep_snp, ld_keep_idv,
                ld_inv_bfile, ld_inv_keep_snp, ld_inv_keep_idv, min_maf):
     ld_bim2, *_ = gt.read_plink(ld_bfile, ld_keep_snp, ld_keep_idv)
-    ld_inv_bim2, *_ = gt.read_plink(ld_inv_bfile,
-                                    ld_inv_keep_snp, ld_inv_keep_idv)
-    common_snps = ld_bim2.loc[(ld_bim2['MAF'] >= min_maf) & (
-        ld_inv_bim2['MAF'] >= min_maf)]
+    ld_inv_bim2, *_ = gt.read_plink(ld_inv_bfile,ld_inv_keep_snp, ld_inv_keep_idv)
+    common_snps = ld_bim2.loc[(ld_bim2['MAF'] >= min_maf) & (ld_inv_bim2['MAF'] >= min_maf)]
 
     return common_snps
 
@@ -491,8 +459,7 @@ def run(args, log):
 
     # merging two SNP lists
     ld_merged = ld_bim.merge(ld_inv_bim, on=['SNP', 'A1', 'A2'])
-    log.info(
-        f"{ld_merged.shape[0]} SNPs are common in two bfiles with identical A1 and A2.")
+    log.info(f"{ld_merged.shape[0]} SNPs are common in two bfiles with identical A1 and A2.")
 
     # extracting SNPs
     if args.extract is not None:
@@ -527,10 +494,8 @@ def run(args, log):
     log.info(f"Read bfile from {ld_bfile} with selected SNPs and individuals.")
     ld_bim, _, ld_snp_getter = gt.read_plink(
         ld_bfile, common_snps, ld_keep_idv)
-    log.info(
-        f"Read bfile from {ld_inv_bfile} with selected SNPs and individuals.")
-    ld_inv_bim, _, ld_inv_snp_getter = gt.read_plink(
-        ld_inv_bfile, common_snps, ld_inv_keep_idv)
+    log.info(f"Read bfile from {ld_inv_bfile} with selected SNPs and individuals.")
+    ld_inv_bim, _, ld_inv_snp_getter = gt.read_plink(ld_inv_bfile, common_snps, ld_inv_keep_idv)
 
     # reading and doing genome partition
     log.info(f"\nRead genome partition from {args.partition}")
@@ -543,12 +508,10 @@ def run(args, log):
               f"with the biggest one {np.max(num_snps_part)} SNPs."))
 
     # making LD matrix and its inverse
-    log.info(
-        f"Regularization {ld_regu} for LD matrix, and {ld_inv_regu} for LD inverse matrix.")
+    log.info(f"Regularization {ld_regu} for LD matrix, and {ld_inv_regu} for LD inverse matrix.")
     log.info(f"Making LD matrix and its inverse ...\n")
     ld = LDmatrixBED(num_snps_part, ld_bim, ld_snp_getter, ld_regu)
-    ld_inv = LDmatrixBED(num_snps_part, ld_inv_bim,
-                         ld_inv_snp_getter, ld_inv_regu, inv=True)
+    ld_inv = LDmatrixBED(num_snps_part, ld_inv_bim,ld_inv_snp_getter, ld_inv_regu, inv=True)
 
     ld_prefix = ld.save(args.out, False, ld_regu)
     log.info(f"Save LD matrix to {ld_prefix}.ldmatrix")

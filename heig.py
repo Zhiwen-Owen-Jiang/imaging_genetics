@@ -39,6 +39,8 @@ voxelgwas_parser = parser.add_argument_group(
     title="Arguments specific to recovering voxel-level GWAS results")
 gwas_parser = parser.add_argument_group(
     title="Arguments specific to doing genome-wide association analysis")
+annot_vcf_parser = parser.add_argument_group(
+    title="Arguments specific to annotating VCF files")
 wgs_null_parser = parser.add_argument_group(
     title="Arguments specific to the null model of whole genome sequencing analysis")
 wgs_coding_parser = parser.add_argument_group(
@@ -59,6 +61,8 @@ voxelgwas_parser.add_argument('--voxel-gwas', action='store_true',
                               help='Recovering voxel-level GWAS results.')
 gwas_parser.add_argument('--gwas', action='store_true',
                          help='Doing genome-wide association analysis.')
+annot_vcf_parser.add_argument('--annot-vcf', action='store_true',
+                              help='Annotating VCF files.')
 wgs_null_parser.add_argument('--wgs-null', action='store_true',
                         help='Fitting the null model of whole genome sequencing analysis.')
 wgs_coding_parser.add_argument('--wgs-coding', action='store_true',
@@ -125,6 +129,9 @@ common_parser.add_argument('--ldrs',
                            help='Directory to LDR file. Supported modules: --gwas, --wgs-null.')
 common_parser.add_argument('--geno-mt',
                            help='Directory to genotype MatrixTable. Supported modules: --gwas, --wgs-coding.')
+common_parser.add_argument('--grch37', action='store_true',
+                         help=('Using reference genome GRCh37. Otherwise using GRCh38. '
+                               'Supported modules: --gwas, --annot-vcf.'))
 
 # arguments for herigc.py
 herigc_parser.add_argument('--ld-inv',
@@ -241,15 +248,21 @@ voxelgwas_parser.add_argument('--sig-thresh', type=float,
                                     'can be specified in a decimal 0.00000005 '
                                     'or in scientific notation 5e-08.'))
 
+# arguments for vcf2mt.py
+annot_vcf_parser.add_argument('--vcf', 
+                              help=('Direcotory to preprocessed VCF file. '
+                                    'Refer to https://github.com/zhouhufeng/FAVORannotator/blob/main/Docs/Tutorial/Demos/preprocessVCF.md '
+                                    'for detailed steps.'))
+annot_vcf_parser.add_argument('--favor-db',
+                              help='Directory to unzipped FAVORannotation files.')
+annot_vcf_parser.add_argument('--xsv',
+                              help='Directory to xsv software.')
+
 # arguments for gwas.py
-gwas_parser.add_argument('--grch37', action='store_true',
-                         help='Using reference genome GRCh37. Otherwise using GRCh38.')
 gwas_parser.add_argument('--threads', type=int,
                          help='Number of computational threads to use.')
 gwas_parser.add_argument('--mem', type=int,
                          help='RAM to use (GB).')
-gwas_parser.add_argument('--geno-mt',
-                         help='MatrixTable of genotype.')
 
 # arguments for coding.py
 wgs_coding_parser.add_argument('--null-model',
@@ -292,6 +305,7 @@ def check_accepted_args(module, args, log):
                        'inner_ldr', 'bases'},
         'gwas': {'out', 'gwas', 'ldrs', 'n_ldrs', 'grch37', 'threads', 'mem', 'geno_mt'
                  'covar', 'cat_covar_list', 'bfile'},
+        'annot_vcf': {'out', 'grch37', 'vcf', 'favor_db', 'xsv'},
         'wgs_null': {'out', 'ldrs', 'n_ldrs', 'bases', 'inner_ldr', 'covar',
                      'cat_covar_list', 'keep'},
         'wgs_coding': {'out', 'geno_mt', 'null_model', 'variant_type', 'variant_category',
@@ -329,10 +343,10 @@ def main(args, log):
     if dirname != '' and not os.path.exists(dirname):
         raise ValueError(f'{os.path.dirname(args.out)} does not exist')
     if (args.heri_gc + args.kernel_smooth + args.fpca + args.ld_matrix + args.sumstats + 
-        args.voxel_gwas + args.gwas + args.wgs_null + args.wgs_coding != 1):
+        args.voxel_gwas + args.gwas + args.annot_vcf + args.wgs_null + args.wgs_coding != 1):
         raise ValueError(('you must raise one and only one of following flags for doing analysis: '
                           '--heri-gc, --kernel-smooth, --fpca, --ld-matrix, --sumstats, '
-                          '--voxel-gwas, --gwas, --wgs-null, --wgs-coding'))
+                          '--voxel-gwas, --gwas, --annot-vcf, --wgs-null, --wgs-coding'))
     if args.keep is not None:
         args.keep = split_files(args.keep)
     if args.extract is not None:
@@ -366,6 +380,10 @@ def main(args, log):
         check_accepted_args('gwas', args, log)
         log.info('--gwas module is under development.')
         # gwas.run(args, log)
+    elif args.annot_vcf:
+        check_accepted_args('annot_vcf', args, log)
+        import heig.wgs.vcf2mt as vcf2mt
+        vcf2mt.run(args, log)
     elif args.wgs_null:
         check_accepted_args('wgs_null', args, log)
         import heig.wgs.null as null

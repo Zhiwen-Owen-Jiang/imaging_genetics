@@ -64,3 +64,30 @@ def check_compression(dir):
         compression = None
 
     return openfunc, compression
+
+
+def find_loc(num_list, target):
+    """
+    Finding the target number from a sorted list of numbers by binary search
+
+    Parameters:
+    ------------
+    num_list: a sorted list of numbers
+    target: the target number
+
+    Returns:
+    ---------
+    the exact index or -1
+
+    """
+    l = 0
+    r = len(num_list) - 1
+    while l <= r:
+        mid = (l + r) // 2
+        if num_list[mid] == target:
+            return mid
+        elif num_list[mid] > target:
+            r = mid - 1
+        else:
+            l = mid + 1
+    return r
