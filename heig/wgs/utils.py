@@ -225,18 +225,15 @@ def preprocess_mt(snps_mt, *args, keep_snps=None, keep_idvs=None,
     return snps_mt
 
 
-def keep_ldrs(n_ldrs, bases, inner_ldr, resid_ldr):
+def keep_ldrs(n_ldrs, bases, resid_ldr):
     if bases.shape[1] < n_ldrs:
         raise ValueError('the number of bases is less than --n-ldrs')
-    if inner_ldr.shape[0] < n_ldrs:
-        raise ValueError('the dimension of inner product of LDR is less than --n-ldrs')
     if resid_ldr.shape[1] < n_ldrs:
         raise ValueError('LDR residuals are less than --n-ldrs')
     bases = bases[:, :n_ldrs]
-    inner_ldr = inner_ldr[:n_ldrs, :n_ldrs]
     resid_ldr = resid_ldr[:, :n_ldrs]
 
-    return bases, inner_ldr, resid_ldr
+    return bases, resid_ldr
 
 
 if __name__ == '__main__':

@@ -222,8 +222,6 @@ def check_input(args, log):
     # required arguments
     if args.bases is None:
         raise ValueError('--bases is required')
-    if args.inner_ldr is None:
-        raise ValueError('--inner-ldr is required')
     if args.geno_mt is None:
         raise ValueError('--geno-mt is required')
     if args.null_model is None:
@@ -234,8 +232,6 @@ def check_input(args, log):
     # required files must exist
     if not os.path.exists(args.bases):
         raise FileNotFoundError(f"{args.bases} does not exist")
-    if not os.path.exists(args.inner_ldr):
-        raise FileNotFoundError(f"{args.inner_ldr} does not exist")
     if not os.path.exists(args.geno_mt):
         raise FileNotFoundError(f"{args.geno_mt} does not exist")
     if not os.path.exists(args.null_model):
@@ -350,8 +346,6 @@ def run(args, log):
     # read bases and inner_ldr
     bases = np.load(args.bases)
     log.info(f'{bases.shape[1]} bases read from {args.bases}')
-    inner_ldr = np.load(args.inner_ldr)
-    log.info(f'Read inner product of LDRs from {args.inner_ldr}')
 
     # subset voxels
     if isinstance(voxel_list, list):
@@ -365,7 +359,7 @@ def run(args, log):
 
     # keep selected LDRs
     if args.n_ldrs is not None:
-        bases, inner_ldr, resid_ldr = keep_ldrs(args.n_ldrs, bases, inner_ldr, resid_ldr)
+        bases, resid_ldr = keep_ldrs(args.n_ldrs, bases, resid_ldr)
         log.info(f'Keep the top {args.n_ldrs} LDRs.')
 
     # keep subjects
@@ -382,7 +376,7 @@ def run(args, log):
     else:
         keep_snps = None
 
-    vset_test = VariantSetTest(bases, inner_ldr, resid_ldr, covar, var)
+    vset_test = VariantSetTest(bases, resid_ldr, covar, var)
     snps_mt = hl.read_matrix_table(args.geno_mt)
     if 'fa' not in snps_mt.row:
         raise ValueError('--geno-mt must be annotated before doing analysis')

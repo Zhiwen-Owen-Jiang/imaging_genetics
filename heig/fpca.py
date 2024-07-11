@@ -226,8 +226,7 @@ def run(args, log):
     log.info(f'{len(common_idxs)} common subjects in these files.')
     covar.keep(common_idxs)
     covar.cat_covar_intercept()
-    log.info(
-        f"{covar.data.shape[1]} fixed effects in the covariates (including the intercept).")
+    log.info(f"{covar.data.shape[1]} fixed effects in the covariates (including the intercept).")
     ldr = ldr[ids.isin(common_idxs)]
 
     # var-cov matrix of projected LDRs

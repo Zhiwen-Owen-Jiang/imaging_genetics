@@ -22,7 +22,7 @@ MASTHEAD += "*******************************************************************
 
 
 parser = argparse.ArgumentParser(
-    description='\n Highly-Efficient Imaging Genetics (HEIG) v1.0.0')
+    description='\n Highly-Efficient Imaging Genetics (HEIG) v1.1.0')
 
 common_parser = parser.add_argument_group(title="Common arguments")
 herigc_parser = parser.add_argument_group(
@@ -82,7 +82,7 @@ common_parser.add_argument('--bases',
                                  '--heri-gc, --voxel-gwas, --wgs-null, --wgs-coding.'))
 common_parser.add_argument('--inner-ldr',
                            help=('Directory to inner product of LDRs. '
-                                 'Supported modules: --heri-gc, --voxel-gwas, --wgs-null, --wgs-coding.'))
+                                 'Supported modules: --heri-gc, --voxel-gwas.'))
 common_parser.add_argument('--keep',
                            help=('Individual file(s). Multiple files are separated by comma. '
                                  'Each file should be tab or space delimited, '
@@ -305,12 +305,12 @@ def check_accepted_args(module, args, log):
                        'inner_ldr', 'bases'},
         'gwas': {'out', 'gwas', 'ldrs', 'n_ldrs', 'grch37', 'threads', 'mem', 'geno_mt'
                  'covar', 'cat_covar_list', 'bfile'},
-        'annot_vcf': {'out', 'grch37', 'vcf', 'favor_db', 'xsv', 'keep', 'extract'},
-        'wgs_null': {'out', 'ldrs', 'n_ldrs', 'bases', 'inner_ldr', 'covar',
+        'annot_vcf': {'annot_vcf', 'out', 'grch37', 'vcf', 'favor_db', 'xsv', 'keep', 'extract'},
+        'wgs_null': {'wgs_null', 'out', 'ldrs', 'n_ldrs', 'bases', 'covar',
                      'cat_covar_list', 'keep', 'threads'},
-        'wgs_coding': {'out', 'geno_mt', 'null_model', 'variant_type', 'variant_category',
+        'wgs_coding': {'wgs_coding', 'out', 'geno_mt', 'null_model', 'variant_type', 'variant_category',
                        'maf_max', 'maf_min', 'mac_thresh', 'use_annotation_weights',
-                       'n_ldrs', 'bases', 'inner_ldr', 'keep', 'extract', 'range',
+                       'n_ldrs', 'bases', 'keep', 'extract', 'range',
                        'voxel'}            
     }
 

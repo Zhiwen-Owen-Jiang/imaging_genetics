@@ -13,10 +13,9 @@ and use this quantile to quickly screen insignificant results
 """
 
 class VariantSetTest:
-    def __init__(self, bases, inner_ldr, resid_ldr, covar, var, block_size=2048):
+    def __init__(self, bases, resid_ldr, covar, var, block_size=2048):
         """
         bases: (N, r) np.array, functional bases
-        inner_ldr: (r, r) np.array, inner product of projected LDRs
         resid_ldr: (n, r) np.array, LDR residuals
         covar: (n, p) np.array, the same as those used to do projection
         var: (N, ) np.array, voxel-level variance
@@ -24,7 +23,7 @@ class VariantSetTest:
 
         """
         self.bases = bases
-        self.inner_ldr = inner_ldr
+        self.inner_ldr = np.dot(resid_ldr.T, resid_ldr)
         self.covar = BlockMatrix.from_numpy(covar, block_size=block_size)
         self.var = var
         self.n, self.p = covar.shape

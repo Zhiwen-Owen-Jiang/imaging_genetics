@@ -93,7 +93,7 @@ class Dataset():
 
         """
         self.data = self.data.reset_index(level=0, drop=True)
-        self.data.reset_index(inplace=True)
+        # self.data.reset_index(inplace=True)
 
 
 class Covar(Dataset):
