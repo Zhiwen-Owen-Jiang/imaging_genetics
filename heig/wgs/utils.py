@@ -1,9 +1,10 @@
 import hail as hl
-import pandas as pd
+import numpy as np
 
 
 __all__ = ['Annotation_name_catalog', 'Annotation_catalog_name',
-           'Annotation_name', 'preprocess_mt', 'keep_ldrs']
+           'Annotation_name', 'preprocess_mt', 'keep_ldrs',
+           'remove_dependent_columns']
 
 Annotation_name_catalog = {
     'rs_num': 'rsid',
@@ -92,6 +93,7 @@ def extract_gene(snps_mt, chr, start, end, gene_name=None):
     snps_mt: a MatrixTable of annotated vcf
 
     """
+    chr = str(chr)
     if gene_name is None:
         snps_mt = snps_mt.filter_rows((snps_mt.locus.contig == chr) & 
                                       (snps_mt.locus.position >= start) & 
@@ -209,9 +211,11 @@ def extract_idvs(snps_mt, keep_idvs):
 def preprocess_mt(snps_mt, *args, keep_snps=None, keep_idvs=None,
                   variant_type='snv', maf_min=None, maf_max=0.01,
                   mac_thresh=10, **kwargs):
-    if isinstance(keep_snps, pd.DataFrame):
+    if 'filters' in snps_mt:
+        snps_mt = snps_mt.filter_rows(hl.len(snps_mt.filters) == 0)
+    if keep_snps is not None:
         snps_mt = extract_snps(snps_mt, keep_snps)
-    if isinstance(keep_idvs, pd.MultiIndex):
+    if keep_idvs is not None:
         snps_mt = extract_idvs(snps_mt, keep_idvs)
     snps_mt = hl.variant_qc(snps_mt, name='info')
     snps_mt = extract_variant_type(snps_mt, variant_type)
@@ -234,6 +238,15 @@ def keep_ldrs(n_ldrs, bases, resid_ldr):
     resid_ldr = resid_ldr[:, :n_ldrs]
 
     return bases, resid_ldr
+
+
+def remove_dependent_columns(matrix):
+    rank = np.linalg.matrix_rank(matrix)
+    if rank < matrix.shape[1]:
+        Q, R = np.linalg.qr(matrix)
+        independent_columns = np.where(np.abs(np.diag(R)) > 1e-10)[0]
+        matrix = matrix[:, independent_columns]
+    return matrix
 
 
 if __name__ == '__main__':

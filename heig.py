@@ -133,7 +133,8 @@ common_parser.add_argument('--grch37', action='store_true',
                            help=('Using reference genome GRCh37. Otherwise using GRCh38. '
                                  'Supported modules: --gwas, --annot-vcf.'))
 common_parser.add_argument('--threads', type=int,
-                           help='Number of computational threads to use.')
+                           help=('Number of computational threads to use. '
+                                 'Supported modules: --gwas.'))
 
 # arguments for herigc.py
 herigc_parser.add_argument('--ld-inv',
@@ -257,8 +258,6 @@ annot_vcf_parser.add_argument('--vcf',
                                     'for detailed steps.'))
 annot_vcf_parser.add_argument('--favor-db',
                               help='Directory to unzipped FAVORannotation files.')
-annot_vcf_parser.add_argument('--xsv',
-                              help='Directory to xsv software.')
 
 # arguments for gwas.py
 gwas_parser.add_argument('--mem', type=int,
@@ -303,15 +302,14 @@ def check_accepted_args(module, args, log):
         'voxel_gwas': {'out', 'voxel_gwas', 'sig_thresh', 'voxel', 'range',
                        'extract', 'ldr_sumstats', 'n_ldrs',
                        'inner_ldr', 'bases'},
-        'gwas': {'out', 'gwas', 'ldrs', 'n_ldrs', 'grch37', 'threads', 'mem', 'geno_mt'
+        'gwas': {'out', 'gwas', 'ldrs', 'n_ldrs', 'grch37', 'threads', 'mem', 'geno_mt',
                  'covar', 'cat_covar_list', 'bfile'},
-        'annot_vcf': {'annot_vcf', 'out', 'grch37', 'vcf', 'favor_db', 'xsv', 'keep', 'extract'},
+        'annot_vcf': {'annot_vcf', 'out', 'grch37', 'vcf', 'favor_db', 'keep', 'extract'},
         'wgs_null': {'wgs_null', 'out', 'ldrs', 'n_ldrs', 'bases', 'covar',
                      'cat_covar_list', 'keep', 'threads'},
         'wgs_coding': {'wgs_coding', 'out', 'geno_mt', 'null_model', 'variant_type', 'variant_category',
                        'maf_max', 'maf_min', 'mac_thresh', 'use_annotation_weights',
-                       'n_ldrs', 'bases', 'keep', 'extract', 'range',
-                       'voxel'}            
+                       'n_ldrs', 'bases', 'keep', 'extract', 'range','voxel'}            
     }
 
     ignored_args = []
@@ -324,8 +322,7 @@ def check_accepted_args(module, args, log):
     if len(ignored_args) > 0:
         ignored_args = [f"--{arg.replace('_', '-')}" for arg in ignored_args]
         ignored_args_str = ', '.join(ignored_args)
-        log.info(
-            f"WARNING: {ignored_args_str} are ignored by --{module.replace('_', '-')}")
+        log.info(f"WARNING: {ignored_args_str} are ignored by --{module.replace('_', '-')}")
 
     return ignored_args
 

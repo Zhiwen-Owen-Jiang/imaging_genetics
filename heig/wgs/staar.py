@@ -23,7 +23,6 @@ class VariantSetTest:
 
         """
         self.bases = bases
-        self.inner_ldr = np.dot(resid_ldr.T, resid_ldr)
         self.covar = BlockMatrix.from_numpy(covar, block_size=block_size)
         self.var = var
         self.n, self.p = covar.shape

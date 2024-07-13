@@ -9,6 +9,28 @@ from heig.wgs.staar import VariantSetTest, cauchy_combination
 import heig.input.dataset as ds
 from heig.wgs.utils import *
 
+import sys
+import contextlib
+import logging
+
+@contextlib.contextmanager
+def suppress_logs():
+    # Suppress Python logging
+    logging.disable(logging.CRITICAL)
+    
+    # Redirect stdout and stderr to suppress JVM logs
+    with open(os.devnull, 'w') as devnull:
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        try:
+            sys.stdout = devnull
+            sys.stderr = devnull
+            yield
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+            logging.disable(logging.NOTSET)
+
 
 class Coding:
     def __init__(self, snps_mt, variant_type, use_annotation_weights=True):
@@ -28,6 +50,8 @@ class Coding:
         lof_in_coding_snps_mt = ((gencode_exonic_category in {'stopgain', 'stoploss', 'nonsynonymous SNV', 'synonymous SNV'}) |
                               (gencode_category in {'splicing', 'exonic;splicing', 'ncRNA_splicing', 'ncRNA_exonic;splicing'}))
         self.snps_mt = snps_mt.filter_rows(lof_in_coding_snps_mt)
+        if self.snps_mt.rows().count() == 0:
+            raise ValueError('no variants remaining')
         self.gencode_exonic_category = snps_mt.fa[Annotation_name_catalog['GENCODE.EXONIC.Category']]
         self.gencode_category = snps_mt.fa[Annotation_name_catalog['GENCODE.Category']]
         self.metasvm_pred = snps_mt.fa[Annotation_name_catalog['MetaSVM']]
@@ -252,7 +276,7 @@ def check_input(args, log):
         log.info(f"Set --variant-type as default 'snv'")
     else:
         args.variant_type = args.variant_type.lower()
-        if args.variant_typenot not in {'snv', 'variant', 'indel'}:
+        if args.variant_type not in {'snv', 'variant', 'indel'}:
             raise ValueError("--variant-type must be one of ('variant', 'snv', 'indel')")
         
     if args.variant_category is None:
@@ -327,13 +351,19 @@ def check_input(args, log):
     while os.path.exists(temp_path):
         temp_path += str(i)
         i += 1
+
+    if args.grch37 is None or not args.grch37:
+        geno_ref = 'GRCh38'
+    else:
+        geno_ref = 'GRCh37'
+    log.info(f'Set {geno_ref} as the reference.')
     
-    return start_chr, start_pos, end_pos, voxel_list, variant_category, temp_path
+    return start_chr, start_pos, end_pos, voxel_list, variant_category, temp_path, geno_ref
 
 
 def run(args, log):
     # checking if input is valid
-    chr, start, end, voxel_list, variant_category, temp_path = check_input(args, log)
+    chr, start, end, voxel_list, variant_category, temp_path, geno_ref = check_input(args, log)
 
     # reading data for unrelated subjects
     log.info(f'Read null model from {args.null_model}')
@@ -341,14 +371,14 @@ def run(args, log):
         covar = file['covar'][:]
         resid_ldr = file['resid_ldr'][:]
         var = file['var'][:]
-        ids = file['ids'][:]
+        ids = file['id'][:]
 
-    # read bases and inner_ldr
+    # read bases
     bases = np.load(args.bases)
     log.info(f'{bases.shape[1]} bases read from {args.bases}')
 
     # subset voxels
-    if isinstance(voxel_list, list):
+    if voxel_list is not None:
         if np.max(voxel_list) + 1 <= bases.shape[0] and np.min(voxel_list) >= 0:
             log.info(f'{len(voxel_list)} voxels included.')
         else:
@@ -361,7 +391,7 @@ def run(args, log):
     if args.n_ldrs is not None:
         bases, resid_ldr = keep_ldrs(args.n_ldrs, bases, resid_ldr)
         log.info(f'Keep the top {args.n_ldrs} LDRs.')
-
+        
     # keep subjects
     if args.keep is not None:
         keep_idvs = ds.read_keep(args.keep)
@@ -375,7 +405,10 @@ def run(args, log):
         log.info(f"{len(keep_snps)} SNPs in --extract.")
     else:
         keep_snps = None
-
+    
+    with suppress_logs():
+        hl.init(quiet=True)
+    hl.default_reference = geno_ref
     vset_test = VariantSetTest(bases, resid_ldr, covar, var)
     snps_mt = hl.read_matrix_table(args.geno_mt)
     if 'fa' not in snps_mt.row:
@@ -386,12 +419,15 @@ def run(args, log):
                             mac_thresh=args.mac_thresh, 
                             chr=chr, start=start, end=end)
 
-    # extracting common ids
-    snps_mt_ids = set(snps_mt.s.collect())
-    common_ids = snps_mt_ids.intersection(ids)
+    # check if subjects are the same
+    snps_mt_ids = snps_mt.s.collect()
+    ids = ids.astype(str)
+    common_ids = set(snps_mt_ids).intersection(ids)
     snps_mt = snps_mt.filter_cols(hl.literal(common_ids).contains(snps_mt.s))
-    covar = covar[common_ids]
-    resid_ldrs = resid_ldrs[common_ids]
+    isin_common_ids = np.isin(ids, list(common_ids))
+    resid_ldr = resid_ldr[isin_common_ids]
+    covar = covar[isin_common_ids]
+    covar = remove_dependent_columns(covar)
 
     # single gene analysis
     cate_pvalues = single_gene_analysis(snps_mt, args.variant_type, vset_test,
