@@ -49,7 +49,7 @@ class VariantSetTest:
         self.maf = np.array(vset.maf.collect())
         self.is_rare = np.array(vset.is_rare.collect())
         vset = BlockMatrix.from_entry_expr(vset.flipped_n_alt_alleles, mean_impute=True, 
-                                           block_size=self.block_size) # (m, n)
+                                           block_size=self.block_size) # (m, n) slow
         vset_covar = vset @ self.covar  # Z'X, (m, p)
         inner_vset = vset @ vset.T  # Z'Z, (m, m)
         half_ldr_score = vset @ self.resid_ldr # Z'(I-M)\Xi, (m, r)
@@ -186,7 +186,7 @@ class VariantSetTest:
         ## score test for individual common variants
         if (~self.is_rare).any():
             denom = np.diag(self.cov_mat[~self.is_rare][:, ~self.is_rare]).reshape(-1, 1) * self.var.reshape(1, -1)  # (m, N)
-            common_variant_pv = chi2.sf((self.half_score[~self.is_rare] ** 2 / denom[~self.is_rare]), 1)  # (m1, N)
+            common_variant_pv = chi2.sf((self.half_score[~self.is_rare] ** 2 / denom), 1)  # (m1, N)
             common_weights = all_weights[~self.is_rare] # (m1, )
         else:
             common_variant_pv = None
@@ -200,14 +200,14 @@ class VariantSetTest:
                     [:, self.is_rare]), weights[self.is_rare])  # (N, )
             rare_burden_score = rare_burden_score_num / rare_burden_score_denom
             rare_burden_pv = chi2.sf(rare_burden_score, 1).reshape(1, -1) # (1, N)
-            rare_weights = np.mean(all_weights[self.is_rare]) # (1, )
+            rare_weights = np.atleast_1d(np.mean(all_weights[self.is_rare])) # (1, )
         else:
             rare_burden_pv = None
             rare_weights = None
 
         if common_variant_pv is not None and rare_burden_pv is not None:
             pvalues = cauchy_combination(np.vstack([common_variant_pv, rare_burden_pv]),
-                                         np.vstack([common_weights, rare_weights]))
+                                         np.concatenate([common_weights, rare_weights]))
         elif common_variant_pv is not None:
             pvalues = cauchy_combination(common_variant_pv, common_weights)
         else:
@@ -215,7 +215,7 @@ class VariantSetTest:
 
         return pvalues
 
-    def do_inference(self, anno_name):
+    def do_inference(self, annot_name):
         """
         Doing inference for the variant set using multiple weights and methods.
         Using cauchy combination to get final pvalues.
@@ -253,14 +253,14 @@ class VariantSetTest:
 
         for pvalues, test_method in ((skat_1_25_pvalues, 'SKAT(1,25)'), (skat_1_1_pvalues, 'SKAT(1,1)'), 
                                      (burden_1_25_pvalues, 'Burden(1,25)'), (burden_1_1_pvalues, 'Burden(1,1)'),
-                                     (acatv_1_25_pvalues, 'AVAT-V(1,25)'), (acatv_1_1_pvalues, 'AVAT-V(1,1)')):
+                                     (acatv_1_25_pvalues, 'ACAT-V(1,25)'), (acatv_1_1_pvalues, 'ACAT-V(1,1)')):
             if n_weights > 1:
-                comb_pvalues = cauchy_combination(pvalues)
+                comb_pvalues = cauchy_combination(pvalues).reshape(-1, 1)
             else:
                 comb_pvalues = None
-            all_pvalues = format_results(pvalues, comb_pvalues, test_method, anno_name)
+            all_pvalues = format_results(pvalues.T, comb_pvalues, test_method, annot_name)
             all_results.append(all_pvalues)
-        all_results_df = pd.concat(*all_results, axis=1)
+        all_results_df = pd.concat(all_results, axis=1)
 
         return all_results_df
 

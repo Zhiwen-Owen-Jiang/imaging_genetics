@@ -45,38 +45,56 @@ class Coding:
         use_annotation_weights: if using annotation weights
         
         """
-        gencode_exonic_category = snps_mt.fa[Annotation_name_catalog['GENCODE.EXONIC.Category']]
-        gencode_category = snps_mt.fa[Annotation_name_catalog['GENCODE.Category']]
-        lof_in_coding_snps_mt = ((gencode_exonic_category in {'stopgain', 'stoploss', 'nonsynonymous SNV', 'synonymous SNV'}) |
-                              (gencode_category in {'splicing', 'exonic;splicing', 'ncRNA_splicing', 'ncRNA_exonic;splicing'}))
-        self.snps_mt = snps_mt.filter_rows(lof_in_coding_snps_mt)
+        self.snps_mt = snps_mt
+
+        gencode_exonic_category = self.snps_mt.fa[Annotation_name_catalog['GENCODE.EXONIC.Category']]
+        gencode_category = self.snps_mt.fa[Annotation_name_catalog['GENCODE.Category']]
+        valid_exonic_categories = hl.literal({'stopgain', 'stoploss', 'nonsynonymous SNV', 'synonymous SNV'})
+        valid_categories = hl.literal({'splicing', 'exonic;splicing', 'ncRNA_splicing', 'ncRNA_exonic;splicing'})
+        lof_in_coding_snps_mt = (valid_exonic_categories.contains(gencode_exonic_category) | 
+                                 valid_categories.contains(gencode_category))
+        self.snps_mt = self.snps_mt.filter_rows(lof_in_coding_snps_mt)
         if self.snps_mt.rows().count() == 0:
             raise ValueError('no variants remaining')
-        self.gencode_exonic_category = snps_mt.fa[Annotation_name_catalog['GENCODE.EXONIC.Category']]
-        self.gencode_category = snps_mt.fa[Annotation_name_catalog['GENCODE.Category']]
-        self.metasvm_pred = snps_mt.fa[Annotation_name_catalog['MetaSVM']]
-        if variant_type == 'snv' and use_annotation_weights:
-            self.anno_pred, self.anno_name = self.get_annotation()
-        else:
-            self.anno_pred, self.anno_name = None, None
+        
+        self.gencode_exonic_category = self.snps_mt.fa[Annotation_name_catalog['GENCODE.EXONIC.Category']]
+        self.gencode_category = self.snps_mt.fa[Annotation_name_catalog['GENCODE.Category']]
+        self.metasvm_pred = self.snps_mt.fa[Annotation_name_catalog['MetaSVM']]
+        # if variant_type == 'snv' and use_annotation_weights:
+        #     self.annot_phred, self.annot_name = self.get_annotation()
+        # else:
+        #     self.annot_phred, self.annot_name = None, None
+
         self.category_dict = self.get_category(variant_type)
+        
+        if variant_type == 'snv' and use_annotation_weights:
+            self.annot_cols = [Annotation_name_catalog[annot_name] for annot_name in Annotation_name]
+            self.annot_name = Annotation_name
+        else:
+            self.annot_cols, self.annot_name = None, None
 
     def get_annotation(self):
+        annot_cols = [Annotation_name_catalog[annot_name] for annot_name in Annotation_name]
+        annot_phred = self.snps_mt.fa.select(*annot_cols)
+        return annot_phred, Annotation_name
+
+    def get_annotation_old(self):
         """
         Extracting and processing annotations 
        
         Returns:
         ---------
-        anno_phred: a hail.Table of annotations for all coding variants
+        annot_phred: a hail.Table of annotations for all coding variants
 
         """
-        anno_cols = [Annotation_name_catalog[anno_name] for anno_name in Annotation_name]
-        anno_phred = self.snps_mt.fa.select(*anno_cols)
-        anno_phred = anno_phred.annotate(cadd_phred=hl.coalesce(anno_phred.cadd_phred, 0))
-        anno_local_div = -10 * hl.log10(1 - 10 ** (-anno_phred.apc_local_nucleotide_diversity/10))
-        anno_phred = anno_phred.annotate(apc_local_nucleotide_diversity2=anno_local_div) 
-        anno_name = Annotation_name.append('aPC.LocalDiversity(-)')
-        return anno_phred, anno_name
+        annot_cols = [Annotation_name_catalog[annot_name] for annot_name in Annotation_name]
+        annot_phred = self.snps_mt.fa.select(*annot_cols)
+        annot_phred = annot_phred.annotate(cadd_phred=hl.coalesce(annot_phred.cadd_phred, 0))
+        annot_local_div = -10 * hl.log10(1 - 10 ** (-annot_phred.apc_local_nucleotide_diversity/10))
+        annot_phred = annot_phred.annotate(apc_local_nucleotide_diversity2=annot_local_div) 
+        Annotation_name.append('aPC.LocalDiversity(-)')
+
+        return annot_phred, Annotation_name
 
     def get_category(self, variant_type):
         """
@@ -92,17 +110,19 @@ class Coding:
         
         """
         category_dict = dict()
-        category_dict['plof'] = (((self.gencode_exonic_category in {'stopgain', 'stoploss'}) |
-                                 (self.gencode_category in {'splicing', 'exonic;splicing', 
-                                                            'ncRNA_splicing', 'ncRNA_exonic;splicing'})))
+        set1 = hl.literal({'stopgain', 'stoploss'})
+        set2 = hl.literal({'splicing', 'exonic;splicing', 'ncRNA_splicing', 'ncRNA_exonic;splicing'})
+        set3 = hl.literal({'splicing', 'exonic;splicing'})
+        set4 = hl.literal({'frameshift deletion', 'frameshift insertion'})
+
+        category_dict['plof'] = set1.contains(self.gencode_exonic_category) | set2.contains(self.gencode_category)
         category_dict['synonymous'] = self.gencode_exonic_category == 'synonymous SNV'
         category_dict['missense'] = self.gencode_exonic_category == 'nonsynonymous SNV'
         category_dict['disruptive_missense'] = category_dict['missense'] & (self.metasvm_pred == 'D')
         category_dict['plof_ds'] = category_dict['plof'] | category_dict['disruptive_missense']
 
-        ptv_snv = ((self.gencode_exonic_category in {'stopgain', 'stoploss'}) | 
-                      (self.gencode_category in {'splicing', 'exonic;splicing'}) )
-        ptv_indel = (self.gencode_exonic_category in {'frameshift deletion', 'frameshift insertion'})
+        ptv_snv = set1.contains(self.gencode_exonic_category) | set3.contains(self.gencode_category)
+        ptv_indel = set4.contains(self.gencode_exonic_category)
         if variant_type == 'snv':
             category_dict['ptv'] = ptv_snv
             category_dict['ptv_ds'] = ptv_snv | category_dict['disruptive_missense']
@@ -117,8 +137,7 @@ class Coding:
 
 
 def single_gene_analysis(snps_mt, variant_type, vset_test,
-                         variant_category, use_annotation_weights,
-                         temp_path, log):
+                         variant_category, use_annotation_weights, log):
     """
     Single gene analysis
 
@@ -131,7 +150,6 @@ def single_gene_analysis(snps_mt, variant_type, vset_test,
     one of ('all', 'plof', 'plof_ds', 'missense', 'disruptive_missense',
     'synonymous', 'ptv', 'ptv_ds')
     use_annotation_weights: if using annotation weights
-    temp_path: a temp directory to save preprocessed MatrixTable to speed up I/O
     log: a logger
     
     Returns:
@@ -143,30 +161,24 @@ def single_gene_analysis(snps_mt, variant_type, vset_test,
     coding = Coding(snps_mt, variant_type, use_annotation_weights)
 
     # individual analysis
-    log.info(f'Save preprocessed genotype data to {temp_path}')
-    snps_mt.write(temp_path, overwrite=True)
-    snps_mt = hl.read_matrix_table(temp_path)
-    try:
-        cate_pvalues = dict()
-        for cate, idx in coding.category_dict.items():
-            if variant_category[0] != 'all' and cate not in variant_category: 
-                cate_pvalues[cate] = None
+    cate_pvalues = dict()
+    for cate, idx in coding.category_dict.items():
+        if variant_category[0] != 'all' and cate not in variant_category: 
+            cate_pvalues[cate] = None
+        else:
+            snps_mt_cate = coding.snps_mt.filter_rows(idx)
+            if coding.annot_cols is not None:
+                annot_phred = snps_mt_cate.fa.select(*coding.annot_cols).collect()
+                phred_cate = np.array([[getattr(row, col) for col in coding.annot_cols] for row in annot_phred])
             else:
-                if coding.anno_phred is not None:
-                    phred_cate = np.array(coding.anno_phred[idx].collect())
-                else:
-                    phred_cate = None
-                snps_mt_cate = snps_mt.filter_rows(idx)
-                vset_test.input_vset(snps_mt_cate, phred_cate)
-                log.info(f'Doing analysis for {cate} ...')
-                pvalues = vset_test.do_inference()
-                cate_pvalues[cate] = {'n_variants': vset_test.n_variants, 'pvalues': pvalues}
-        if 'missense' in cate_pvalues:
-            cate_pvalues['missense'] = process_missense(cate_pvalues['missense'], 
-                                                        cate_pvalues['disruptive_missense'])
-    finally:
-        shutil.rmtree(temp_path)
-        log.info(f'Removed preprocessed genotype data at {temp_path}')
+                phred_cate = None
+            vset_test.input_vset(snps_mt_cate, phred_cate)
+            log.info(f'Doing analysis for {cate} ...')
+            pvalues = vset_test.do_inference(coding.annot_name)
+            cate_pvalues[cate] = {'n_variants': vset_test.n_variants, 'pvalues': pvalues}
+    if 'missense' in cate_pvalues:
+        cate_pvalues['missense'] = process_missense(cate_pvalues['missense'], 
+                                                    cate_pvalues['disruptive_missense'])
     return cate_pvalues
 
 
@@ -184,6 +196,10 @@ def process_missense(m_pvalues, dm_pvalues):
     m_pvalues: pvalues of missense variants incoporating disruptive missense results
     
     """
+    dm_pvalues = dm_pvalues['pvalues']
+    n_m_variants = m_pvalues['n_variants']
+    m_pvalues = m_pvalues['pvalues']
+
     m_pvalues['SKAT(1,25)-Disruptive'] = dm_pvalues['SKAT(1,25)']
     m_pvalues['SKAT(1,1)-Disruptive'] = dm_pvalues['SKAT(1,1)']
     m_pvalues['Burden(1,25)-Disruptive'] = dm_pvalues['Burden(1,25)']
@@ -192,7 +208,6 @@ def process_missense(m_pvalues, dm_pvalues):
     m_pvalues['ACAT-V(1,1)-Disruptive'] = dm_pvalues['ACAT-V(1,1)']
 
     columns = m_pvalues.columns.values
-    np.array([column.startswith('SKAT(1,25)') for column in columns])
     skat_1_25 = np.array([column.startswith('SKAT(1,25)') for column in columns])
     skat_1_1 = np.array([column.startswith('SKAT(1,1)') for column in columns])
     burden_1_25 = np.array([column.startswith('Burden(1,25)') for column in columns])
@@ -200,16 +215,25 @@ def process_missense(m_pvalues, dm_pvalues):
     acatv_1_25 = np.array([column.startswith('ACAT-V(1,25)') for column in columns])
     acatv_1_1 = np.array([column.startswith('ACAT-V(1,1)') for column in columns])
 
-    m_pvalues['STAAR-S(1,25)'] = cauchy_combination(m_pvalues.loc[:, skat_1_25].values.T)
-    m_pvalues['STAAR-S(1,1)'] = cauchy_combination(m_pvalues.loc[:, skat_1_1].values.T)
-    m_pvalues['STAAR-B(1,25)'] = cauchy_combination(m_pvalues.loc[:, burden_1_25].values.T)
-    m_pvalues['STAAR-B(1,1)'] = cauchy_combination(m_pvalues.loc[:, burden_1_1].values.T)
-    m_pvalues['STAAR-A(1,25)'] = cauchy_combination(m_pvalues.loc[:, acatv_1_25].values.T)
-    m_pvalues['STAAR-A(1,1)'] = cauchy_combination(m_pvalues.loc[:, acatv_1_1].values.T)
+    staar_s_1_25 = cauchy_combination(m_pvalues.loc[:, skat_1_25].values.T)
+    staar_s_1_1 = cauchy_combination(m_pvalues.loc[:, skat_1_1].values.T)
+    staar_b_1_25 = cauchy_combination(m_pvalues.loc[:, burden_1_25].values.T)
+    staar_b_1_1 = cauchy_combination(m_pvalues.loc[:, burden_1_1].values.T)
+    staar_a_1_25 = cauchy_combination(m_pvalues.loc[:, acatv_1_25].values.T)
+    staar_a_1_1 = cauchy_combination(m_pvalues.loc[:, acatv_1_1].values.T)
+    
+    m_pvalues['STAAR-S(1,25)'] = staar_s_1_25
+    m_pvalues['STAAR-S(1,1)'] = staar_s_1_1
+    m_pvalues['STAAR-B(1,25)'] = staar_b_1_25
+    m_pvalues['STAAR-B(1,1)'] = staar_b_1_1
+    m_pvalues['STAAR-A(1,25)'] = staar_a_1_25
+    m_pvalues['STAAR-A(1,1)'] = staar_a_1_1
 
     all_columns = [skat_1_25, skat_1_1, burden_1_25, burden_1_1, acatv_1_25, acatv_1_1]
     all_columns = reduce(np.logical_or, all_columns)
-    m_pvalues['STAAR-O)'] = cauchy_combination(m_pvalues.loc[:, all_columns].values.T)
+    all_columns = np.concatenate([all_columns, np.ones(6, dtype=bool)])
+    m_pvalues['STAAR-O'] = cauchy_combination(m_pvalues.loc[:, all_columns].values.T)
+    m_pvalues = {'n_variants': n_m_variants, 'pvalues': m_pvalues}
 
     return m_pvalues
 
@@ -409,36 +433,49 @@ def run(args, log):
     with suppress_logs():
         hl.init(quiet=True)
     hl.default_reference = geno_ref
-    vset_test = VariantSetTest(bases, resid_ldr, covar, var)
+
+    log.info(f'Reading genetic data from {args.geno_mt}')
     snps_mt = hl.read_matrix_table(args.geno_mt)
+    log.info(f"{snps_mt.count_cols()} subjects and {snps_mt.rows().count()} variants included.")
     if 'fa' not in snps_mt.row:
         raise ValueError('--geno-mt must be annotated before doing analysis')
-    snps_mt = preprocess_mt(snps_mt, keep_snps=keep_snps, keep_idvs=keep_idvs, 
+
+    snps_mt_ids = snps_mt.s.collect()
+    ids = ids.astype(str)
+    common_ids = get_common_ids(ids, snps_mt_ids, keep_idvs)
+    snps_mt = preprocess_mt(snps_mt, geno_ref, keep_snps=keep_snps, keep_idvs=common_ids, 
                             variant_type=args.variant_type, 
                             maf_min=args.maf_min, maf_max=args.maf_max, 
                             mac_thresh=args.mac_thresh, 
                             chr=chr, start=start, end=end)
-
-    # check if subjects are the same
-    snps_mt_ids = snps_mt.s.collect()
-    ids = ids.astype(str)
-    common_ids = set(snps_mt_ids).intersection(ids)
-    snps_mt = snps_mt.filter_cols(hl.literal(common_ids).contains(snps_mt.s))
-    isin_common_ids = np.isin(ids, list(common_ids))
-    resid_ldr = resid_ldr[isin_common_ids]
-    covar = covar[isin_common_ids]
-    covar = remove_dependent_columns(covar)
-
-    # single gene analysis
-    cate_pvalues = single_gene_analysis(snps_mt, args.variant_type, vset_test,
-                                        variant_category, args.use_annotation_weights,
-                                        temp_path, log)
     
-    # format output
-    n_voxels = bases.shape[0]
-    for cate, cate_results in cate_pvalues.items():
-        if isinstance(cate_results['pvalues'], pd.DataFrame):
-            cate_output = format_output(cate_results['pvalues'], start, end,
-                                        cate_results['n_variants'], n_voxels, cate)
-            cate_output.to_csv(f'{args.out}_chr{chr}_start{start}_end{end}_{cate}.txt',
-                               sep='\t', header=True, na_rep='NA', index=None, float_format='%.5e')
+    log.info(f'Save preprocessed genotype data to {temp_path}')
+    snps_mt.write(temp_path, overwrite=True) # slow but fair
+    snps_mt = hl.read_matrix_table(temp_path)
+    if snps_mt.rows().count() == 0:
+        raise ValueError('no variant remaining after preprocessing')
+    try:
+        snps_mt_ids = snps_mt.s.collect()
+        idx_common_ids = extract_align_subjects(ids, snps_mt_ids)
+        resid_ldr = resid_ldr[idx_common_ids]
+        covar = covar[idx_common_ids]
+        covar = remove_dependent_columns(covar)
+        log.info(f'{len(common_ids)} common subjects in the data.')
+        log.info(f"{covar.shape[1]} fixed effects in the covariates after removing redundant effects.")
+
+        # single gene analysis
+        vset_test = VariantSetTest(bases, resid_ldr, covar, var)
+        cate_pvalues = single_gene_analysis(snps_mt, args.variant_type, vset_test,
+                                            variant_category, args.use_annotation_weights, log)
+        
+        # format output
+        n_voxels = bases.shape[0]
+        for cate, cate_results in cate_pvalues.items():
+            if isinstance(cate_results['pvalues'], pd.DataFrame):
+                cate_output = format_output(cate_results['pvalues'], start, end,
+                                            cate_results['n_variants'], n_voxels, cate)
+                cate_output.to_csv(f'{args.out}_chr{chr}_start{start}_end{end}_{cate}.txt',
+                                sep='\t', header=True, na_rep='NA', index=None, float_format='%.5e')
+    finally:
+        shutil.rmtree(temp_path)
+        log.info(f'Removed preprocessed genotype data at {temp_path}')

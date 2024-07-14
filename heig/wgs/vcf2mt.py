@@ -37,6 +37,7 @@ class Annotation:
         self._create_keys()
         self._drop_rename()
         self._convert_datatype()
+        self._add_more_annot()
 
     @classmethod
     def read_annot(cls, favor_db, geno_ref, *args, **kwargs):
@@ -109,6 +110,13 @@ class Annotation:
             fathmm_xf = hl.float32(self.annot.fathmm_xf),
             linsight = hl.float32(self.annot.linsight),        
             cadd_phred = hl.float32(self.annot.cadd_phred)                                                    
+        )
+
+    def _add_more_annot(self):
+        annot_local_div = -10 * hl.log10(1 - 10 ** (-self.annot.apc_local_nucleotide_diversity/10))
+        self.annot = self.annot.annotate(
+            cadd_phred = hl.coalesce(self.annot.cadd_phred, 0),
+            apc_local_nucleotide_diversity2 = annot_local_div
         )
 
 

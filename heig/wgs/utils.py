@@ -1,10 +1,12 @@
 import hail as hl
 import numpy as np
+import pandas as pd
 
 
 __all__ = ['Annotation_name_catalog', 'Annotation_catalog_name',
            'Annotation_name', 'preprocess_mt', 'keep_ldrs',
-           'remove_dependent_columns']
+           'remove_dependent_columns', 'extract_align_subjects',
+           'get_common_ids']
 
 Annotation_name_catalog = {
     'rs_num': 'rsid',
@@ -34,7 +36,7 @@ for k, v in Annotation_name_catalog.items():
     Annotation_catalog_name[v] = k
 
 
-Annotation_name = ("CADD",
+Annotation_name = ["CADD",
                    "LINSIGHT",
                    "FATHMM.XF",
                    "aPC.EpigeneticActive",
@@ -45,7 +47,7 @@ Annotation_name = ("CADD",
                    "aPC.Mappability",
                    "aPC.TF",
                    "aPC.Protein"
-                   )
+                   ]
 
 
 def extract_variant_type(snps_mt, variant_type):
@@ -75,17 +77,18 @@ def extract_variant_type(snps_mt, variant_type):
     return snps_mt
 
 
-def extract_gene(snps_mt, chr, start, end, gene_name=None):
+def extract_gene(snps_mt, geno_ref, chr, start, end, gene_name=None):
     """
     Extacting a gene with the gene name
     snps_mt should have a position column 
 
     Parameters:
     ------------
+    snps_mt: a MatrixTable of annotated vcf
+    geno_ref: reference genome
     chr: target chromosome
     start: start position
     end: end position
-    snps_mt: a MatrixTable of annotated vcf
     gene_name: gene name, if specified, start and end will be ignored
     
     Returns:
@@ -94,6 +97,9 @@ def extract_gene(snps_mt, chr, start, end, gene_name=None):
 
     """
     chr = str(chr)
+    if geno_ref == 'GRCh38':
+        chr = 'chr' + chr
+        
     if gene_name is None:
         snps_mt = snps_mt.filter_rows((snps_mt.locus.contig == chr) & 
                                       (snps_mt.locus.position >= start) & 
@@ -202,17 +208,31 @@ def extract_snps(snps_mt, keep_snps):
 
 
 def extract_idvs(snps_mt, keep_idvs):
-    keep_idvs = keep_idvs.get_level_values('IID').tolist()
-    keep_idvs = hl.literal(set(keep_idvs))
+    """
+    
+    keep_idvs: a set of ids
+    
+    """
+    keep_idvs = hl.literal(keep_idvs)
     snps_mt = snps_mt.filter_cols(keep_idvs.contains(snps_mt.s))
     return snps_mt
 
 
-def preprocess_mt(snps_mt, *args, keep_snps=None, keep_idvs=None,
+def get_common_ids(ids, snps_mt_ids, keep_idvs=None):
+    if keep_idvs is not None:
+        keep_idvs = keep_idvs.get_level_values('IID').tolist()
+        common_ids = set(keep_idvs).intersection(ids)
+    else:
+        common_ids = set(ids)
+    common_ids = common_ids.intersection(snps_mt_ids)
+    return common_ids
+
+
+def preprocess_mt(snps_mt, geno_ref, *args, keep_snps=None, keep_idvs=None,
                   variant_type='snv', maf_min=None, maf_max=0.01,
                   mac_thresh=10, **kwargs):
-    if 'filters' in snps_mt:
-        snps_mt = snps_mt.filter_rows(hl.len(snps_mt.filters) == 0)
+    if 'filters' in snps_mt.row:
+        snps_mt = snps_mt.filter_rows((hl.len(snps_mt.filters) == 0) | hl.is_missing(snps_mt.filters))
     if keep_snps is not None:
         snps_mt = extract_snps(snps_mt, keep_snps)
     if keep_idvs is not None:
@@ -223,9 +243,8 @@ def preprocess_mt(snps_mt, *args, keep_snps=None, keep_idvs=None,
     snps_mt = flip_snps(snps_mt)
     snps_mt = annotate_rare_variants(snps_mt, mac_thresh)
     if args or kwargs:
-        snps_mt = extract_gene(snps_mt, *args, **kwargs)
-    if snps_mt.rows().count() == 0:
-        raise ValueError('no variant remaining after preprocessing')
+        snps_mt = extract_gene(snps_mt, geno_ref, *args, **kwargs)
+
     return snps_mt
 
 
@@ -236,17 +255,41 @@ def keep_ldrs(n_ldrs, bases, resid_ldr):
         raise ValueError('LDR residuals are less than --n-ldrs')
     bases = bases[:, :n_ldrs]
     resid_ldr = resid_ldr[:, :n_ldrs]
-
     return bases, resid_ldr
 
 
 def remove_dependent_columns(matrix):
     rank = np.linalg.matrix_rank(matrix)
     if rank < matrix.shape[1]:
-        Q, R = np.linalg.qr(matrix)
+        _, R = np.linalg.qr(matrix)
         independent_columns = np.where(np.abs(np.diag(R)) > 1e-10)[0]
         matrix = matrix[:, independent_columns]
     return matrix
+
+
+def extract_align_subjects(current_id, target_id):
+    """
+    Extracting and aligning subjects for a dataset based on another dataset
+    target_id must be the subset of current_id
+
+    Parameters:
+    ------------
+    current_id: a list or np.array of ids of the current dataset
+    target_id: a list or np.array of ids of the another dataset
+
+    Returns:
+    ---------
+    index: a np.array of indices such that current_id[index] = target_id
+
+    """
+    if not set(target_id).issubset(current_id):
+        raise ValueError('targettarget_id must be the subset of current_id')
+    n_current_id = len(current_id)
+    current_id = pd.DataFrame({'id': current_id, 'index': range(n_current_id)})
+    target_id = pd.DataFrame({'id': target_id})
+    target_id = target_id.merge(current_id, on='id')
+    index = np.array(target_id['index'])
+    return index
 
 
 if __name__ == '__main__':
