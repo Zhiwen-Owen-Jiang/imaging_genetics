@@ -9,28 +9,6 @@ from heig.wgs.staar import VariantSetTest, cauchy_combination
 import heig.input.dataset as ds
 from heig.wgs.utils import *
 
-import sys
-import contextlib
-import logging
-
-@contextlib.contextmanager
-def suppress_logs():
-    # Suppress Python logging
-    logging.disable(logging.CRITICAL)
-    
-    # Redirect stdout and stderr to suppress JVM logs
-    with open(os.devnull, 'w') as devnull:
-        old_stdout = sys.stdout
-        old_stderr = sys.stderr
-        try:
-            sys.stdout = devnull
-            sys.stderr = devnull
-            yield
-        finally:
-            sys.stdout = old_stdout
-            sys.stderr = old_stderr
-            logging.disable(logging.NOTSET)
-
 
 class Coding:
     def __init__(self, snps_mt, variant_type, use_annotation_weights=True):
@@ -380,7 +358,7 @@ def check_input(args, log):
         geno_ref = 'GRCh38'
     else:
         geno_ref = 'GRCh37'
-    log.info(f'Set {geno_ref} as the reference.')
+    log.info(f'Set {geno_ref} as the reference genome.')
     
     return start_chr, start_pos, end_pos, voxel_list, variant_category, temp_path, geno_ref
 
@@ -394,9 +372,8 @@ def run(args, log):
     with h5py.File(args.null_model, 'r') as file:
         covar = file['covar'][:]
         resid_ldr = file['resid_ldr'][:]
-        var = file['var'][:]
-        ids = file['id'][:]
-
+        ids = file['id'][:].astype(str)
+    
     # read bases
     bases = np.load(args.bases)
     log.info(f'{bases.shape[1]} bases read from {args.bases}')
@@ -430,52 +407,46 @@ def run(args, log):
     else:
         keep_snps = None
     
-    with suppress_logs():
-        hl.init(quiet=True)
+    hl.init(quiet=True) # TODO: how to suppress hail's log?
     hl.default_reference = geno_ref
 
     log.info(f'Reading genetic data from {args.geno_mt}')
-    snps_mt = hl.read_matrix_table(args.geno_mt)
-    log.info(f"{snps_mt.count_cols()} subjects and {snps_mt.rows().count()} variants included.")
-    if 'fa' not in snps_mt.row:
-        raise ValueError('--geno-mt must be annotated before doing analysis')
-
-    snps_mt_ids = snps_mt.s.collect()
-    ids = ids.astype(str)
+    gprocesser = GProcessor.read_data(args.geno_mt)
+    snps_mt_ids = gprocesser.extract_subject_id()
     common_ids = get_common_ids(ids, snps_mt_ids, keep_idvs)
-    snps_mt = preprocess_mt(snps_mt, geno_ref, keep_snps=keep_snps, keep_idvs=common_ids, 
-                            variant_type=args.variant_type, 
-                            maf_min=args.maf_min, maf_max=args.maf_max, 
-                            mac_thresh=args.mac_thresh, 
-                            chr=chr, start=start, end=end)
+
+    log.info(f"Processing genetic data ...")
+    gprocesser.do_processing(geno_ref, args.variant_type, 
+                             keep_snps, common_ids, 
+                             maf_min=args.maf_min, maf_max=args.maf_max, 
+                             mac_thresh=args.mac_thresh, 
+                             chr=chr, start=start, end=end)
     
     log.info(f'Save preprocessed genotype data to {temp_path}')
-    snps_mt.write(temp_path, overwrite=True) # slow but fair
-    snps_mt = hl.read_matrix_table(temp_path)
-    if snps_mt.rows().count() == 0:
-        raise ValueError('no variant remaining after preprocessing')
+    gprocesser.save_interim_data(temp_path)
+    gprocesser.check_valid()
+
     try:
-        snps_mt_ids = snps_mt.s.collect()
+        snps_mt_ids = gprocesser.extract_subject_id()
         idx_common_ids = extract_align_subjects(ids, snps_mt_ids)
         resid_ldr = resid_ldr[idx_common_ids]
         covar = covar[idx_common_ids]
         covar = remove_dependent_columns(covar)
         log.info(f'{len(common_ids)} common subjects in the data.')
-        log.info(f"{covar.shape[1]} fixed effects in the covariates after removing redundant effects.")
+        log.info(f"{covar.shape[1]} fixed effects in the covariates after removing redundant effects.\n")
 
         # single gene analysis
-        vset_test = VariantSetTest(bases, resid_ldr, covar, var)
-        cate_pvalues = single_gene_analysis(snps_mt, args.variant_type, vset_test,
+        vset_test = VariantSetTest(bases, resid_ldr, covar)
+        cate_pvalues = single_gene_analysis(gprocesser.snps_mt, args.variant_type, vset_test,
                                             variant_category, args.use_annotation_weights, log)
         
         # format output
         n_voxels = bases.shape[0]
         for cate, cate_results in cate_pvalues.items():
-            if isinstance(cate_results['pvalues'], pd.DataFrame):
-                cate_output = format_output(cate_results['pvalues'], start, end,
-                                            cate_results['n_variants'], n_voxels, cate)
-                cate_output.to_csv(f'{args.out}_chr{chr}_start{start}_end{end}_{cate}.txt',
-                                sep='\t', header=True, na_rep='NA', index=None, float_format='%.5e')
+            cate_output = format_output(cate_results['pvalues'], start, end,
+                                        cate_results['n_variants'], n_voxels, cate)
+            cate_output.to_csv(f'{args.out}_chr{chr}_start{start}_end{end}_{cate}.txt',
+                            sep='\t', header=True, na_rep='NA', index=None, float_format='%.5e')
     finally:
         shutil.rmtree(temp_path)
         log.info(f'Removed preprocessed genotype data at {temp_path}')

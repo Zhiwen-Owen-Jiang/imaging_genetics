@@ -56,16 +56,16 @@ def run(args, log):
     
     # fit the null model
     log.info('Fitting the null model ...')
-    n, p = covar.data.shape
     inner_covar_inv = np.linalg.inv(np.dot(covar.data.T, covar.data)) # (X'X)^{-1} (p, p)
     covar_ldrs = np.dot(covar.data.T, ldrs.data) # X'\Xi (p, r)
     resid_ldr = ldrs.data - np.dot(covar.data, np.dot(inner_covar_inv, covar_ldrs)) # \Xi - X(X'X)^{-1}X'\Xi (n, r)
-    inner_ldr = np.dot(resid_ldr.T, resid_ldr)
-    var = np.sum(np.dot(bases, inner_ldr) * bases, axis=1) / (n - p)  # (N, )
+    # n, p = covar.data.shape
+    # inner_ldr = np.dot(resid_ldr.T, resid_ldr) # (r, r)
+    # var = np.sum(np.dot(bases, inner_ldr) * bases, axis=1) / (n - p)  # (N, )
     
     with h5py.File(f'{args.out}_null_model.h5', 'w') as file:
         file.create_dataset('covar', data=covar.data)
         file.create_dataset('resid_ldr', data=resid_ldr)
-        file.create_dataset('var', data=var)
+        # file.create_dataset('var', data=var)
         file.create_dataset('id', data=np.array(ids.tolist(), dtype='S10'))
     log.info(f'Save the null model to {args.out}_null_model.h5')

@@ -13,19 +13,17 @@ and use this quantile to quickly screen insignificant results
 """
 
 class VariantSetTest:
-    def __init__(self, bases, resid_ldr, covar, var, block_size=2048):
+    def __init__(self, bases, resid_ldr, covar, block_size=2048):
         """
         bases: (N, r) np.array, functional bases
         resid_ldr: (n, r) np.array, LDR residuals
         covar: (n, p) np.array, the same as those used to do projection
-        var: (N, ) np.array, voxel-level variance
         block_size: block size for BlockMatrix
 
         """
         self.bases = bases
         self.covar = BlockMatrix.from_numpy(covar, block_size=block_size)
-        self.var = var
-        self.n, self.p = covar.shape
+        # self.var = var
         self.resid_ldr = BlockMatrix.from_numpy(resid_ldr, block_size=block_size)
         self.N = bases.shape[0]
         self.block_size = block_size
@@ -33,6 +31,9 @@ class VariantSetTest:
         # null model
         self.inner_covar_inv = BlockMatrix.from_numpy(np.linalg.inv(np.dot(covar.T, covar)), block_size=block_size) # (p, p)
         self.covar_ldr = BlockMatrix.from_numpy(np.dot(covar.T, resid_ldr), block_size=block_size) # (p, r)
+        self.n, self.p = covar.shape
+        inner_ldr = np.dot(resid_ldr.T, resid_ldr) # (r, r)
+        self.var = np.sum(np.dot(bases, inner_ldr) * bases, axis=1) / (self.n - self.p)  # (N, )
 
     def input_vset(self, vset, annotation_pred=None):
         """
