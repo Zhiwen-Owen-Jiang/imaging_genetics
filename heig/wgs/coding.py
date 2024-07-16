@@ -5,7 +5,7 @@ import h5py
 import numpy as np
 import pandas as pd
 from functools import reduce
-from heig.wgs.staar import VariantSetTest, cauchy_combination
+from heig.wgs.staar import VariantSetTest, cauchy_combination, prepare_vset_test
 import heig.input.dataset as ds
 from heig.wgs.utils import *
 
@@ -18,7 +18,7 @@ class Coding:
         Parameters:
         ------------
         snps_mt: a hail.MatrixTable of genotype data with annotation attached
-        for a specific gene and variant type
+            for a specific gene and variant type
         variant_type: one of ('variant', 'snv', 'indel')
         use_annotation_weights: if using annotation weights
         
@@ -38,11 +38,6 @@ class Coding:
         self.gencode_exonic_category = self.snps_mt.fa[Annotation_name_catalog['GENCODE.EXONIC.Category']]
         self.gencode_category = self.snps_mt.fa[Annotation_name_catalog['GENCODE.Category']]
         self.metasvm_pred = self.snps_mt.fa[Annotation_name_catalog['MetaSVM']]
-        # if variant_type == 'snv' and use_annotation_weights:
-        #     self.annot_phred, self.annot_name = self.get_annotation()
-        # else:
-        #     self.annot_phred, self.annot_name = None, None
-
         self.category_dict = self.get_category(variant_type)
         
         if variant_type == 'snv' and use_annotation_weights:
@@ -50,29 +45,6 @@ class Coding:
             self.annot_name = Annotation_name
         else:
             self.annot_cols, self.annot_name = None, None
-
-    def get_annotation(self):
-        annot_cols = [Annotation_name_catalog[annot_name] for annot_name in Annotation_name]
-        annot_phred = self.snps_mt.fa.select(*annot_cols)
-        return annot_phred, Annotation_name
-
-    def get_annotation_old(self):
-        """
-        Extracting and processing annotations 
-       
-        Returns:
-        ---------
-        annot_phred: a hail.Table of annotations for all coding variants
-
-        """
-        annot_cols = [Annotation_name_catalog[annot_name] for annot_name in Annotation_name]
-        annot_phred = self.snps_mt.fa.select(*annot_cols)
-        annot_phred = annot_phred.annotate(cadd_phred=hl.coalesce(annot_phred.cadd_phred, 0))
-        annot_local_div = -10 * hl.log10(1 - 10 ** (-annot_phred.apc_local_nucleotide_diversity/10))
-        annot_phred = annot_phred.annotate(apc_local_nucleotide_diversity2=annot_local_div) 
-        Annotation_name.append('aPC.LocalDiversity(-)')
-
-        return annot_phred, Annotation_name
 
     def get_category(self, variant_type):
         """
@@ -93,7 +65,8 @@ class Coding:
         set3 = hl.literal({'splicing', 'exonic;splicing'})
         set4 = hl.literal({'frameshift deletion', 'frameshift insertion'})
 
-        category_dict['plof'] = set1.contains(self.gencode_exonic_category) | set2.contains(self.gencode_category)
+        category_dict['plof'] = (set1.contains(self.gencode_exonic_category) | 
+                                 set2.contains(self.gencode_category))
         category_dict['synonymous'] = self.gencode_exonic_category == 'synonymous SNV'
         category_dict['missense'] = self.gencode_exonic_category == 'nonsynonymous SNV'
         category_dict['disruptive_missense'] = category_dict['missense'] & (self.metasvm_pred == 'D')
@@ -125,8 +98,8 @@ def single_gene_analysis(snps_mt, variant_type, vset_test,
     variant_type: one of ('variant', 'snv', 'indel')
     vset_test: an instance of VariantSetTest
     variant_category: which category of variants to analyze,
-    one of ('all', 'plof', 'plof_ds', 'missense', 'disruptive_missense',
-    'synonymous', 'ptv', 'ptv_ds')
+        one of ('all', 'plof', 'plof_ds', 'missense', 'disruptive_missense',
+        'synonymous', 'ptv', 'ptv_ds')
     use_annotation_weights: if using annotation weights
     log: a logger
     
@@ -150,7 +123,8 @@ def single_gene_analysis(snps_mt, variant_type, vset_test,
                 phred_cate = np.array([[getattr(row, col) for col in coding.annot_cols] for row in annot_phred])
             else:
                 phred_cate = None
-            vset_test.input_vset(snps_mt_cate, phred_cate)
+            maf, is_rare, vset = prepare_vset_test(snps_mt_cate)
+            vset_test.input_vset(vset, maf, is_rare, phred_cate)
             log.info(f'Doing analysis for {cate} ...')
             pvalues = vset_test.do_inference(coding.annot_name)
             cate_pvalues[cate] = {'n_variants': vset_test.n_variants, 'pvalues': pvalues}
@@ -228,8 +202,8 @@ def format_output(cate_pvalues, start, end, n_variants, n_voxels, variant_catego
     n_variants: #variants of the category
     n_voxels: #voxels of the image
     variant_category: which category of variants to analyze,
-    one of ('all', 'plof', 'plof_ds', 'missense', 'disruptive_missense',
-    'synonymous', 'ptv', 'ptv_ds')
+        one of ('all', 'plof', 'plof_ds', 'missense', 'disruptive_missense',
+        'synonymous', 'ptv', 'ptv_ds')
     
     Returns:
     ---------

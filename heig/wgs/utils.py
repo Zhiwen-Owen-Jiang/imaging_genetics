@@ -133,7 +133,7 @@ class GProcessor:
             raise ValueError('no variant remaining after preprocessing')
         else:
             self.logger.info(f"{n_variants} variants included in analysis.")
-    
+
     def extract_subject_id(self):
         """
         Extracting subject ids
@@ -357,18 +357,3 @@ def extract_align_subjects(current_id, target_id):
     target_id = target_id.merge(current_id, on='id')
     index = np.array(target_id['index'])
     return index
-
-"""
-if __name__ == '__main__':
-    main='/work/users/o/w/owenjf/image_genetics/methods/real_data_analysis'
-    snps_mt = hl.import_plink(bed=f'{main}/bfiles/bfiles_6m/ukb_imp_chr21_v3_maf_hwe_INFO_QC_white_phase123_nomulti.bed',
-                              bim=f'{main}/bfiles/bfiles_6m/ukb_imp_chr21_v3_maf_hwe_INFO_QC_white_phase123_nomulti.bim',
-                              fam=f'{main}/bfiles/bfiles_6m/ukb_imp_chr21_v3_maf_hwe_INFO_QC_white_phase123_nomulti.fam',
-                              reference_genome='GRCh37')
-    snps_mt = hl.variant_qc(snps_mt, name='info')
-    snps_mt = extract_variant_type(snps_mt, 'indel')
-    snps_mt = extract_maf(snps_mt, 0.05)
-    snps_mt = flip_snps(snps_mt)
-    snps_mt = annotate_rare_variants(snps_mt, 100)
-    snps_mt = extract_gene(1000000, 14559856, snps_mt)
-"""

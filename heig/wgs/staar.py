@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from functools import reduce
 from scipy.stats import chi2, cauchy, beta
 from heig.wgs.pvalue import saddle
 from hail.linalg import BlockMatrix
@@ -15,6 +16,10 @@ and use this quantile to quickly screen insignificant results
 class VariantSetTest:
     def __init__(self, bases, resid_ldr, covar, block_size=2048):
         """
+        Variant set test for rare variants
+        
+        Parameters:
+        ------------
         bases: (N, r) np.array, functional bases
         resid_ldr: (n, r) np.array, LDR residuals
         covar: (n, p) np.array, the same as those used to do projection
@@ -23,34 +28,32 @@ class VariantSetTest:
         """
         self.bases = bases
         self.covar = BlockMatrix.from_numpy(covar, block_size=block_size)
-        # self.var = var
         self.resid_ldr = BlockMatrix.from_numpy(resid_ldr, block_size=block_size)
         self.N = bases.shape[0]
-        self.block_size = block_size
 
         # null model
-        self.inner_covar_inv = BlockMatrix.from_numpy(np.linalg.inv(np.dot(covar.T, covar)), block_size=block_size) # (p, p)
-        self.covar_ldr = BlockMatrix.from_numpy(np.dot(covar.T, resid_ldr), block_size=block_size) # (p, r)
+        inner_covar_inv = np.linalg.inv(np.dot(covar.T, covar))
+        self.inner_covar_inv = BlockMatrix.from_numpy(inner_covar_inv, block_size=block_size) # (X'X)^{-1}, (p, p)
         self.n, self.p = covar.shape
-        inner_ldr = np.dot(resid_ldr.T, resid_ldr) # (r, r)
+        inner_ldr = np.dot(resid_ldr.T, resid_ldr) # \Xi'(I-M)\Xi, (r, r)
         self.var = np.sum(np.dot(bases, inner_ldr) * bases, axis=1) / (self.n - self.p)  # (N, )
 
-    def input_vset(self, vset, annotation_pred=None):
+    def input_vset(self, vset, maf, is_rare, annotation_pred=None):
         """
         Inputing variant set and computing half scores and covariance matrix
 
         Parameters:
         ------------
-        vset: (n, m) preprocessed MatrixTable with alleles flipped and variants filtered.
-        It should include only variants of a specific category or in a small window, 
-        not the entire gene. Otherwise, there might be OOM issue.
-        annotation_pred: (q, m) np.array of functional annotation or None
+        vset: (n, m) BlockMatrix with alleles flipped and variants filtered.
+            It should include only variants of a specific category or in a small window, 
+            not the entire gene. Otherwise, there might be OOM issue.
+        maf: (m, ) np.array of MAF
+        is_rare: (m, ) np.array boolean index indicating MAC < mac_threshold
+        annotation_pred: (m, q) np.array of functional annotation or None
 
         """
-        self.maf = np.array(vset.maf.collect())
-        self.is_rare = np.array(vset.is_rare.collect())
-        vset = BlockMatrix.from_entry_expr(vset.flipped_n_alt_alleles, mean_impute=True, 
-                                           block_size=self.block_size) # (m, n) slow
+        self.maf = maf
+        self.is_rare = is_rare
         vset_covar = vset @ self.covar  # Z'X, (m, p)
         inner_vset = vset @ vset.T  # Z'Z, (m, m)
         half_ldr_score = vset @ self.resid_ldr # Z'(I-M)\Xi, (m, r)
@@ -64,20 +67,20 @@ class VariantSetTest:
 
     def _get_weights(self, annot=None):
         """
-        vertically stack weights, i.e., each row is a (m, ) vector
+        Vertically stacking weights, i.e., each row is a (m, ) vector
 
         Parameters:
         ------------
-        annot: (q, m) array, l is #functional weights, m is #variants
+        annot: (m, q) array, m is #variants, q is #functional weights
 
         Returns:
         ---------
         weights_dict: a dict of weights
         
         """
-        w1 = beta.pdf(self.maf, 1, 25)
-        w2 = beta.pdf(self.maf, 1, 1)
-        w3 = beta.pdf(self.maf, 0.5, 0.5)
+        w1 = beta.pdf(self.maf, 1, 25).reshape(1, -1)
+        w2 = beta.pdf(self.maf, 1, 1).reshape(1, -1)
+        w3 = beta.pdf(self.maf, 0.5, 0.5).reshape(1, -1)
         weights_dict = dict()
 
         if annot is None:
@@ -85,8 +88,8 @@ class VariantSetTest:
             weights_dict['skat(1,1)'] = w2
             weights_dict['burden(1,25)'] = w1
             weights_dict['burden(1,1)'] = w2
-            weights_dict['acatv(1,25)'] = w1 / w3 ** 2
-            weights_dict['acatv(1,25)'] = w2 / w3 ** 2
+            weights_dict['acatv(1,25)'] = ((w1 / w3) ** 2)
+            weights_dict['acatv(1,1)'] = ((w2 / w3) ** 2)
         else:
             annot_rank = 1 - 10 ** (-annot/10)
             annot_rank = annot_rank.T
@@ -100,13 +103,26 @@ class VariantSetTest:
         return weights_dict
 
     def _combine_weights(self, w, w_annot):
+        """
+        Combining MAF weights with annotation weights
+
+        Parameters:
+        ------------
+        w: (m, ) array of MAF weights
+        w_annot (q, m) array of annotation weights 
+
+        Returns:
+        ---------
+        weights: a dict of weights
+        
+        """
         w_annot = w_annot * w
         weights = np.vstack([w, w_annot])
         return weights
 
     def _skat_test(self, weights):
         """
-        Computing SKAT pvalues for one weight and all voxels.
+        Computing SKAT pvalues for one weight and all voxels. (tested)
 
         For a single trait Y, the score test statistic of SKAT:
         Y'(I-M)ZWWZ'(I-M)Y/\sigma^2.
@@ -132,8 +148,8 @@ class VariantSetTest:
         score_stat = np.sum(np.dot(self.bases, ldr_score) * self.bases, axis=1) / self.var # (N, )
 
         wcov_mat = weights.reshape(-1, 1) * self.cov_mat * weights  # (m, m)
-        egvalues, _ = np.linalg.eigh(wcov_mat)
-        # (m, ) all voxels share the same eigenvalues
+        egvalues, _ = np.linalg.eigh(wcov_mat) # (m, ) all voxels share the same eigenvalues
+
         egvalues = np.flip(egvalues)
         egvalues[egvalues < 10**-8] = 0
 
@@ -142,7 +158,7 @@ class VariantSetTest:
 
     def _burden_test(self, weights):
         """
-        Computing Burden pvalues for one weight and all voxels.
+        Computing Burden pvalues for one weight and all voxels. (tested)
 
         For a single trait Y, the burden test statistic
         (w'Z'(I-M)Y)^2 / (\hat{\sigma}^2 w'Z'(I-M)Zw)
@@ -167,11 +183,14 @@ class VariantSetTest:
 
     def _acatv_test(self, weights):
         """
-        Computing ACATV pvalues for one weight and all voxels.
+        Computing ACATV pvalues for one weight and all voxels. (tested)
 
-        First split the variant set to very rare (MAC <= 10) and common sets.
+        First split the variant set to very rare (MAC <= mac_thresh) and common sets.
         For very rare sets, do Burden test; for common set, do individual test,
         then combine the pvalues by cauchy combination.
+        Individual score test:
+        numerator: y'(I-M)ZZ'(I-M)y
+        denominator: y'(I-M)y * [Z'(I-M)Z]/(n-p)
         
         Parameters:
         ------------
@@ -182,13 +201,11 @@ class VariantSetTest:
         pvalues: (N, ) array
         
         """
-        all_weights = weights ** 2 * self.maf * (1 - self.maf)
-
         ## score test for individual common variants
         if (~self.is_rare).any():
             denom = np.diag(self.cov_mat[~self.is_rare][:, ~self.is_rare]).reshape(-1, 1) * self.var.reshape(1, -1)  # (m, N)
             common_variant_pv = chi2.sf((self.half_score[~self.is_rare] ** 2 / denom), 1)  # (m1, N)
-            common_weights = all_weights[~self.is_rare] # (m1, )
+            common_weights = weights[~self.is_rare] # (m1, )
         else:
             common_variant_pv = None
             common_weights = None
@@ -201,7 +218,7 @@ class VariantSetTest:
                     [:, self.is_rare]), weights[self.is_rare])  # (N, )
             rare_burden_score = rare_burden_score_num / rare_burden_score_denom
             rare_burden_pv = chi2.sf(rare_burden_score, 1).reshape(1, -1) # (1, N)
-            rare_weights = np.atleast_1d(np.mean(all_weights[self.is_rare])) # (1, )
+            rare_weights = np.atleast_1d(np.mean(weights[self.is_rare])) # (1, )
         else:
             rare_burden_pv = None
             rare_weights = None
@@ -216,10 +233,14 @@ class VariantSetTest:
 
         return pvalues
 
-    def do_inference(self, annot_name):
+    def do_inference(self, annot_name=None):
         """
         Doing inference for the variant set using multiple weights and methods.
         Using cauchy combination to get final pvalues.
+
+        Parameters:
+        ------------
+        annot_name: a list of functional annotation names
 
         Returns:
         ---------
@@ -281,27 +302,75 @@ def cauchy_combination(pvalues, weights=None, axis=0):
     cct_pvalues: (N, ) array
 
     """
+    n_weights, n_voxels = pvalues.shape
+
     if weights is None:
-        weights = np.ones(pvalues.shape)
-    normed_weights = weights / np.sum(weights, axis=axis)
-    if len(normed_weights.shape) == 1:
-        normed_weights = normed_weights.reshape(-1, 1)
-    stats = np.mean(np.tan((0.5 - pvalues) * np.pi) * normed_weights, 
-                    axis=axis)
-    cct_pvalues = cauchy.sf(stats, loc=0, scale=1)
+        weights = np.ones(n_weights)
+    elif (weights <= 0).any():
+        raise ValueError('weights must be positive')
+    elif n_weights != weights.shape[0]:
+        raise ValueError('the length of weights should be the same as that of the p-values')
+    elif np.isnan(weights).any():
+        return np.full(n_voxels, np.nan)
+    
+    output0_voxels = (pvalues == 0).any(axis=0)
+    output1_voxels = (pvalues == 1).any(axis=0)
 
-    return cct_pvalues
+    nan_voxels = reduce(np.logical_and, [output0_voxels, output1_voxels])
+    nan_voxels = reduce(np.logical_or, [nan_voxels, np.isnan(pvalues).any(axis=0)])
+
+    good_voxels = ~reduce(np.logical_or, [nan_voxels, output0_voxels, output1_voxels])
+    pvalues = pvalues[:, good_voxels]
+    
+    normed_weights = (weights / np.sum(weights))
+    normed_weights = np.tile(normed_weights, (pvalues.shape[1], 1)).T
+    
+    is_small = (pvalues < 10**-16)
+    if not is_small.any():
+        stats = np.sum(np.tan((0.5 - pvalues) * np.pi) * normed_weights, axis=axis)
+    else:
+        stats1 = np.sum(np.where(~is_small, np.tan((0.5 - pvalues) * np.pi) * normed_weights, 0), axis=axis)
+        stats2 = np.sum(np.where(is_small, normed_weights / pvalues, 0), axis=axis) / np.pi
+        stats = stats1 + stats2
+    
+    cct_pvalues = np.zeros(stats.shape)
+    is_large = (stats > 10**15)
+    cct_pvalues[~is_large] = cauchy.sf(stats[~is_large], loc=0, scale=1)
+    cct_pvalues[is_large] = 1 / stats[is_large] / np.pi
+
+    output = np.zeros(n_voxels)
+    output[good_voxels] = cct_pvalues
+    output[nan_voxels] = np.nan
+    output[output0_voxels] = 0
+    output[output1_voxels] = 1
+
+    return output
 
 
-def remove_relatedness(ldrs, chr_preds, chr):
-    mask = np.ones(chr_preds.shape[2], dtype=bool)
-    mask[chr-1] = False
-    loco_preds = np.sum(chr_preds[:, :, mask], axis=2)
+def prepare_vset_test(snps_mt_cate, block_size=2048):
+    """
+    Extracting data from MatrixTable
 
-    return ldrs - loco_preds
+    Parameters:
+    ------------
+    snps_mt_cate: MatrixTable of a variant category
+    block_size: block size of BlockMatrix
+
+    Returns:
+    ---------
+    vset: (n, m) BlockMatrix
+    maf: (m, ) np.array of MAF
+    is_rare: (m, ) np.array boolean index indicating MAC < mac_threshold
+    
+    """
+    maf = np.array(snps_mt_cate.maf.collect())
+    is_rare = np.array(snps_mt_cate.is_rare.collect())
+    vset = BlockMatrix.from_entry_expr(snps_mt_cate.flipped_n_alt_alleles, mean_impute=True, 
+                                        block_size=block_size) # (m, n) slow
+    return maf, is_rare, vset
 
 
-def format_results(indiv_pvalues, comb_pvalues, method_name, indiv_annot_name):
+def format_results(indiv_pvalues, comb_pvalues, method_name, indiv_annot_name=None):
     """
     Formating test results. Individual p-values go first followed by combined p-values.
 
@@ -319,11 +388,20 @@ def format_results(indiv_pvalues, comb_pvalues, method_name, indiv_annot_name):
     """
     if comb_pvalues is not None:
         col_names = [method_name]
-        for annot in indiv_annot_name:
-            col_names.append(f"{method_name}-{annot}")
+        if indiv_annot_name is not None:
+            for annot in indiv_annot_name:
+                col_names.append(f"{method_name}-{annot}")
         col_names.append(f"STAAR-{method_name}")
         res = pd.DataFrame(np.column_stack([indiv_pvalues, comb_pvalues]), columns=col_names)
     else:
-        res = pd.DataFrame(indiv_pvalues, columns=method_name)
+        res = pd.DataFrame(indiv_pvalues, columns=[method_name])
 
     return res
+
+
+def remove_relatedness(ldrs, chr_preds, chr):
+    mask = np.ones(chr_preds.shape[2], dtype=bool)
+    mask[chr-1] = False
+    loco_preds = np.sum(chr_preds[:, :, mask], axis=2)
+
+    return ldrs - loco_preds
