@@ -135,6 +135,9 @@ common_parser.add_argument('--grch37', action='store_true',
 common_parser.add_argument('--threads', type=int,
                            help=('Number of computational threads to use. '
                                  'Supported modules: --gwas.'))
+common_parser.add_argument('--block-size', type=int,
+                           help=('Block size in MB. Default: 1024. '
+                                 'Supported modules: --annot-vcf, --wgs-coding.'))
 
 # arguments for herigc.py
 herigc_parser.add_argument('--ld-inv',
@@ -253,11 +256,9 @@ voxelgwas_parser.add_argument('--sig-thresh', type=float,
 
 # arguments for vcf2mt.py
 annot_vcf_parser.add_argument('--vcf', 
-                              help=('Direcotory to preprocessed VCF file. '
-                                    'Refer to https://github.com/zhouhufeng/FAVORannotator/blob/main/Docs/Tutorial/Demos/preprocessVCF.md '
-                                    'for detailed steps.'))
+                              help='Direcotory to preprocessed VCF file.')
 annot_vcf_parser.add_argument('--favor-db',
-                              help='Directory to unzipped FAVORannotation files.')
+                              help='Directory to unzipped FAVOR annotation files.')
 
 # arguments for gwas.py
 gwas_parser.add_argument('--mem', type=int,
@@ -265,22 +266,22 @@ gwas_parser.add_argument('--mem', type=int,
 
 # arguments for coding.py
 wgs_coding_parser.add_argument('--null-model',
-                               help='Directory to null model')
+                               help='Directory to null model.')
 wgs_coding_parser.add_argument('--variant-type',
                                help=("Variant type (case insensitive), "
-                                     "must be one of ('variant', 'snv', 'indel')"))
+                                     "must be one of ('variant', 'snv', 'indel')."))
 wgs_coding_parser.add_argument('--variant-category',
                                help=("Variant category (case insensitive), "
                                      "must be one or some of ('all', 'plof', 'plof_ds', 'missense', "
                                      "'disruptive_missense', 'synonymous', 'ptv', 'ptv_ds'); "
                                      "where 'all' means all categories; "
-                                     "multiple categories should be separated by comma"))
+                                     "multiple categories should be separated by comma."))
 wgs_coding_parser.add_argument('--maf-max', type=float,
-                               help='Maximum minor allele frequency for screening SNPs.')
+                               help='Maximum minor allele frequency for screening SNPs. Default: 0.01')
 wgs_coding_parser.add_argument('--mac-thresh', type=int,
-                               help='Minimum minor allele count for distinguishing very rare variants.')
+                               help='Minimum minor allele count for distinguishing very rare variants. Default: 10.')
 wgs_coding_parser.add_argument('--use-annotation-weights', action='store_true',
-                               help='If using annotation weights')
+                               help='If using annotation weights.')
 
 
 def check_accepted_args(module, args, log):
@@ -304,12 +305,14 @@ def check_accepted_args(module, args, log):
                        'inner_ldr', 'bases'},
         'gwas': {'out', 'gwas', 'ldrs', 'n_ldrs', 'grch37', 'threads', 'mem', 'geno_mt',
                  'covar', 'cat_covar_list', 'bfile'},
-        'annot_vcf': {'annot_vcf', 'out', 'grch37', 'vcf', 'favor_db', 'keep', 'extract'},
+        'annot_vcf': {'annot_vcf', 'out', 'grch37', 'vcf', 'favor_db', 'keep', 'extract',
+                      'block_size'},
         'wgs_null': {'wgs_null', 'out', 'ldrs', 'n_ldrs', 'bases', 'covar',
                      'cat_covar_list', 'keep', 'threads'},
-        'wgs_coding': {'wgs_coding', 'out', 'geno_mt', 'null_model', 'variant_type', 'variant_category',
-                       'maf_max', 'maf_min', 'mac_thresh', 'use_annotation_weights',
-                       'n_ldrs', 'bases', 'keep', 'extract', 'range','voxel'}            
+        'wgs_coding': {'wgs_coding', 'out', 'geno_mt', 'null_model', 'variant_type', 
+                       'variant_category', 'maf_max', 'maf_min', 'mac_thresh', 
+                       'use_annotation_weights', 'n_ldrs', 'bases', 'keep', 
+                       'extract', 'range','voxel', 'block_size'}            
     }
 
     ignored_args = []

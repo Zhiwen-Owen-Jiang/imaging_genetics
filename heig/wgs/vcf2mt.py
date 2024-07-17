@@ -3,6 +3,12 @@ import hail as hl
 import heig.input.dataset as ds
 from heig.wgs.utils import GProcessor 
 
+"""
+TODO: add an argument for inputing hail config with a JSON file
+
+"""
+
+
 
 SELECTED_ANNOT = {
     'apc_conservation': hl.tfloat32,
@@ -120,7 +126,7 @@ class Annotation:
         )
 
 
-def read_vcf(dir, geno_ref, block_size=2048):
+def read_vcf(dir, geno_ref, block_size=1024):
     if dir.endswith('vcf'):
         force_bgz = False
     elif dir.endswith('vcf.gz') or dir.endswith('vcf.bgz'):
@@ -159,6 +165,10 @@ def check_input(args, log):
         geno_ref = 'GRCh37'
     log.info(f'Set {geno_ref} as the reference.')
 
+    if args.block_size is None:
+        args.block_size = 1024
+        log.info(f'Set --block-size as default 1024.')
+
     return geno_ref
 
 
@@ -170,7 +180,7 @@ def run(args, log):
 
     # convert VCF to MatrixTable
     log.info(f'Read VCF from {args.vcf}')
-    vcf_mt = read_vcf(args.vcf, geno_ref)
+    vcf_mt = read_vcf(args.vcf, geno_ref, block_size=args.block_size)
 
     # keep idvs
     gprocessor = GProcessor(vcf_mt)

@@ -88,7 +88,8 @@ class Coding:
 
 
 def single_gene_analysis(snps_mt, variant_type, vset_test,
-                         variant_category, use_annotation_weights, log):
+                         variant_category, use_annotation_weights, 
+                         block_size, log):
     """
     Single gene analysis
 
@@ -101,6 +102,7 @@ def single_gene_analysis(snps_mt, variant_type, vset_test,
         one of ('all', 'plof', 'plof_ds', 'missense', 'disruptive_missense',
         'synonymous', 'ptv', 'ptv_ds')
     use_annotation_weights: if using annotation weights
+    block_size: block size of BlockMatrix
     log: a logger
     
     Returns:
@@ -123,7 +125,7 @@ def single_gene_analysis(snps_mt, variant_type, vset_test,
                 phred_cate = np.array([[getattr(row, col) for col in coding.annot_cols] for row in annot_phred])
             else:
                 phred_cate = None
-            maf, is_rare, vset = prepare_vset_test(snps_mt_cate)
+            maf, is_rare, vset = prepare_vset_test(snps_mt_cate, block_size=block_size)
             vset_test.input_vset(vset, maf, is_rare, phred_cate)
             log.info(f'Doing analysis for {cate} ...')
             pvalues = vset_test.do_inference(coding.annot_name)
@@ -333,6 +335,10 @@ def check_input(args, log):
     else:
         geno_ref = 'GRCh37'
     log.info(f'Set {geno_ref} as the reference genome.')
+
+    if args.block_size is None:
+        args.block_size = 1024
+        log.info(f'Set --block-size as default 1024.')
     
     return start_chr, start_pos, end_pos, voxel_list, variant_category, temp_path, geno_ref
 
@@ -410,9 +416,10 @@ def run(args, log):
         log.info(f"{covar.shape[1]} fixed effects in the covariates after removing redundant effects.\n")
 
         # single gene analysis
-        vset_test = VariantSetTest(bases, resid_ldr, covar)
+        vset_test = VariantSetTest(bases, resid_ldr, covar, block_size=args.block_size)
         cate_pvalues = single_gene_analysis(gprocesser.snps_mt, args.variant_type, vset_test,
-                                            variant_category, args.use_annotation_weights, log)
+                                            variant_category, args.use_annotation_weights, 
+                                            args.block_size, log)
         
         # format output
         n_voxels = bases.shape[0]

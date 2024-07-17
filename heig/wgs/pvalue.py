@@ -14,31 +14,32 @@ def saddle(score_stat, egvalues, wcov_mat):
     Saddlepoint approximation.
     Score statistics have been normalized such that
     they share the same eigenvalues.
+    p-Values for all voxels can be computed without for loop.
 
     Parameters:
     ------------
     score_stat: (N, ) array of score statistics
-    egvalues: (m, ) array of eigenvalues
+    egvalues: (m, ) array of sorted eigenvalues
 
     Returns:
     ---------
     pvalues: N by 1 array of pvalues
 
     """
+    if egvalues.ndim == 1:
+        egvalues = egvalues.reshape(-1, 1)
     score_stat[score_stat <= 0] = 0.0001
     # normalize eigenvalues
     n_voxels = len(score_stat)
-    max_egvalue = np.max(egvalues)
+    max_egvalue = egvalues[0]
     score_stat /= max_egvalue
     egvalues /= max_egvalue
 
     xmin = -len(egvalues)/(2 * score_stat)
     xmin[score_stat > np.sum(egvalues)] = -0.01
-    xmax = 0.49995
+    xmax = np.ones(xmin.shape) * 0.49995
 
-    xhat = np.zeros(n_voxels)
-    for i in range(n_voxels):
-        xhat[i] = _bisection(egvalues, score_stat[i], xmin[i], xmax)
+    xhat = _bisection(egvalues, score_stat, xmin, xmax)
     w = np.sqrt(2 * (xhat * score_stat - _k(xhat, egvalues)))
     w[xhat < 0] *= -1
 
@@ -54,16 +55,26 @@ def saddle(score_stat, egvalues, wcov_mat):
 
 
 def _bisection(egvalues, score_stat, xmin, xmax):
-    while np.abs(xmax - xmin) > 10**-8:
+    """
+    Parameters:
+    ------------
+    egvalues: (m, ) array
+    score_stat: (N, ) array
+    xmin: (N, ) array
+    xmax: (N, ) array
+
+    Returns:
+    ---------
+    (N, ) array
+    
+    """
+    # do iteration for 30 times to get precision ~10^-8
+    for _ in range(30):
         x0 = (xmax + xmin) / 2
         k1x0 = _k1(x0, egvalues, score_stat)
-        if k1x0 == 0:
-            return x0
-        elif k1x0 > 0:
-            xmax = x0
-        else:
-            xmin = x0
-
+        mask = k1x0 > 0
+        xmax[mask] = x0[mask]
+        xmin[~mask] = x0[~mask]
     return x0
 
 
@@ -72,30 +83,30 @@ def _k(x, egvalues):
     Parameters:
     ------------
     x: (N, ) array
-    egvalues: (m, ) array
+    egvalues: (m, 1) array
 
     Returns:
     ---------
     (N, ) array
 
     """
-    return np.sum(np.log(1 - 2 * egvalues.reshape(-1, 1) * x), axis=0) * -0.5
+    return np.sum(np.log(1 - 2 * egvalues * x), axis=0) * -0.5
 
 
 def _k1(x, egvalues, score_stat):
     """
     Parameters:
     ------------
-    x: (1, ) array
-    egvalues: (m, ) array
-    score_stat: (1, ) array
+    x: (N, ) array
+    egvalues: (m, 1) array
+    score_stat: (N, ) array
 
     Returns:
     ---------
-    (1, ) array
+    (N, ) array
 
     """
-    return np.sum(egvalues / (1 - 2 * egvalues * x)) - score_stat
+    return np.sum(egvalues / (1 - 2 * egvalues * x), axis=0) - score_stat
 
 
 def _k2(x, egvalues):
@@ -103,14 +114,14 @@ def _k2(x, egvalues):
     Parameters:
     ------------
     x: (N, ) array
-    egvalues: (m, ) array
+    egvalues: (m, 1) array
 
     Returns:
     ---------
     (N, ) array
 
     """
-    return np.sum(egvalues.reshape(-1, 1) ** 2 / (1 - 2 * egvalues.reshape(-1, 1) * x) ** 2, axis=0) * 2
+    return np.sum(egvalues ** 2 / (1 - 2 * egvalues * x) ** 2, axis=0) * 2
 
 
 def _handle_invalid_pvalues(score_stat, wcov_mat):
@@ -138,13 +149,3 @@ def _handle_invalid_pvalues(score_stat, wcov_mat):
     pvalues = chi2.sf(score_stat * np.sqrt(2 * l) + l, l)
 
     return pvalues
-
-
-if __name__ == '__main__':
-    saddle(np.array([600.0]), np.array([4.0, 3.0, 2.0, 1.0]), None)
-    wcov_mat = np.arange(12).reshape(4,3) / 100
-    wcov_mat = np.dot(wcov_mat.T, wcov_mat)
-    egvalues, _ = np.linalg.eigh(wcov_mat)
-    egvalues = np.flip(egvalues)
-    print(_handle_invalid_pvalues(np.array([6.0]), wcov_mat))
-    print(saddle(np.array([6.0]), egvalues, None))

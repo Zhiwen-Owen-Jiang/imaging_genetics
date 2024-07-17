@@ -14,7 +14,7 @@ and use this quantile to quickly screen insignificant results
 """
 
 class VariantSetTest:
-    def __init__(self, bases, resid_ldr, covar, block_size=2048):
+    def __init__(self, bases, resid_ldr, covar, block_size=1024):
         """
         Variant set test for rare variants
         
@@ -347,7 +347,7 @@ def cauchy_combination(pvalues, weights=None, axis=0):
     return output
 
 
-def prepare_vset_test(snps_mt_cate, block_size=2048):
+def prepare_vset_test(snps_mt_cate, block_size=1024):
     """
     Extracting data from MatrixTable
 
