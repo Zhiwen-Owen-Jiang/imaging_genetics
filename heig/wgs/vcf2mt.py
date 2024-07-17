@@ -1,7 +1,7 @@
 import os
 import hail as hl
 import heig.input.dataset as ds
-from heig.wgs.utils import extract_idvs, extract_snps
+from heig.wgs.utils import GProcessor 
 
 
 SELECTED_ANNOT = {
@@ -173,16 +173,18 @@ def run(args, log):
     vcf_mt = read_vcf(args.vcf, geno_ref)
 
     # keep idvs
+    gprocessor = GProcessor(vcf_mt)
     if args.keep is not None:
         keep_idvs = ds.read_keep(args.keep)
         log.info(f'{len(keep_idvs)} subjects in --keep.')
-        vcf_mt = extract_idvs(vcf_mt, keep_idvs)
+        gprocessor.extract_idvs(keep_idvs)
         
     # extract SNPs
     if args.extract is not None:
         keep_snps = ds.read_extract(args.extract)
         log.info(f"{len(keep_snps)} variants in --extract.")
-        vcf_mt = extract_snps(vcf_mt, keep_snps)
+        gprocessor.extract_snps(keep_snps)
+    vcf_mt = gprocessor.snps_mt
 
     # read annotation and preprocess
     log.info(f'Read FAVOR annotation from {args.favor_db}')

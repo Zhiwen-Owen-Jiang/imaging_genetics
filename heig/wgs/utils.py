@@ -27,6 +27,7 @@ Annotation_name_catalog = {
     'aPC.EpigeneticTranscription': 'apc_epigenetics_transcription',
     'aPC.Conservation': 'apc_conservation',
     'aPC.LocalDiversity': 'apc_local_nucleotide_diversity',
+    'aPC.LocalDiversity(-)': 'apc_local_nucleotide_diversity2',
     'aPC.Mappability': 'apc_mappability',
     'aPC.TF': 'apc_transcription_factor',
     'aPC.Protein': 'apc_protein_function'
@@ -46,6 +47,7 @@ Annotation_name = ["CADD",
                    "aPC.EpigeneticTranscription",
                    "aPC.Conservation",
                    "aPC.LocalDiversity",
+                   "aPC.LocalDiversity(-)",
                    "aPC.Mappability",
                    "aPC.TF",
                    "aPC.Protein"
@@ -63,8 +65,6 @@ class GProcessor:
         
         """
         self.snps_mt = snps_mt
-        if 'fa' not in self.snps_mt.row:
-            raise ValueError('--geno-mt must be annotated before doing analysis')
     
     def do_processing(self, geno_ref, variant_type, keep_snps, keep_idvs, *args,
                       maf_min=None, maf_max=0.01, mac_thresh=10, **kwargs):
@@ -84,6 +84,9 @@ class GProcessor:
             will be identified as a rarer variants in ACAT-V
         
         """
+        if 'fa' not in self.snps_mt.row:
+            raise ValueError('--geno-mt must be annotated before doing analysis')
+        
         self.variant_type = variant_type
         self.geno_ref = geno_ref
         self.maf_min = maf_min
@@ -92,9 +95,9 @@ class GProcessor:
         self.logger = logging.getLogger(__name__)
 
         if keep_snps is not None:
-            self._extract_snps(keep_snps)
+            self.extract_snps(keep_snps)
         if keep_idvs is not None:
-            self._extract_idvs(keep_idvs)
+            self.extract_idvs(keep_idvs)
 
         self.snps_mt = hl.variant_qc(self.snps_mt, name='info')
         if 'filters' in self.snps_mt.row:
@@ -239,7 +242,7 @@ class GProcessor:
             gencode_info = self.snps_mt.fa[Annotation_name_catalog['GENCODE.Info']]
             self.snps_mt = self.snps_mt.filter_rows(gencode_info.contains(gene_name))
 
-    def _extract_snps(self, keep_snps):
+    def extract_snps(self, keep_snps):
         """
         Extracting variants
 
@@ -251,16 +254,18 @@ class GProcessor:
         keep_snps = hl.literal(set(keep_snps['SNP']))
         self.snps_mt = self.snps_mt.filter_rows(keep_snps.contains(self.snps_mt.rsid))
 
-    def _extract_idvs(self, keep_idvs):
+    def extract_idvs(self, keep_idvs):
         """
         Extracting subjects
 
         Parameters:
         ------------
-        keep_idvs: a set of subject ids
+        keep_idvs: a pd.MultiIndex/list/tuple/set of subject ids
         
         """
-        keep_idvs = hl.literal(keep_idvs)
+        if isinstance(keep_idvs, pd.MultiIndex):
+            keep_idvs = keep_idvs.get_level_values('IID').tolist()[1:] # remove 'IID'
+        keep_idvs = hl.literal(set(keep_idvs))
         self.snps_mt = self.snps_mt.filter_cols(keep_idvs.contains(self.snps_mt.s))
 
 
@@ -280,7 +285,7 @@ def get_common_ids(ids, snps_mt_ids, keep_idvs=None):
     
     """
     if keep_idvs is not None:
-        keep_idvs = keep_idvs.get_level_values('IID').tolist()
+        keep_idvs = keep_idvs.get_level_values('IID').tolist()[1:]
         common_ids = set(keep_idvs).intersection(ids)
     else:
         common_ids = set(ids)
