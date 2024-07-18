@@ -58,7 +58,7 @@ def _bisection(egvalues, score_stat, xmin, xmax):
     """
     Parameters:
     ------------
-    egvalues: (m, ) array
+    egvalues: (m, 1) array
     score_stat: (N, ) array
     xmin: (N, ) array
     xmax: (N, ) array

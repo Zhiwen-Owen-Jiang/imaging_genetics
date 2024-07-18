@@ -181,10 +181,19 @@ class Covar(Dataset):
             return np.linalg.cond(self.data) >= 1/sys.float_info.epsilon
 
 
-def get_common_idxs(*idx_list):
+def get_common_idxs(*idx_list, single_id=False):
     """
-    Get common indices among a list of double indices for subjects.
+    Getting common indices among a list of double indices for subjects.
     Each element in the list must be a pd.MultiIndex instance.
+
+    Parameters:
+    ------------
+    idx_list: a list of pd.MultiIndex
+    single_id: if return single id as a list
+
+    Returns:
+    ---------
+    common_idxs: common indices in pd.MultiIndex or list
 
     """
     common_idxs = None
@@ -200,6 +209,9 @@ def get_common_idxs(*idx_list):
         raise ValueError('no valid index provided')
     if len(common_idxs) == 0:
         raise ValueError('no common index exists')
+    
+    if single_id:
+        common_idxs = common_idxs.get_level_values('IID').tolist()[1:]
 
     return common_idxs
 
@@ -222,7 +234,7 @@ def read_geno_part(dir):
 
 def read_keep(keep_files):
     """
-    Keep common subject IDs from multiple files
+    Extracting common subject IDs from multiple files
     All files are confirmed to exist
     Empty files are skipped without error/warning
     Error out if no common IDs exist
@@ -262,7 +274,7 @@ def read_keep(keep_files):
 
 def read_extract(extract_files):
     """
-    Keep common SNPs from multiple files
+    Extracting common SNPs from multiple files
     All files are confirmed to exist
     Empty files are skipped without error/warning
     Error out if no common SNPs exist
@@ -318,7 +330,6 @@ def read_voxel(voxel_file):
     voxel_list = (voxels[0] - 1).values
 
     return voxel_list
-
 
 
 def parse_input(arg):

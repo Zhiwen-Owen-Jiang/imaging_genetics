@@ -165,9 +165,9 @@ def check_input(args, log):
         geno_ref = 'GRCh37'
     log.info(f'Set {geno_ref} as the reference.')
 
-    if args.block_size is None:
-        args.block_size = 1024
-        log.info(f'Set --block-size as default 1024.')
+    # if args.block_size is None:
+    #     args.block_size = 1024
+    #     log.info(f'Set --block-size as default 1024.')
 
     return geno_ref
 
@@ -175,12 +175,12 @@ def check_input(args, log):
 def run(args, log):
     # check input and init
     geno_ref = check_input(args, log)
-    hl.init(quiet=True)
+    hl.init(quiet=True, local='local[8]', driver_cores=2, driver_memory='highmem', worker_cores=6, worker_memory='highmem')
     hl.default_reference = geno_ref
 
     # convert VCF to MatrixTable
     log.info(f'Read VCF from {args.vcf}')
-    vcf_mt = read_vcf(args.vcf, geno_ref, block_size=args.block_size)
+    vcf_mt = read_vcf(args.vcf, geno_ref)
 
     # keep idvs
     gprocessor = GProcessor(vcf_mt)

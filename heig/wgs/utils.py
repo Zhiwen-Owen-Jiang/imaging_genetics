@@ -84,9 +84,6 @@ class GProcessor:
             will be identified as a rarer variants in ACAT-V
         
         """
-        if 'fa' not in self.snps_mt.row:
-            raise ValueError('--geno-mt must be annotated before doing analysis')
-        
         self.variant_type = variant_type
         self.geno_ref = geno_ref
         self.maf_min = maf_min
@@ -127,10 +124,23 @@ class GProcessor:
         return cls(snps_mt)
 
     def save_interim_data(self, temp_dir):
+        """
+        Saving interim MatrixTable, 
+        which is useful for wgs where I/O is expensive
+
+        Parameters:
+        ------------
+        temp_dir: directory to temporarily save the MatrixTable
+        
+        """
         self.snps_mt.write(temp_dir) # slow but fair
         self.snps_mt = hl.read_matrix_table(temp_dir)
 
     def check_valid(self):
+        """
+        Checking non-zero #variants
+        
+        """
         n_variants = self.snps_mt.rows().count()
         if n_variants == 0:
             raise ValueError('no variant remaining after preprocessing')
@@ -148,6 +158,20 @@ class GProcessor:
         """
         snps_mt_ids = self.snps_mt.s.collect()
         return snps_mt_ids
+    
+    def annotate_cols(self, table, annot_name):
+        """
+        Annotating columns with values from the table
+
+        Parameters:
+        ------------
+        table: a hl.Table
+        annot_name: annotation name
+        
+        """
+        table = table.key_by('s')
+        annot_expr = {annot_name: table[self.snps_mt.s]}
+        self.snps_mt = self.snps_mt.annotate_cols(**annot_expr)
 
     def _extract_variant_type(self):
         """
@@ -239,6 +263,8 @@ class GProcessor:
                                                     (self.snps_mt.locus.position >= start) & 
                                                     (self.snps_mt.locus.position <= end))
         else:
+            if 'fa' not in self.snps_mt.row:
+                raise ValueError('--geno-mt must be annotated before doing analysis')
             gencode_info = self.snps_mt.fa[Annotation_name_catalog['GENCODE.Info']]
             self.snps_mt = self.snps_mt.filter_rows(gencode_info.contains(gene_name))
 
@@ -293,27 +319,28 @@ def get_common_ids(ids, snps_mt_ids, keep_idvs=None):
     return common_ids
 
 
-def keep_ldrs(n_ldrs, bases, resid_ldr):
+def keep_ldrs(n_ldrs, resid_ldr, bases=None):
     """
     Keeping top LDRs
 
     Parameters:
     ------------
     n_ldrs: a int number
-    bases: functional bases (N, N)
     resid_ldr: LDR residuals (n, r)
+    bases: functional bases (N, N)
 
     Returns:
     ---------
-    bases: functional bases (N, n_ldrs)
     resid_ldr: LDR residuals (n, n_ldrs)
+    bases: functional bases (N, n_ldrs) or None
     
     """
-    if bases.shape[1] < n_ldrs:
-        raise ValueError('the number of bases is less than --n-ldrs')
+    if bases is not None:
+        if bases.shape[1] < n_ldrs:
+            raise ValueError('the number of bases is less than --n-ldrs')
+        bases = bases[:, :n_ldrs]
     if resid_ldr.shape[1] < n_ldrs:
         raise ValueError('LDR residuals are less than --n-ldrs')
-    bases = bases[:, :n_ldrs]
     resid_ldr = resid_ldr[:, :n_ldrs]
     return bases, resid_ldr
 

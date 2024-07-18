@@ -126,8 +126,7 @@ def keep_ldrs(n_ldrs, bases, inner_ldr, ldr_gwas):
         raise ValueError(
             'the dimension of inner product of LDR is less than --n-ldrs')
     if ldr_gwas.z.shape[1] < n_ldrs:
-        raise ValueError(
-            'LDRs in summary statistics is less than --n-ldrs')
+        raise ValueError('LDRs in summary statistics is less than --n-ldrs')
     bases = bases[:, :n_ldrs]
     inner_ldr = inner_ldr[:n_ldrs, :n_ldrs]
     ldr_gwas.z = ldr_gwas.z[:, :n_ldrs]
