@@ -57,8 +57,7 @@ def check_compression(dir):
         openfunc = bz2.BZ2File
     elif (dir.endswith('zip') or dir.endswith('tar') or
           dir.endswith('tar.gz') or dir.endswith('tar.bz2')):
-        raise ValueError(
-            'files with suffix .zip, .tar, .tar.gz, .tar.bz2 are not supported')
+        raise ValueError('files with suffix .zip, .tar, .tar.gz, .tar.bz2 are not supported')
     else:
         openfunc = open
         compression = None

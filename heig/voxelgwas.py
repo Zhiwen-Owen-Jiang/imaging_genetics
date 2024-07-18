@@ -25,8 +25,7 @@ def recover_se(bases, inner_ldr, n, ldr_beta, ztz_inv):
 
     """
     bases = np.atleast_2d(bases)
-    part1 = np.sum(np.dot(bases, inner_ldr) * bases,
-                   axis=1).reshape(1, -1)
+    part1 = np.sum(np.dot(bases, inner_ldr) * bases,axis=1).reshape(1, -1)
     part2 = np.dot(ldr_beta, bases.T) ** 2
     se = np.sqrt(part1 * ztz_inv / n - part2 / n)
 
@@ -48,8 +47,7 @@ def check_input(args, log):
     if args.voxel is not None and args.voxel <= 0:
         raise ValueError('--voxel should be greater than 0 (one-based index)')
     if args.sig_thresh is not None and (args.sig_thresh <= 0 or args.sig_thresh >= 1):
-        raise ValueError(
-            '--sig-thresh should be greater than 0 and less than 1')
+        raise ValueError('--sig-thresh should be greater than 0 and less than 1')
     if args.range is None and args.voxel is None and args.sig_thresh is None and args.extract is None:
         log.info(('WARNING: generating all voxelwise summary statistics will require large disk space. '
                   'Specify a p-value threshold by --sig-thresh to screen out insignificant results.'))
@@ -58,8 +56,7 @@ def check_input(args, log):
     if not os.path.exists(f"{args.ldr_sumstats}.snpinfo"):
         raise FileNotFoundError(f"{args.ldr_sumstats}.snpinfo does not exist")
     if not os.path.exists(f"{args.ldr_sumstats}.sumstats"):
-        raise FileNotFoundError(
-            f"{args.ldr_sumstats}.sumstats does not exist")
+        raise FileNotFoundError(f"{args.ldr_sumstats}.sumstats does not exist")
     if not os.path.exists(args.bases):
         raise FileNotFoundError(f"{args.bases} does not exist")
     if not os.path.exists(args.inner_ldr):
@@ -72,8 +69,7 @@ def check_input(args, log):
             start_chr, start_pos = [int(x) for x in start.split(':')]
             end_chr, end_pos = [int(x) for x in end.split(':')]
         except:
-            raise ValueError(
-                '--range should be in this format: <CHR>:<POS1>,<CHR>:<POS2>')
+            raise ValueError('--range should be in this format: <CHR>:<POS1>,<CHR>:<POS2>')
         if start_chr != end_chr:
             raise ValueError((f'starting with chromosome {start_chr} '
                               f'while ending with chromosome {end_chr} '
@@ -103,14 +99,12 @@ def run(args, log):
     bases = np.load(args.bases)
     log.info(f'{bases.shape[1]} bases read from {args.bases}')
     ldr_gwas = sumstats.read_sumstats(args.ldr_sumstats)
-    log.info(
-        f'{ldr_gwas.snpinfo.shape[0]} SNPs read from LDR summary statistics {args.ldr_sumstats}')
+    log.info(f'{ldr_gwas.snpinfo.shape[0]} SNPs read from LDR summary statistics {args.ldr_sumstats}')
 
     # LDR subsetting
     if args.n_ldrs:
         if args.n_ldrs > ldr_gwas.beta.shape[1] or args.n_ldrs > bases.shape[1] or args.n_ldrs > inner_ldr.shape[0]:
-            log.info(
-                'WARNING: --n-ldrs is greater than the maximum #LDRs. Use all LDRs.')
+            log.info('WARNING: --n-ldrs is greater than the maximum #LDRs. Use all LDRs.')
         else:
             ldr_gwas.beta = ldr_gwas.beta[:, :args.n_ldrs]
             ldr_gwas.se = ldr_gwas.se[:, :args.n_ldrs]
@@ -118,8 +112,7 @@ def run(args, log):
             inner_ldr = inner_ldr[:args.n_ldrs, :args.n_ldrs]
 
     if bases.shape[1] != ldr_gwas.beta.shape[1] or bases.shape[1] != inner_ldr.shape[0]:
-        raise ValueError(
-            'dimension mismatch for --bases, --inner-ldr, and --ldr-sumstats')
+        raise ValueError('dimension mismatch for --bases, --inner-ldr, and --ldr-sumstats')
     log.info(f'Keep the top {bases.shape[1]} components.\n')
 
     # getting the outpath and SNP list
@@ -138,8 +131,7 @@ def run(args, log):
         idx = ((ldr_gwas.snpinfo['POS'] > start_pos) & (ldr_gwas.snpinfo['POS'] < end_pos) &
                (ldr_gwas.snpinfo['CHR'] == target_chr)).to_numpy()
         outpath += f"_chr{target_chr}_start{start_pos}_end{end_pos}.txt"
-        log.info(
-            f'{np.sum(idx)} SNP(s) on chromosome {target_chr} from {start_pos} to {end_pos}.')
+        log.info(f'{np.sum(idx)} SNP(s) on chromosome {target_chr} from {start_pos} to {end_pos}.')
     else:
         idx = ~ldr_gwas.snpinfo['SNP'].isna().to_numpy()
         outpath += ".txt"
@@ -164,8 +156,7 @@ def run(args, log):
         thresh_chisq = 0
 
     # estimating (Z_k'Z_k)^{-1}
-    ztz_inv = np.mean((ldr_n * ldr_se ** 2 + ldr_beta **
-                      2) / np.diag(inner_ldr), axis=1)
+    ztz_inv = np.mean((ldr_n * ldr_se ** 2 + ldr_beta ** 2) / np.diag(inner_ldr), axis=1)
     ztz_inv = ztz_inv.reshape(-1, 1)
 
     # doing analysis
@@ -173,8 +164,7 @@ def run(args, log):
     is_first_write = True
     for i in tqdm(voxel_list, desc=f"Doing GWAS for {len(voxel_list)} voxels"):
         voxel_beta = np.dot(ldr_beta, bases[i].T)
-        voxel_se = recover_se(bases[i], inner_ldr,
-                              ldr_n, ldr_beta, ztz_inv).reshape(-1)
+        voxel_se = recover_se(bases[i], inner_ldr, ldr_n, ldr_beta, ztz_inv).reshape(-1)
         voxel_z = voxel_beta / voxel_se
         sig_idxs = voxel_z ** 2 >= thresh_chisq
 
@@ -183,7 +173,7 @@ def run(args, log):
             sig_snps['BETA'] = voxel_beta[sig_idxs]
             sig_snps['SE'] = voxel_se[sig_idxs]
             sig_snps['Z'] = voxel_z[sig_idxs]
-            sig_snps['P'] = chi2.sf(sig_snps['Z']**2, 1)
+            sig_snps['P'] = chi2.sf(sig_snps['Z'] ** 2, 1)
             sig_snps.insert(0, 'INDEX', [i+1] * np.sum(sig_idxs))
 
             if is_first_write:

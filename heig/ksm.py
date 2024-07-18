@@ -61,16 +61,14 @@ class KernelSmooth:
         score = np.zeros(len(bw_list))
 
         for cii, bw in enumerate(bw_list):
-            log.info(
-                f"Doing generalized cross-validation (GCV) for bandwidth {np.round(bw, 3)} ...")
+            log.info(f"Doing generalized cross-validation (GCV) for bandwidth {np.round(bw, 3)} ...")
             isvalid, y_sm, sparse_sm_weight = self.smoother(bw)
             if isvalid:
                 score[cii] = (np.mean(np.sum((self.data - y_sm) ** 2, axis=1)) /
                               (1 - np.sum(sparse_sm_weight.diagonal()) / self.N + 10**-10) ** 2)
                 if score[cii] == 0:
                     score[cii] = np.nan
-                log.info(
-                    f"The GCV score for bandwidth {np.round(bw, 3)} is {round(score[cii], 3)}.")
+                log.info(f"The GCV score for bandwidth {np.round(bw, 3)} is {round(score[cii], 3)}.")
             else:
                 score[cii] = np.Inf
 
@@ -80,8 +78,7 @@ class KernelSmooth:
                       "which may not be the best one."))
         bw_opt = bw_list[which_min]
         min_mse = score[which_min]
-        log.info(
-            f"The optimal bandwidth is {np.round(bw_opt, 3)} with GCV score {round(min_mse, 3)}.")
+        log.info(f"The optimal bandwidth is {np.round(bw_opt, 3)} with GCV score {round(min_mse, 3)}.")
 
         return bw_opt
 
@@ -131,11 +128,9 @@ class LocalLinear(KernelSmooth):
             k_mat = csc_matrix(np.prod((k_mat / bw).toarray(), axis=1)).T  # can be faster, update for scipy 1.11
             k_mat_sparse = hstack([k_mat] * (self.d + 1))
             kx = k_mat_sparse.multiply(t_mat).T  # (d+1) * N
-            sm_weight = inv(kx @ t_mat + np.eye(self.d + 1)
-                            * 0.000001)[0, :] @ kx  # N * 1
+            sm_weight = inv(kx @ t_mat + np.eye(self.d + 1) * 0.000001)[0, :] @ kx  # N * 1
             large_weight_idxs = np.where(np.abs(sm_weight) > 1 / self.N)
-            sparse_sm_weight[lii,
-                             large_weight_idxs] = sm_weight[large_weight_idxs]
+            sparse_sm_weight[lii,large_weight_idxs] = sm_weight[large_weight_idxs]
         nonzero_weights = np.sum(sparse_sm_weight != 0, axis=0)
         if np.mean(nonzero_weights) > self.N // 10:
             self.logger.info((f"On average, the non-zero weight for each voxel "
@@ -177,12 +172,10 @@ def get_image_list(img_dirs, suffixes, log, keep_idvs=None):
                 else:
                     img_files[img_id] = os.path.join(img_dir, img_file)
     img_files = dict(sorted(img_files.items()))
-    ids = pd.MultiIndex.from_arrays(
-        [img_files.keys(), img_files.keys()], names=['FID', 'IID'])
+    ids = pd.MultiIndex.from_arrays([img_files.keys(), img_files.keys()], names=['FID', 'IID'])
     img_files_list = list(img_files.values())
     if n_dup > 0:
-        log.info(
-            f'WARNING: {n_dup} duplicated subjects. Keep the first appeared one.')
+        log.info(f'WARNING: {n_dup} duplicated subjects. Keep the first appeared one.')
 
     return ids, img_files_list
 
@@ -245,8 +238,7 @@ def load_cifti(img_files, coord):
         if i == 0:
             n_voxels = len(data)
             if n_voxels != coord.shape[0]:
-                raise ValueError(
-                    'the CIFTI and GIFTI data has different number of vertices')
+                raise ValueError('the CIFTI and GIFTI data has different number of vertices')
             images = np.zeros((len(img_files), n_voxels), dtype=np.float32)
         images[i] = data
 
@@ -300,16 +292,14 @@ def do_kernel_smoothing(data, coord, bw_opt, log):
     ks = LocalLinear(data, coord)
     if not bw_opt:
         bw_list = ks.bw_cand()
-        log.info(
-            f"Selecting the optimal bandwidth from\n{np.round(bw_list, 3)}.")
+        log.info(f"Selecting the optimal bandwidth from\n{np.round(bw_list, 3)}.")
         bw_opt = ks.gcv(bw_list, log)
     else:
         bw_opt = np.repeat(bw_opt, coord.shape[1])
     log.info(f"Doing kernel smoothing using the optimal bandwidth.\n")
     _, sm_data, _ = ks.smoother(bw_opt)
     if not isinstance(sm_data, np.ndarray):
-        raise ValueError(
-            'the bandwidth provided by --bw-opt may be problematic')
+        raise ValueError('the bandwidth provided by --bw-opt may be problematic')
     sm_data = sm_data - np.mean(sm_data, axis=0)
 
     return sm_data
@@ -380,8 +370,8 @@ def run(args, log):
         images = load_cifti(img_files)
     else:
         images, coord = load_nifti(img_files)
-    log.info(
-        f"{images.shape[0]} subjects and {images.shape[1]} voxels are included in the imaging data.")
+    log.info((f"{images.shape[0]} subjects and {images.shape[1]} voxels '
+              'are included in the imaging data."))
 
     # kernel smoothing
     log.info('Doing kernel smoothing using the local linear method ...')

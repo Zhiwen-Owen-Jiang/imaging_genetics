@@ -20,8 +20,8 @@ class Dataset():
         """
         self.logger = logging.getLogger(__name__)
         if dir.endswith('dat'):
-            self.logger.info(
-                'WARNING: reading a .dat file is deprecated. Will be removed in the next version.')
+            self.logger.info(('WARNING: reading a .dat file is deprecated. '
+                              'Will be removed in the next version.'))
             self.data = pickle.load(open(dir, 'rb'))
             if not 'FID' in self.data.columns or not 'IID' in self.data.columns:
                 raise ValueError('FID and IID do not exist')
@@ -30,11 +30,10 @@ class Dataset():
             self._check_header(openfunc, compression, dir)
             self.data = pd.read_csv(dir, sep='\s+', compression=compression,
                                     na_values=[-9, 'NONE', '.'], dtype={'FID': str, 'IID': str})
+        
         n_sub = len(self.data)
-        self.data.drop_duplicates(
-            subset=['FID', 'IID'], inplace=True, keep=False)
-        self.logger.info(
-            f'Removed {n_sub - len(self.data)} duplicated subjects.')
+        self.data.drop_duplicates(subset=['FID', 'IID'], inplace=True, keep=False)
+        self.logger.info(f'Removed {n_sub - len(self.data)} duplicated subjects.')
         self._remove_na_inf()
 
         self.data = self.data.set_index(['FID', 'IID'])
@@ -54,8 +53,7 @@ class Dataset():
         with openfunc(dir, 'r') as file:
             header = file.readline().split()
         if len(header) == 1:
-            raise ValueError(
-                'only one column detected, check your input file and delimiter')
+            raise ValueError('only one column detected, check your input file and delimiter')
         if compression is not None:
             header = [str(header[i], 'UTF-8') for i in range(len(header))]
         if header[0] != 'FID' or header[1] != 'IID':
@@ -70,8 +68,7 @@ class Dataset():
         """
         bad_idxs = (self.data.isin([np.inf, -np.inf, np.nan])).any(axis=1)
         self.data = self.data.loc[~bad_idxs]
-        self.logger.info(
-            f"Removed {sum(bad_idxs)} row(s) with missing or infinite values.")
+        self.logger.info(f"Removed {sum(bad_idxs)} row(s) with missing or infinite values.")
 
     def keep(self, idx):
         """
@@ -119,8 +116,7 @@ class Covar(Dataset):
         if self.cat_covar_list is not None:
             catlist = self.cat_covar_list.split(',')
             self._check_validcatlist(catlist)
-            self.logger.info(
-                f"{len(catlist)} categorical variables provided by --cat-covar-list.")
+            self.logger.info(f"{len(catlist)} categorical variables provided by --cat-covar-list.")
             self.data = self._dummy_covar(catlist)
         if not self.data.shape[1] == self.data.select_dtypes(include=np.number).shape[1]:
             raise ValueError('did you forget some categorical variables?')
@@ -217,6 +213,10 @@ def get_common_idxs(*idx_list, single_id=False):
 
 
 def read_geno_part(dir):
+    """
+    Reading a genome partition file
+    
+    """
     _, compression = utils.check_compression(dir)
     genome_part = pd.read_csv(dir, header=None, sep='\s+', usecols=[0, 1, 2],
                               compression=compression)
@@ -224,8 +224,7 @@ def read_geno_part(dir):
         raise TypeError(('the 1st column in the genome partition file must be integers. '
                          'Check if a header is included and/or if chromosome X/Y is included'))
     if not ((genome_part[1] % 1 == 0) & (genome_part[2] % 1 == 0)).all():
-        raise TypeError(
-            ('the 2nd and 3rd columns in the genome partition file must be integers'))
+        raise TypeError(('the 2nd and 3rd columns in the genome partition file must be integers'))
     # if not (genome_part.groupby(0)[1].diff().iloc[1:] > 0).all() or not (genome_part.groupby(0)[2].diff().iloc[1:] > 0).all():
     #     raise ValueError('the LD blocks must be in ascending order')
     

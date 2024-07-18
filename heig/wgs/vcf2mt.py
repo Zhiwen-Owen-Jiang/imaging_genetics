@@ -175,7 +175,9 @@ def check_input(args, log):
 def run(args, log):
     # check input and init
     geno_ref = check_input(args, log)
-    hl.init(quiet=True, local='local[8]', driver_cores=2, driver_memory='highmem', worker_cores=6, worker_memory='highmem')
+    hl.init(quiet=True, local='local[8]', 
+            driver_cores=2, driver_memory='highmem', 
+            worker_cores=6, worker_memory='highmem')
     hl.default_reference = geno_ref
 
     # convert VCF to MatrixTable

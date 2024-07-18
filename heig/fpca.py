@@ -57,8 +57,8 @@ def determine_n_ldr(values, prop, log):
     n_idxs = np.sum(idxs) + 1
     n_opt = max(n_idxs, int(eff_num) + 1)
     var_prop = np.sum(values[:n_opt]) / np.sum(values)
-    log.info(
-        f'Approximately {round(var_prop * 100, 1)}% variance is captured by the top {n_opt} components.\n')
+    log.info((f'Approximately {round(var_prop * 100, 1)}% variance '
+              f'is captured by the top {n_opt} components.\n'))
     return n_opt
 
 
@@ -81,8 +81,7 @@ def check_input(args, log):
         if args.prop <= 0 or args.prop > 1:
             raise ValueError('--prop should be between 0 and 1')
         elif args.prop < 0.8:
-            log.info(
-                'WARNING: keeping less than 80% of variance will have bad performance.')
+            log.info('WARNING: keeping less than 80% of variance will have bad performance.')
 
     if not os.path.exists(args.image):
         raise FileNotFoundError(f"{args.image} does not exist")
@@ -146,8 +145,7 @@ def get_n_top(n_ldrs, max_n_pc, n_sub, dim, all, log):
     elif n_ldrs is not None:
         if n_ldrs > max_n_pc:
             n_top = max_n_pc
-            log.info(
-                'WARNING: --n-ldrs is greater than the maximum #components.')
+            log.info('WARNING: --n-ldrs is greater than the maximum #components.')
         else:
             n_top = n_ldrs
     else:
@@ -202,8 +200,7 @@ def run(args, log):
         images = file['images']
         coord = file['coord'][:]
         if coord.shape != (n_voxels, dim):
-            raise ValueError(
-                'the smoothed images and raw images have different resolution')
+            raise ValueError('the smoothed images and raw images have different resolution')
         # this id is used to take intersection with --covar and --keep
         ids = file['id'][:]
         ids = pd.MultiIndex.from_arrays(
@@ -244,8 +241,6 @@ def run(args, log):
               f"which can be used in the Bonferroni p-value threshold (e.g., 0.05/{round(eff_num, 3)}) "
               "across all voxels."))
     log.info(f"Save the raw LDRs to {args.out}_ldr_top{n_opt}.txt")
-    log.info(
-        f"Save the projected inner product of LDRs to {args.out}_innerldr_top{n_opt}.npy")
+    log.info(f"Save the projected inner product of LDRs to {args.out}_innerldr_top{n_opt}.npy")
     log.info(f"Save the top {n_opt} bases to {args.out}_bases_top{n_opt}.npy")
-    log.info(
-        f"Save the top {n_top} eigenvalues to {args.out}_eigenvalues_top{n_top}.npy")
+    log.info(f"Save the top {n_top} eigenvalues to {args.out}_eigenvalues_top{n_top}.npy")

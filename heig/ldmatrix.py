@@ -400,8 +400,7 @@ def check_input(args):
     try:
         ld_bfile, ld_inv_bfile = args.bfile.split(',')
     except:
-        raise ValueError(
-            'two bfiles must be provided with --bfile and separated with a comma')
+        raise ValueError('two bfiles must be provided with --bfile and separated with a comma')
     for suffix in ['.bed', '.fam', '.bim']:
         if not os.path.exists(ld_bfile + suffix):
             raise FileNotFoundError(f'{ld_bfile + suffix} does not exist')

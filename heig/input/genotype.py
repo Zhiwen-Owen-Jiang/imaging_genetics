@@ -37,8 +37,7 @@ def __ID_List_Factory__(colnames, keepcol, id_dtypes, fname_end, header=None, us
                 self.df.columns = self.__colnames__
 
             if self.__keepcol__ is not None:
-                self.IDList = self.df.iloc[:,
-                                           self.__keepcol__].astype('object')
+                self.IDList = self.df.iloc[:, self.__keepcol__].astype('object')
 
     return IDContainer
 
@@ -136,12 +135,10 @@ class PlinkBEDFile(__GenotypeArrayInMemory__):
 
             # check magic number
             if magicNumber != ba.bitarray('0011011011011000'):
-                raise IOError(
-                    'Magic number from PLINK .bed file not recognized')
+                raise IOError('Magic number from PLINK .bed file not recognized')
 
             if bedMode != ba.bitarray('10000000'):
-                raise IOError(
-                    'Plink .bed file must be in default SNP-major mode')
+                raise IOError('Plink .bed file must be in default SNP-major mode')
 
             # check file length
             self.geno = ba.bitarray(endian='little')
@@ -153,8 +150,7 @@ class PlinkBEDFile(__GenotypeArrayInMemory__):
         exp_len = 2*m*nru
         real_len = len(geno)
         if real_len != exp_len:
-            raise IOError(
-                f"Plink .bed file has {real_len} bits, expected {exp_len}")
+            raise IOError(f"Plink .bed file has {real_len} bits, expected {exp_len}")
 
     def __filter_indivs__(self, geno, keep_indivs, m):
         n_new = len(keep_indivs)
@@ -244,13 +240,10 @@ class PlinkBEDFile(__GenotypeArrayInMemory__):
             mapping = self._bedcode
 
         if self._currentSNP + num > self.m:
-            raise ValueError(
-                f"{num} SNPs requested, {self.m - self._currentSNP} SNPs remain")
+            raise ValueError(f"{num} SNPs requested, {self.m - self._currentSNP} SNPs remain")
 
-        slice = self.geno[2*self._currentSNP *
-                          self.nru: 2*(self._currentSNP+num)*self.nru]
-        snps = np.array(slice.decode(mapping),
-                        dtype=float).reshape((num, self.nru)).T
+        slice = self.geno[2*self._currentSNP * self.nru: 2*(self._currentSNP+num)*self.nru]
+        snps = np.array(slice.decode(mapping), dtype=float).reshape((num, self.nru)).T
         snps = snps[:self.n]
         self._currentSNP += num
 
@@ -296,15 +289,13 @@ def read_plink(dir, keep_snps=None, keep_indivs=None, maf=None):
     n = len(array_indivs.IDList)
 
     if keep_snps is not None:
-        keep_snps_idxs = array_snps.df.index[array_snps.df['SNP'].isin(
-            keep_snps['SNP'])]
+        keep_snps_idxs = array_snps.df.index[array_snps.df['SNP'].isin(keep_snps['SNP'])]
     else:
         keep_snps_idxs = None
 
     array_indivs.df = array_indivs.df.set_index(['FID', 'IID'])
     if keep_indivs is not None:
-        keep_indivs_idxs = np.array(
-            range(n))[array_indivs.df.index.isin(keep_indivs)]
+        keep_indivs_idxs = np.array(range(n))[array_indivs.df.index.isin(keep_indivs)]
         fam = array_indivs.df.loc[keep_indivs]
     else:
         keep_indivs_idxs = None

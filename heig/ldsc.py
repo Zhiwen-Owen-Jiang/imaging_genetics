@@ -46,10 +46,8 @@ class LDSC:
         
         """
         y = gwas1 * gwas2
-        init_h1, init_h2, init_gc, w_ldscore = self._process_input(
-            y, h1, h2, n, n1, n2, ld_rank, ldscore)
-        weights_part1 = (init_h1 * w_ldscore + 1) * \
-            (init_h2 * w_ldscore + 1)  # don't update
+        init_h1, init_h2, init_gc, w_ldscore = self._process_input(y, h1, h2, n, n1, n2, ld_rank, ldscore)
+        weights_part1 = (init_h1 * w_ldscore + 1) * (init_h2 * w_ldscore + 1)  # don't update
         weights_part2 = (init_gc * w_ldscore) ** 2  # need to update
         weights = 1 / (weights_part1 + weights_part2)
         weights *= 1 / w_ldscore
@@ -59,8 +57,7 @@ class LDSC:
         for _ in range(2):
             xwx_total, xwy_total = self._wls(y, X, weights)
             coef_total = np.dot(np.linalg.inv(xwx_total), xwy_total)
-            weights = self._update_weights(
-                coef_total, n, ld_rank, w_ldscore, weights_part1)
+            weights = self._update_weights(coef_total, n, ld_rank, w_ldscore, weights_part1)
 
         # compute left-one-block-out WLS
         lobo_ldsc = []
