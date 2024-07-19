@@ -390,24 +390,25 @@ def run(args, log):
     hl.init(quiet=True) # TODO: how to suppress hail's log?
     hl.default_reference = geno_ref
 
-    log.info(f'Reading genetic data from {args.geno_mt}')
-    gprocesser = GProcessor.read_data(args.geno_mt)
-    snps_mt_ids = gprocesser.extract_subject_id()
+    log.info(f'Reading genotype data from {args.geno_mt}')
+    gprocessor = GProcessor.read_data(args.geno_mt, geno_ref=geno_ref, 
+                                      variant_type=args.variant_type,
+                                      maf_min=args.maf_min, maf_max=args.maf_max)
+    snps_mt_ids = gprocessor.subject_id()
     common_ids = get_common_ids(ids, snps_mt_ids, keep_idvs)
+    gprocessor.extract_snps(keep_snps)
+    gprocessor.extract_idvs(common_ids)
 
-    log.info(f"Processing genetic data ...")
-    gprocesser.do_processing(geno_ref, args.variant_type, 
-                             keep_snps, common_ids, 
-                             maf_min=args.maf_min, maf_max=args.maf_max, 
-                             mac_thresh=args.mac_thresh, 
-                             chr=chr, start=start, end=end)
+    log.info(f"Processing genotype data ...")
+    gprocessor.do_processing(mode='wgs')
+    gprocessor.extract_gene(chr=chr, start=start, end=end)
     
     log.info(f'Save preprocessed genotype data to {temp_path}')
-    gprocesser.save_interim_data(temp_path)
-    gprocesser.check_valid()
+    gprocessor.save_interim_data(temp_path)
+    gprocessor.check_valid()
 
     try:
-        snps_mt_ids = gprocesser.extract_subject_id()
+        snps_mt_ids = gprocessor.subject_id()
         idx_common_ids = extract_align_subjects(ids, snps_mt_ids)
         resid_ldr = resid_ldr[idx_common_ids]
         covar = covar[idx_common_ids]
@@ -417,7 +418,7 @@ def run(args, log):
 
         # single gene analysis
         vset_test = VariantSetTest(bases, resid_ldr, covar, block_size=args.block_size)
-        cate_pvalues = single_gene_analysis(gprocesser.snps_mt, args.variant_type, vset_test,
+        cate_pvalues = single_gene_analysis(gprocessor.snps_mt, args.variant_type, vset_test,
                                             variant_category, args.use_annotation_weights, 
                                             args.block_size, log)
         

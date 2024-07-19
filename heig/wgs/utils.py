@@ -55,60 +55,91 @@ Annotation_name = ["CADD",
 
 
 class GProcessor:
-    def __init__(self, snps_mt): 
+    MODE = {
+        'gwas':{
+            'defaults': {'maf_max': 0.5},  
+            'methods': ['_extract_variant_type', '_extract_maf', 
+                        '_extract_call_rate', '_filter_hwe'],
+            'conditions': {'_extract_variant_type': ['variant_type'],
+                           '_extract_maf': ['maf_min', 'maf_max'],
+                           '_extract_call_rate': ['call_rate'],
+                           '_filter_hwe': ['hwe']}
+        },
+        'wgs':{
+            'defaults': {'geno_ref': 'GRCh38', 'variant_type': 'variant',
+                         'maf_max': 0.01, 'maf_min': 0, 'mac_thresh': 10, 
+                         'call_rate': 0.9, 'hwe': 10**-30},
+            'methods': ['_vcf_filter', '_flip_snps', 
+                        '_extract_variant_type', '_extract_maf', 
+                        '_extract_call_rate', '_filter_hwe',
+                        '_annotate_rare_variants', '_filter_missing_alt'],
+            'conditions': {'_extract_variant_type': ['variant_type'],
+                           '_extract_maf': ['maf_min', 'maf_max'],
+                           '_extract_call_rate': ['call_rate'],
+                           '_filter_hwe': ['hwe']}
+        }
+    }
+
+    def __init__(self, snps_mt, geno_ref=None, variant_type=None, 
+                 hwe=None, maf_min=None, maf_max=None, 
+                 mac_thresh=None, call_rate=None): 
         """
         Genetic data processor
 
         Parameters:
         ------------
         snps_mt: a hl.MatrixTable of annotated VCF
-        
-        """
-        self.snps_mt = snps_mt
-    
-    def do_processing(self, geno_ref, variant_type, keep_snps, keep_idvs, *args,
-                      maf_min=None, maf_max=0.01, mac_thresh=10, **kwargs):
-        """
-        Processing genetic data
-
-        Parameters:
-        ------------
         variant_type: one of ('variant', 'snv', 'indel')
         geno_ref: reference genome
-        keep_snps: a pd.DataFrame of SNPs
-        keep_idvs: a set of subject ids
         maf_max: a float number between 0 and 0.5
         maf_min: a float number between 0 and 0.5, must be smaller than maf_max
             (maf_min, maf_max) is the maf range for analysis
         mac_thresh: a int number greater than 0, variants with a mac less than this
             will be identified as a rarer variants in ACAT-V
+        call_rate: a float number between 0 and 1, 1 - genotype missingness
+        hwe: a float number between 0 and 1, variants with a HWE pvalue less than
+            this will be removed
         
         """
+        self.snps_mt = snps_mt
         self.variant_type = variant_type
         self.geno_ref = geno_ref
         self.maf_min = maf_min
         self.maf_max = maf_max
         self.mac_thresh = mac_thresh
+        self.call_rate = call_rate
+        self.hwe = hwe
         self.logger = logging.getLogger(__name__)
 
-        if keep_snps is not None:
-            self.extract_snps(keep_snps)
-        if keep_idvs is not None:
-            self.extract_idvs(keep_idvs)
+    def do_processing(self, mode):
+        """
+        Processing genotype data in a dynamic way
+        extract_idvs() should be done before it
 
+        Parameters:
+        ------------
+        mode: the analysis mode which affects preprocessing pipelines
+            should be one of ('gwas', 'wgs'). For a given mode, there
+            are default filtering and optional filtering.
+        """
         self.snps_mt = hl.variant_qc(self.snps_mt, name='info')
-        if 'filters' in self.snps_mt.row:
-            self.snps_mt = self.snps_mt.filter_rows((hl.len(self.snps_mt.filters) == 0) | 
-                                                    hl.is_missing(self.snps_mt.filters))
-        self._extract_variant_type()
-        self._extract_maf()
-        self._flip_snps()
-        self._annotate_rare_variants()
-        if args or kwargs:
-            self._extract_gene(*args, **kwargs)
+        config = self.MODE.get(mode, {})
+        defaults = config.get('defaults', {})
+        methods = config.get('methods', [])
+        conditions = config.get('conditions', {})
+        attributes = self.__dict__.keys()
+
+        for attr in attributes:
+            if attr in defaults:
+                setattr(self, attr, getattr(self, attr) or defaults.get(attr))
+        
+        for method in methods:
+            method_conditions = conditions.get(method, [])
+            if all(getattr(self, attr) is not None for attr in method_conditions):
+                getattr(self, method)()
 
     @classmethod
-    def read_data(cls, dir):
+    def read_data(cls, dir, *args, **kwargs):
         """
         Reading data from a directory
 
@@ -119,9 +150,10 @@ class GProcessor:
         """
         cls.logger = logging.getLogger(__name__)
         snps_mt = hl.read_matrix_table(dir)
-        cls.logger.info(f"{snps_mt.count_cols()} subjects and {snps_mt.rows().count()} variants in --geno-mt.")
+        cls.logger.info((f"{snps_mt.count_cols()} subjects and "
+                         f"{snps_mt.rows().count()} variants in --geno-mt."))
         
-        return cls(snps_mt)
+        return cls(snps_mt, snps_mt, *args, **kwargs)
 
     def save_interim_data(self, temp_dir):
         """
@@ -147,7 +179,7 @@ class GProcessor:
         else:
             self.logger.info(f"{n_variants} variants included in analysis.")
 
-    def extract_subject_id(self):
+    def subject_id(self):
         """
         Extracting subject ids
 
@@ -172,6 +204,15 @@ class GProcessor:
         table = table.key_by('s')
         annot_expr = {annot_name: table[self.snps_mt.s]}
         self.snps_mt = self.snps_mt.annotate_cols(**annot_expr)
+
+    def _vcf_filter(self):
+        """
+        Extracting variants with a "PASS" in VCF FILTER
+        
+        """
+        if 'filters' in self.snps_mt.row:
+            self.snps_mt = self.snps_mt.filter_rows((hl.len(self.snps_mt.filters) == 0) | 
+                                                    hl.is_missing(self.snps_mt.filters))
 
     def _extract_variant_type(self):
         """
@@ -210,6 +251,27 @@ class GProcessor:
         self.snps_mt = self.snps_mt.filter_rows((self.snps_mt.maf >= self.maf_min) & 
                                                 (self.snps_mt.maf <= self.maf_max))
 
+    def _extract_call_rate(self):
+        """
+        Extracting variants with a call rate > call_rate
+
+        """
+        self.snps_mt = self.snps_mt.filter_rows(self.snps_mt.info.call_rate >= self.call_rate)
+
+    def _filter_hwe(self):
+        """
+        Filtering variants with a HWE pvalues < hwe
+        
+        """
+        self.snps_mt = self.snps_mt.filter_rows(self.snps_mt.info.p_value_hwe >= self.hwe)
+
+    def _filter_missing_alt(self):
+        """
+        Filtering variants with missing alternative allele
+        
+        """ 
+        self.snps_mt = self.snps_mt.filter_rows(self.snps_mt.alleles[1] != '*')
+    
     def _flip_snps(self):
         """
         Flipping variants with MAF > 0.5, and creating an annotation for maf
@@ -241,7 +303,7 @@ class GProcessor:
                                 True, False)
         )
 
-    def _extract_gene(self, chr, start, end, gene_name=None):
+    def extract_gene(self, chr, start, end, gene_name=None):
         """
         Extacting a gene with starting and end points for Coding, Slidewindow,
         for Noncoding, extracting genes from annotation
@@ -277,6 +339,8 @@ class GProcessor:
         keep_snps: a pd.DataFrame of SNPs
         
         """
+        if keep_snps is None:
+            return
         keep_snps = hl.literal(set(keep_snps['SNP']))
         self.snps_mt = self.snps_mt.filter_rows(keep_snps.contains(self.snps_mt.rsid))
 
@@ -289,10 +353,15 @@ class GProcessor:
         keep_idvs: a pd.MultiIndex/list/tuple/set of subject ids
         
         """
+        if keep_idvs is None:
+            return
         if isinstance(keep_idvs, pd.MultiIndex):
             keep_idvs = keep_idvs.get_level_values('IID').tolist()[1:] # remove 'IID'
         keep_idvs = hl.literal(set(keep_idvs))
         self.snps_mt = self.snps_mt.filter_cols(keep_idvs.contains(self.snps_mt.s))
+
+
+
 
 
 def get_common_ids(ids, snps_mt_ids, keep_idvs=None):

@@ -152,19 +152,21 @@ def run(args, log):
         log.info(f'Read genotype data from {args.geno_mt}')
         snps_mt = hl.read_matrix_table(f"{args.geno_mt}")
 
-    gprocesser = GProcessor(snps_mt)
+    gprocessor = GProcessor(snps_mt, geno_ref=geno_ref, 
+                            variant_type=args.variant_type, 
+                             maf_min=args.maf_min, maf_max=args.maf_max)
     log.info(f"Processing genetic data ...")
-    gprocesser.do_processing(geno_ref, args.variant_type, 
-                             keep_snps, common_ids, 
-                             maf_min=args.maf_min, maf_max=args.maf_max,
-                             chr=chr, start=start, end=end)
+    gprocessor.extract_snps(keep_snps)
+    gprocessor.extract_idvs(common_ids)
+    gprocessor.do_processing(mode='gwas')
+    gprocessor.extract_gene(chr=chr, start=start, end=end)
     
     log.info(f'Save preprocessed genotype data to {temp_path}')
-    gprocesser.save_interim_data(temp_path)
-    gprocesser.check_valid()
+    gprocessor.save_interim_data(temp_path)
+    gprocessor.check_valid()
     
     try:
-        snps_mt_ids = gprocesser.extract_subject_id()
+        snps_mt_ids = gprocessor.subject_id()
         ldrs.to_single_index()
         covar.to_single_index()
         ldrs.keep(snps_mt_ids)
@@ -179,15 +181,15 @@ def run(args, log):
         ldrs_table = hl.import_table(f'{temp_path}_ldrs.tb', key='IID', impute=True, types={'IID': hl.tstr})
 
         # annotate ldrs and covar to snps_mt
-        gprocesser.annotate_cols(ldrs_table, 'ldrs')
-        gprocesser.annotate_cols(covar_table, 'covar')
+        gprocessor.annotate_cols(ldrs_table, 'ldrs')
+        gprocessor.annotate_cols(covar_table, 'covar')
         # snps = snps.annotate_cols(ldrs=ldrs_table[snps.s])
         # snps = snps.annotate_cols(covar=covar_table[snps.s])
 
         # gwas
         n_ldrs = ldrs.data.shape[1]
         n_covar = covar.data.shape[1]
-        gwas = do_gwas(gprocesser.snps_mt, n_ldrs, n_covar, log)
+        gwas = do_gwas(gprocessor.snps_mt, n_ldrs, n_covar, log)
 
         # save gwas results
         log.info(f"Save GWAS results to {args.out}.txt.bgz")

@@ -138,6 +138,14 @@ common_parser.add_argument('--threads', type=int,
 common_parser.add_argument('--block-size', type=int,
                            help=('Block size in MB. Default: 1024. '
                                  'Supported modules: --annot-vcf, --wgs-coding.'))
+common_parser.add_argument('--skip-preprocess', action='store_true',
+                           help=('Skipping preprocess for genetic data in GWAS and WGS. '
+                                 'Default: False. '
+                                 'Supported modules: --gwas, --wgs-coding.'))
+common_parser.add_argument('--save-processed-mt', action='store_true',
+                           help=('Saving processed MatrixTable to disk. '
+                                 'Default: True. '
+                                 'Supported modules: --gwas, --wgs-coding.'))
 
 # arguments for herigc.py
 herigc_parser.add_argument('--ld-inv',

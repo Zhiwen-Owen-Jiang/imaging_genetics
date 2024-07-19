@@ -9,7 +9,6 @@ TODO: add an argument for inputing hail config with a JSON file
 """
 
 
-
 SELECTED_ANNOT = {
     'apc_conservation': hl.tfloat32,
     'apc_epigenetics': hl.tfloat32,
@@ -37,6 +36,15 @@ SELECTED_ANNOT = {
 
 class Annotation:
     def __init__(self, annot, geno_ref):
+        """
+        Processing FAVOR functional annotations
+
+        Parameters:
+        ------------
+        annot: a Table of functional annotation
+        geno_ref: reference genome
+        
+        """
         self.annot = annot
         self.geno_ref = geno_ref
         
@@ -49,6 +57,12 @@ class Annotation:
     def read_annot(cls, favor_db, geno_ref, *args, **kwargs):
         """
         Reading FAVOR annotation
+
+        Parameters:
+        ------------
+        favor_db: directory to unzipped annotation folder
+            Hail will read all annotation files
+        geno_ref: reference genome
         
         """
         annot = hl.import_table(favor_db, *args, **kwargs)
@@ -72,7 +86,7 @@ class Annotation:
 
     def _drop_rename(self):
         """
-        Dropping and renaming annotation names
+        Dropping fields and renaming annotation names
         
         """
         for filed in ('apc_conservation', 'apc_local_nucleotide_diversity'):
@@ -94,14 +108,6 @@ class Annotation:
         """
         Converting numerical columns to float
 
-        Parameters:
-        ------------
-        anno: a Table of functional annotation
-
-        Returns:
-        ---------
-        anno: a Table of functional annotation
-
         """
         self.annot = self.annot.annotate(
             apc_conservation = hl.float32(self.annot.apc_conservation),
@@ -119,6 +125,10 @@ class Annotation:
         )
 
     def _add_more_annot(self):
+        """
+        Filling NA for cadd_phred and creating a new annotation
+        
+        """
         annot_local_div = -10 * hl.log10(1 - 10 ** (-self.annot.apc_local_nucleotide_diversity/10))
         self.annot = self.annot.annotate(
             cadd_phred = hl.coalesce(self.annot.cadd_phred, 0),
@@ -126,7 +136,15 @@ class Annotation:
         )
 
 
-def read_vcf(dir, geno_ref, block_size=1024):
+def read_vcf(dir, geno_ref):
+    """
+    Reading a VCF file as MatrixTable
+
+    Parameters:
+    ------------
+    geno_ref: reference genome
+    
+    """
     if dir.endswith('vcf'):
         force_bgz = False
     elif dir.endswith('vcf.gz') or dir.endswith('vcf.bgz'):
@@ -140,7 +158,7 @@ def read_vcf(dir, geno_ref, block_size=1024):
         recode = {f"chr{i}":f"{i}" for i in (list(range(1, 23)) + ['X', 'Y'])}
 
     vcf_mt = hl.import_vcf(dir, force_bgz=force_bgz, reference_genome=geno_ref,
-                           contig_recoding=recode, block_size=block_size)
+                           contig_recoding=recode)
     return vcf_mt
 
 
