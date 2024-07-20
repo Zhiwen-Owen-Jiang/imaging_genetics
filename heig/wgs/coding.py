@@ -238,8 +238,6 @@ def format_output(cate_pvalues, start, end, n_variants, n_voxels, variant_catego
 
 def check_input(args, log):
     # required arguments
-    # if args.bases is None:
-    #     raise ValueError('--bases is required')
     if args.geno_mt is None:
         raise ValueError('--geno-mt is required')
     if args.null_model is None:
@@ -248,8 +246,6 @@ def check_input(args, log):
         raise ValueError('--range is required')
     
     # required files must exist
-    # if not os.path.exists(args.bases):
-    #     raise FileNotFoundError(f"{args.bases} does not exist")
     if not os.path.exists(args.geno_mt):
         raise FileNotFoundError(f"{args.geno_mt} does not exist")
     if not os.path.exists(args.null_model):
@@ -260,7 +256,7 @@ def check_input(args, log):
         raise ValueError('--n-ldrs should be greater than 0')
     
     if args.maf_min is not None:
-        if args.maf_min >= 0.5 or args.maf_min <= 0:
+        if args.maf_min > 0.5 or args.maf_min < 0:
             raise ValueError('--maf-min must be greater than 0 and less than 0.5')
     else:
         args.maf_min = 0
@@ -296,7 +292,7 @@ def check_input(args, log):
     if args.maf_max is None:
         args.maf_max = 0.01
         log.info(f"Set --maf-max as default 0.01")
-    elif args.maf_max >= 0.5 or args.maf_max <= 0 or args.maf_max <= args.maf_min:
+    elif args.maf_max > 0.5 or args.maf_max <= 0 or args.maf_max <= args.maf_min:
         raise ValueError(('--maf-max must be greater than 0, less than 0.5, '
                           'and greater than --maf-min'))
     
@@ -367,10 +363,6 @@ def run(args, log):
         ids = file['id'][:].astype(str)
         bases = file['bases'][:]
     
-    # read bases
-    # bases = np.load(args.bases)
-    # log.info(f'{bases.shape[1]} bases read from {args.bases}')
-
     # subset voxels
     if voxel_list is not None:
         if np.max(voxel_list) + 1 <= bases.shape[0] and np.min(voxel_list) >= 0:
@@ -404,9 +396,9 @@ def run(args, log):
     hl.default_reference = geno_ref
 
     log.info(f'Reading genotype data from {args.geno_mt}')
-    gprocessor = GProcessor.read_data(args.geno_mt, geno_ref=geno_ref, 
-                                      variant_type=args.variant_type,
-                                      maf_min=args.maf_min, maf_max=args.maf_max)
+    gprocessor = GProcessor.read_matrix_table(args.geno_mt, geno_ref=geno_ref, 
+                                              variant_type=args.variant_type,
+                                              maf_min=args.maf_min, maf_max=args.maf_max)
     snps_mt_ids = gprocessor.subject_id()
     common_ids = get_common_ids(ids, snps_mt_ids, keep_idvs)
     gprocessor.extract_snps(keep_snps)
@@ -437,11 +429,14 @@ def run(args, log):
         
         # format output
         n_voxels = bases.shape[0]
+        log.info('')
         for cate, cate_results in cate_pvalues.items():
             cate_output = format_output(cate_results['pvalues'], start, end,
                                         cate_results['n_variants'], n_voxels, cate)
-            cate_output.to_csv(f'{args.out}_chr{chr}_start{start}_end{end}_{cate}.txt',
-                            sep='\t', header=True, na_rep='NA', index=None, float_format='%.5e')
+            out_path = f'{args.out}_chr{chr}_start{start}_end{end}_{cate}.txt'
+            cate_output.to_csv(out_path, sep='\t', header=True, na_rep='NA', 
+                               index=None, float_format='%.5e')
+            log.info(f'Save results for {OFFICIAL_NAME[cate]} to {out_path}')
     finally:
         shutil.rmtree(temp_path)
         log.info(f'Removed preprocessed genotype data at {temp_path}')

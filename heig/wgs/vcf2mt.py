@@ -4,7 +4,9 @@ import heig.input.dataset as ds
 from heig.wgs.utils import GProcessor 
 
 """
-TODO: add an argument for inputing hail config with a JSON file
+TODO: 
+1. add an argument for inputing hail config with a JSON file
+2. does it support genotype data preprocessing?
 
 """
 
@@ -89,8 +91,7 @@ class Annotation:
         Dropping fields and renaming annotation names
         
         """
-        for filed in ('apc_conservation', 'apc_local_nucleotide_diversity'):
-            self.annot = self.annot.drop(filed)
+        self.annot = self.annot.drop('apc_conservation', 'apc_local_nucleotide_diversity')
 
         self.annot = self.annot.rename(
             {'apc_conservation_v2': 'apc_conservation',
@@ -99,10 +100,7 @@ class Annotation:
         )
 
         annot_name = list(self.annot.row_value.keys())
-
-        for field in annot_name:
-            if field not in SELECTED_ANNOT:
-                self.annot = self.annot.drop(field)
+        self.annot = self.annot.drop(*[field for field in annot_name if field not in SELECTED_ANNOT])
     
     def _convert_datatype(self):
         """
@@ -134,32 +132,6 @@ class Annotation:
             cadd_phred = hl.coalesce(self.annot.cadd_phred, 0),
             apc_local_nucleotide_diversity2 = annot_local_div
         )
-
-
-def read_vcf(dir, geno_ref):
-    """
-    Reading a VCF file as MatrixTable
-
-    Parameters:
-    ------------
-    geno_ref: reference genome
-    
-    """
-    if dir.endswith('vcf'):
-        force_bgz = False
-    elif dir.endswith('vcf.gz') or dir.endswith('vcf.bgz'):
-        force_bgz = True
-    else:
-        raise ValueError('VCF suffix is incorrect')
-
-    if geno_ref == 'GRCh38':
-        recode = {f"{i}":f"chr{i}" for i in (list(range(1, 23)) + ['X', 'Y'])}
-    else:
-        recode = {f"chr{i}":f"{i}" for i in (list(range(1, 23)) + ['X', 'Y'])}
-
-    vcf_mt = hl.import_vcf(dir, force_bgz=force_bgz, reference_genome=geno_ref,
-                           contig_recoding=recode)
-    return vcf_mt
 
 
 def check_input(args, log):
@@ -196,10 +168,9 @@ def run(args, log):
 
     # convert VCF to MatrixTable
     log.info(f'Read VCF from {args.vcf}')
-    vcf_mt = read_vcf(args.vcf, geno_ref)
+    gprocessor = GProcessor.import_vcf(args.vcf, geno_ref)
 
     # keep idvs
-    gprocessor = GProcessor(vcf_mt)
     if args.keep is not None:
         keep_idvs = ds.read_keep(args.keep)
         log.info(f'{len(keep_idvs)} subjects in --keep.')

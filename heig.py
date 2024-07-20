@@ -266,8 +266,8 @@ annot_vcf_parser.add_argument('--favor-db',
                               help='Directory to unzipped FAVOR annotation files.')
 
 # arguments for gwas.py
-gwas_parser.add_argument('--mem', type=int,
-                         help='RAM to use (GB).')
+gwas_parser.add_argument('--not-save-genotype-data', action='store_true',
+                         help='Do not save preprocessed genotype data')
 
 # arguments for coding.py
 wgs_coding_parser.add_argument('--null-model',
@@ -308,8 +308,8 @@ def check_accepted_args(module, args, log):
         'voxel_gwas': {'out', 'voxel_gwas', 'sig_thresh', 'voxel', 'range',
                        'extract', 'ldr_sumstats', 'n_ldrs',
                        'inner_ldr', 'bases'},
-        'gwas': {'out', 'gwas', 'ldrs', 'n_ldrs', 'grch37', 'threads', 'mem', 'geno_mt',
-                 'covar', 'cat_covar_list', 'bfile'},
+        'gwas': {'out', 'gwas', 'ldrs', 'n_ldrs', 'grch37', 'threads', 'geno_mt',
+                 'covar', 'cat_covar_list', 'bfile', 'not_save_genotype_data'},
         'annot_vcf': {'annot_vcf', 'out', 'grch37', 'vcf', 'favor_db', 'keep', 'extract'},
         'wgs_null': {'wgs_null', 'out', 'ldrs', 'n_ldrs', 'bases', 'covar',
                      'cat_covar_list', 'keep', 'threads'},
@@ -382,8 +382,8 @@ def main(args, log):
         voxelgwas.run(args, log)
     elif args.gwas:
         check_accepted_args('gwas', args, log)
-        log.info('--gwas module is under development.')
-        # gwas.run(args, log)
+        import heig.wgs.gwas as gwas
+        gwas.run(args, log)
     elif args.annot_vcf:
         check_accepted_args('annot_vcf', args, log)
         import heig.wgs.vcf2mt as vcf2mt

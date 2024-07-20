@@ -40,3 +40,6 @@ insomnia_ukb2b_EUR_sumstats_20190311_with_chrX_mac_100.txt
 
 # nfs files
 .nfs*
+
+# temp MatrixTable
+temp*

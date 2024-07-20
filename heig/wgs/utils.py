@@ -118,6 +118,8 @@ class GProcessor:
         self.call_rate = call_rate
         self.hwe = hwe
         self.logger = logging.getLogger(__name__)
+        self.logger.info((f"{snps_mt.count_cols()} subjects and "
+                          f"{snps_mt.rows().count()} variants in the genotype data.\n"))
 
     def do_processing(self, mode):
         """
@@ -154,22 +156,67 @@ class GProcessor:
                 getattr(self, method)()
 
     @classmethod
-    def read_data(cls, dir, *args, **kwargs):
+    def read_matrix_table(cls, dir, *args, **kwargs):
         """
-        Reading data from a directory
+        Reading MatrixTable from a directory
 
         Parameters:
         ------------
         dir: directory to annotated VCF in MatrixTable
         
         """
-        cls.logger = logging.getLogger(__name__)
         snps_mt = hl.read_matrix_table(dir)
-        cls.logger.info((f"{snps_mt.count_cols()} subjects and "
-                         f"{snps_mt.rows().count()} variants in the genotype data.\n"))
-        
         return cls(snps_mt, *args, **kwargs)
+    
+    @classmethod
+    def import_plink(cls, bfile, geno_ref, *args, **kwargs):
+        """
+        Importing genotype data from PLINK triplets
 
+        Parameters:
+        ------------
+        dir: directory to PLINK triplets (prefix only)
+
+        """
+        if geno_ref == 'GRCh38':
+            recode = {f"{i}":f"chr{i}" for i in (list(range(1, 23)) + ['X', 'Y'])}
+        else:
+            recode = {f"chr{i}":f"{i}" for i in (list(range(1, 23)) + ['X', 'Y'])}
+
+        snps_mt = hl.import_plink(bed=bfile + '.bed',
+                                  bim=bfile + '.bim',
+                                  fam=bfile + '.fam',
+                                  reference_genome=geno_ref,
+                                  contig_recoding=recode)
+        return cls(snps_mt, geno_ref, *args, **kwargs)
+
+    @classmethod
+    def import_vcf(cls, dir, geno_ref, *args, **kwargs):
+        """
+        Importing a VCF file as MatrixTable
+
+        Parameters:
+        ------------
+        dir: directory to VCF file
+        geno_ref: reference genome
+        
+        """
+        if dir.endswith('vcf'):
+            force_bgz = False
+        elif dir.endswith('vcf.gz') or dir.endswith('vcf.bgz'):
+            force_bgz = True
+        else:
+            raise ValueError('VCF suffix is incorrect')
+
+        if geno_ref == 'GRCh38':
+            recode = {f"{i}":f"chr{i}" for i in (list(range(1, 23)) + ['X', 'Y'])}
+        else:
+            recode = {f"chr{i}":f"{i}" for i in (list(range(1, 23)) + ['X', 'Y'])}
+
+        vcf_mt = hl.import_vcf(dir, force_bgz=force_bgz, reference_genome=geno_ref,
+                               contig_recoding=recode)
+        return cls(vcf_mt, geno_ref, *args, **kwargs)
+    
     def save_interim_data(self, temp_dir):
         """
         Saving interim MatrixTable, 
@@ -208,7 +255,8 @@ class GProcessor:
     
     def annotate_cols(self, table, annot_name):
         """
-        Annotating columns with values from the table
+        Annotating columns with values from a table
+        the table is supposed to have the key 'IID'
 
         Parameters:
         ------------
@@ -216,7 +264,7 @@ class GProcessor:
         annot_name: annotation name
         
         """
-        table = table.key_by('s')
+        table = table.key_by('IID')
         annot_expr = {annot_name: table[self.snps_mt.s]}
         self.snps_mt = self.snps_mt.annotate_cols(**annot_expr)
 
@@ -285,7 +333,11 @@ class GProcessor:
         Filtering variants with missing alternative allele
         
         """ 
-        self.snps_mt = self.snps_mt.filter_rows(self.snps_mt.alleles[1] != '*')
+        # self.snps_mt = self.snps_mt.filter_rows(self.snps_mt.alleles[1] != '*')
+        self.snps_mt = self.snps_mt.filter_rows(
+            hl.is_star(self.snps_mt.alleles[0], self.snps_mt.alleles[1]),
+            keep=False
+        )
     
     def _flip_snps(self):
         """
@@ -371,7 +423,7 @@ class GProcessor:
         if keep_idvs is None:
             return
         if isinstance(keep_idvs, pd.MultiIndex):
-            keep_idvs = keep_idvs.get_level_values('IID').tolist()[1:] # remove 'IID'
+            keep_idvs = keep_idvs.get_level_values('IID').tolist()
         keep_idvs = hl.literal(set(keep_idvs))
         self.snps_mt = self.snps_mt.filter_cols(keep_idvs.contains(self.snps_mt.s))
 
@@ -392,7 +444,7 @@ def get_common_ids(ids, snps_mt_ids, keep_idvs=None):
     
     """
     if keep_idvs is not None:
-        keep_idvs = keep_idvs.get_level_values('IID').tolist()[1:]
+        keep_idvs = keep_idvs.get_level_values('IID').tolist()
         common_ids = set(keep_idvs).intersection(ids)
     else:
         common_ids = set(ids)

@@ -282,8 +282,7 @@ def run(args, log):
     else:
         keep_snps = None
 
-    log.info(
-        f"Read bfile from {args.bfile} with selected SNPs and individuals.")
+    log.info(f"Read bfile from {args.bfile} with selected SNPs and individuals.")
     bim, fam, snp_getter = gt.read_plink(
         args.bfile, common_idxs, keep_snps, args.maf_min)
     covar.keep(fam[['FID', 'IID']])  # make sure subjects aligned
@@ -316,8 +315,7 @@ def run(args, log):
             block_level0_preds = relatedness_remover.level0_ridge_block(
                 snp_getter(n_snps))
             dset[:, :, :, i] = block_level0_preds
-    log.info(
-        f'Save level0 ridge predictions to a temporary file {args.out}_l0_pred_temp.h5')
+    log.info(f'Save level0 ridge predictions to a temporary file {args.out}_l0_pred_temp.h5')
 
     # load level 0 predictions by each ldr and do level 1 ridge prediction
     with h5py.File(f'{args.out}_l0_pred_temp.h5', 'r') as file:
@@ -327,5 +325,4 @@ def run(args, log):
 
     with h5py.File(f'{args.out}_ldr_loco_preds.h5', 'w') as file:
         dset = file.create_dataset('ldr_loco_preds', data=chr_preds)
-    log.info(
-        f'Save level1 loco ridge predictions to {args.out}_ldr_loco_preds.h5')
+    log.info(f'Save level1 loco ridge predictions to {args.out}_ldr_loco_preds.h5')

@@ -207,7 +207,7 @@ def get_common_idxs(*idx_list, single_id=False):
         raise ValueError('no common index exists')
     
     if single_id:
-        common_idxs = common_idxs.get_level_values('IID').tolist()[1:]
+        common_idxs = common_idxs.get_level_values('IID').tolist()
 
     return common_idxs
 
@@ -236,6 +236,7 @@ def read_keep(keep_files):
     Extracting common subject IDs from multiple files
     All files are confirmed to exist
     Empty files are skipped without error/warning
+    files either w/ or w/o are ok
     Error out if no common IDs exist
 
     Parameters:
