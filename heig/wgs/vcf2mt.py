@@ -183,10 +183,6 @@ def check_input(args, log):
         geno_ref = 'GRCh37'
     log.info(f'Set {geno_ref} as the reference.')
 
-    # if args.block_size is None:
-    #     args.block_size = 1024
-    #     log.info(f'Set --block-size as default 1024.')
-
     return geno_ref
 
 

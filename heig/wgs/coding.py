@@ -10,6 +10,17 @@ import heig.input.dataset as ds
 from heig.wgs.utils import *
 
 
+OFFICIAL_NAME = {
+    'plof': 'predicted loss of function (pLoF) variants',
+    'synonymous': 'synonymous variants',
+    'missense': 'missense variants',
+    'disruptive_missense': 'disruptive missense variants',
+    'plof_ds': 'pLoF variants with deleterious score',
+    'ptv': 'protein truncating variants (PTV)',
+    'ptv_ds': 'PTV with eleterious score'
+}
+
+
 class Coding:
     def __init__(self, snps_mt, variant_type, use_annotation_weights=True):
         """
@@ -89,7 +100,7 @@ class Coding:
 
 def single_gene_analysis(snps_mt, variant_type, vset_test,
                          variant_category, use_annotation_weights, 
-                         block_size, log):
+                         log):
     """
     Single gene analysis
 
@@ -102,7 +113,6 @@ def single_gene_analysis(snps_mt, variant_type, vset_test,
         one of ('all', 'plof', 'plof_ds', 'missense', 'disruptive_missense',
         'synonymous', 'ptv', 'ptv_ds')
     use_annotation_weights: if using annotation weights
-    block_size: block size of BlockMatrix
     log: a logger
     
     Returns:
@@ -120,19 +130,24 @@ def single_gene_analysis(snps_mt, variant_type, vset_test,
             cate_pvalues[cate] = None
         else:
             snps_mt_cate = coding.snps_mt.filter_rows(idx)
+            if snps_mt_cate.rows().count() == 0:
+                log.info(f'No {OFFICIAL_NAME[cate]}, skip.')
+                continue
             if coding.annot_cols is not None:
                 annot_phred = snps_mt_cate.fa.select(*coding.annot_cols).collect()
                 phred_cate = np.array([[getattr(row, col) for col in coding.annot_cols] for row in annot_phred])
             else:
                 phred_cate = None
-            maf, is_rare, vset = prepare_vset_test(snps_mt_cate, block_size=block_size)
+            maf, is_rare, vset = prepare_vset_test(snps_mt_cate)
             vset_test.input_vset(vset, maf, is_rare, phred_cate)
-            log.info(f'Doing analysis for {cate} ...')
+            log.info(f'Doing analysis for {OFFICIAL_NAME[cate]} ({vset_test.n_variants} variants) ...')
             pvalues = vset_test.do_inference(coding.annot_name)
             cate_pvalues[cate] = {'n_variants': vset_test.n_variants, 'pvalues': pvalues}
-    if 'missense' in cate_pvalues:
+
+    if 'missense' in cate_pvalues and 'disruptive_missense' in cate_pvalues:
         cate_pvalues['missense'] = process_missense(cate_pvalues['missense'], 
                                                     cate_pvalues['disruptive_missense'])
+        
     return cate_pvalues
 
 
@@ -150,6 +165,7 @@ def process_missense(m_pvalues, dm_pvalues):
     m_pvalues: pvalues of missense variants incoporating disruptive missense results
     
     """
+
     dm_pvalues = dm_pvalues['pvalues']
     n_m_variants = m_pvalues['n_variants']
     m_pvalues = m_pvalues['pvalues']
@@ -222,8 +238,8 @@ def format_output(cate_pvalues, start, end, n_variants, n_voxels, variant_catego
 
 def check_input(args, log):
     # required arguments
-    if args.bases is None:
-        raise ValueError('--bases is required')
+    # if args.bases is None:
+    #     raise ValueError('--bases is required')
     if args.geno_mt is None:
         raise ValueError('--geno-mt is required')
     if args.null_model is None:
@@ -232,8 +248,8 @@ def check_input(args, log):
         raise ValueError('--range is required')
     
     # required files must exist
-    if not os.path.exists(args.bases):
-        raise FileNotFoundError(f"{args.bases} does not exist")
+    # if not os.path.exists(args.bases):
+    #     raise FileNotFoundError(f"{args.bases} does not exist")
     if not os.path.exists(args.geno_mt):
         raise FileNotFoundError(f"{args.geno_mt} does not exist")
     if not os.path.exists(args.null_model):
@@ -336,10 +352,6 @@ def check_input(args, log):
         geno_ref = 'GRCh37'
     log.info(f'Set {geno_ref} as the reference genome.')
 
-    if args.block_size is None:
-        args.block_size = 1024
-        log.info(f'Set --block-size as default 1024.')
-    
     return start_chr, start_pos, end_pos, voxel_list, variant_category, temp_path, geno_ref
 
 
@@ -353,10 +365,11 @@ def run(args, log):
         covar = file['covar'][:]
         resid_ldr = file['resid_ldr'][:]
         ids = file['id'][:].astype(str)
+        bases = file['bases'][:]
     
     # read bases
-    bases = np.load(args.bases)
-    log.info(f'{bases.shape[1]} bases read from {args.bases}')
+    # bases = np.load(args.bases)
+    # log.info(f'{bases.shape[1]} bases read from {args.bases}')
 
     # subset voxels
     if voxel_list is not None:
@@ -370,8 +383,8 @@ def run(args, log):
 
     # keep selected LDRs
     if args.n_ldrs is not None:
-        bases, resid_ldr = keep_ldrs(args.n_ldrs, bases, resid_ldr)
-        log.info(f'Keep the top {args.n_ldrs} LDRs.')
+        resid_ldr, bases = keep_ldrs(args.n_ldrs, resid_ldr, bases)
+        log.info(f'Keep the top {args.n_ldrs} LDRs and bases.')
         
     # keep subjects
     if args.keep is not None:
@@ -417,10 +430,10 @@ def run(args, log):
         log.info(f"{covar.shape[1]} fixed effects in the covariates after removing redundant effects.\n")
 
         # single gene analysis
-        vset_test = VariantSetTest(bases, resid_ldr, covar, block_size=args.block_size)
+        vset_test = VariantSetTest(bases, resid_ldr, covar)
         cate_pvalues = single_gene_analysis(gprocessor.snps_mt, args.variant_type, vset_test,
                                             variant_category, args.use_annotation_weights, 
-                                            args.block_size, log)
+                                            log)
         
         # format output
         n_voxels = bases.shape[0]

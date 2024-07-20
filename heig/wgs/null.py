@@ -18,8 +18,10 @@ def check_input(args):
 
 
 def run(args, log):
+    check_input(args)
+
     # read ldrs, bases, and inner_ldr
-    log.info(f"Read LDRs from {args.ldrs}")
+    log.info(f'Read LDRs from {args.ldrs}')
     ldrs = ds.Dataset(args.ldrs)
     log.info(f'{ldrs.data.shape[1]} LDRs and {ldrs.data.shape[0]} subjects.')
     bases = np.load(args.bases)
@@ -51,8 +53,11 @@ def run(args, log):
 
     # keep selected LDRs
     if args.n_ldrs is not None:
-        bases, ldrs.data = keep_ldrs(args.n_ldrs, bases, ldrs.data)
-        log.info(f'Keep the top {args.n_ldrs} LDRs.')
+        n_ldrs = args.n_ldrs
+    else:
+        n_ldrs = np.min((ldrs.data.shape[1], bases.shape[1]))
+    ldrs.data, bases = keep_ldrs(n_ldrs, ldrs.data, bases)
+    log.info(f'Keep the top {n_ldrs} LDRs and bases.')
     
     # fit the null model
     log.info('Fitting the null model ...')
@@ -67,5 +72,6 @@ def run(args, log):
         file.create_dataset('covar', data=covar.data)
         file.create_dataset('resid_ldr', data=resid_ldr)
         # file.create_dataset('var', data=var)
+        file.create_dataset('bases', data=bases)
         file.create_dataset('id', data=np.array(ids.tolist(), dtype='S10'))
     log.info(f'Save the null model to {args.out}_null_model.h5')

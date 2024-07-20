@@ -79,7 +79,7 @@ common_parser.add_argument('--ldr-sumstats',
                                  'Supported modules: --heri-gc, --voxel-gwas.'))
 common_parser.add_argument('--bases',
                            help=('Directory to functional bases. Supported modules: '
-                                 '--heri-gc, --voxel-gwas, --wgs-null, --wgs-coding.'))
+                                 '--heri-gc, --voxel-gwas, --wgs-null.'))
 common_parser.add_argument('--inner-ldr',
                            help=('Directory to inner product of LDRs. '
                                  'Supported modules: --heri-gc, --voxel-gwas.'))
@@ -135,9 +135,6 @@ common_parser.add_argument('--grch37', action='store_true',
 common_parser.add_argument('--threads', type=int,
                            help=('Number of computational threads to use. '
                                  'Supported modules: --gwas.'))
-common_parser.add_argument('--block-size', type=int,
-                           help=('Block size in MB. Default: 1024. '
-                                 'Supported modules: --annot-vcf, --wgs-coding.'))
 common_parser.add_argument('--skip-preprocess', action='store_true',
                            help=('Skipping preprocess for genetic data in GWAS and WGS. '
                                  'Default: False. '
@@ -313,14 +310,13 @@ def check_accepted_args(module, args, log):
                        'inner_ldr', 'bases'},
         'gwas': {'out', 'gwas', 'ldrs', 'n_ldrs', 'grch37', 'threads', 'mem', 'geno_mt',
                  'covar', 'cat_covar_list', 'bfile'},
-        'annot_vcf': {'annot_vcf', 'out', 'grch37', 'vcf', 'favor_db', 'keep', 'extract',
-                      'block_size'},
+        'annot_vcf': {'annot_vcf', 'out', 'grch37', 'vcf', 'favor_db', 'keep', 'extract'},
         'wgs_null': {'wgs_null', 'out', 'ldrs', 'n_ldrs', 'bases', 'covar',
                      'cat_covar_list', 'keep', 'threads'},
         'wgs_coding': {'wgs_coding', 'out', 'geno_mt', 'null_model', 'variant_type', 
                        'variant_category', 'maf_max', 'maf_min', 'mac_thresh', 
-                       'use_annotation_weights', 'n_ldrs', 'bases', 'keep', 
-                       'extract', 'range','voxel', 'block_size'}            
+                       'use_annotation_weights', 'n_ldrs', 'keep', 
+                       'extract', 'range','voxel'}            
     }
 
     ignored_args = []

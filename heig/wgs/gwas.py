@@ -120,7 +120,7 @@ def run(args, log):
     ldrs = ds.Dataset(args.ldrs)
     log.info(f'{ldrs.data.shape[1]} LDRs read from {args.ldrs}')
     if args.n_ldrs is not None:
-        _, ldrs.data = keep_ldrs(args.n_ldrs, ldrs.data)
+        ldrs.data, _ = keep_ldrs(args.n_ldrs, ldrs.data)
         log.info(f'Keep the top {args.n_ldrs} LDRs.')        
 
     log.info(f'Read covariates from {args.covar}')

@@ -14,7 +14,7 @@ and use this quantile to quickly screen insignificant results
 """
 
 class VariantSetTest:
-    def __init__(self, bases, resid_ldr, covar, block_size=1024):
+    def __init__(self, bases, resid_ldr, covar):
         """
         Variant set test for rare variants
         
@@ -23,17 +23,16 @@ class VariantSetTest:
         bases: (N, r) np.array, functional bases
         resid_ldr: (n, r) np.array, LDR residuals
         covar: (n, p) np.array, the same as those used to do projection
-        block_size: block size for BlockMatrix
 
         """
         self.bases = bases
-        self.covar = BlockMatrix.from_numpy(covar, block_size=block_size)
-        self.resid_ldr = BlockMatrix.from_numpy(resid_ldr, block_size=block_size)
+        self.covar = BlockMatrix.from_numpy(covar)
+        self.resid_ldr = BlockMatrix.from_numpy(resid_ldr)
         self.N = bases.shape[0]
 
         # null model
         inner_covar_inv = np.linalg.inv(np.dot(covar.T, covar))
-        self.inner_covar_inv = BlockMatrix.from_numpy(inner_covar_inv, block_size=block_size) # (X'X)^{-1}, (p, p)
+        self.inner_covar_inv = BlockMatrix.from_numpy(inner_covar_inv) # (X'X)^{-1}, (p, p)
         self.n, self.p = covar.shape
         inner_ldr = np.dot(resid_ldr.T, resid_ldr) # \Xi'(I-M)\Xi, (r, r)
         self.var = np.sum(np.dot(bases, inner_ldr) * bases, axis=1) / (self.n - self.p)  # (N, )
@@ -189,8 +188,8 @@ class VariantSetTest:
         For very rare sets, do Burden test; for common set, do individual test,
         then combine the pvalues by cauchy combination.
         Individual score test:
-        numerator: y'(I-M)ZZ'(I-M)y
-        denominator: y'(I-M)y * [Z'(I-M)Z]/(n-p)
+        numerator: Y'(I-M)ZZ'(I-M)Y
+        denominator: Y'(I-M)Y * [Z'(I-M)Z]/(n-p)
         
         Parameters:
         ------------
@@ -214,8 +213,8 @@ class VariantSetTest:
         if (self.is_rare).any():
             rare_burden_score_num = np.dot(weights[self.is_rare], self.half_score[self.is_rare]) ** 2  # (N, )
             rare_burden_score_denom = self.var * \
-                np.dot(np.dot(weights[self.is_rare], self.cov_mat[self.is_rare]
-                    [:, self.is_rare]), weights[self.is_rare])  # (N, )
+                np.dot(np.dot(weights[self.is_rare], self.cov_mat[self.is_rare][:, self.is_rare]), 
+                       weights[self.is_rare])  # (N, )
             rare_burden_score = rare_burden_score_num / rare_burden_score_denom
             rare_burden_pv = chi2.sf(rare_burden_score, 1).reshape(1, -1) # (1, N)
             rare_weights = np.atleast_1d(np.mean(weights[self.is_rare])) # (1, )
@@ -347,14 +346,13 @@ def cauchy_combination(pvalues, weights=None, axis=0):
     return output
 
 
-def prepare_vset_test(snps_mt_cate, block_size=1024):
+def prepare_vset_test(snps_mt_cate):
     """
     Extracting data from MatrixTable
 
     Parameters:
     ------------
     snps_mt_cate: MatrixTable of a variant category
-    block_size: block size of BlockMatrix
 
     Returns:
     ---------
@@ -365,8 +363,7 @@ def prepare_vset_test(snps_mt_cate, block_size=1024):
     """
     maf = np.array(snps_mt_cate.maf.collect())
     is_rare = np.array(snps_mt_cate.is_rare.collect())
-    vset = BlockMatrix.from_entry_expr(snps_mt_cate.flipped_n_alt_alleles, mean_impute=True, 
-                                        block_size=block_size) # (m, n) slow
+    vset = BlockMatrix.from_entry_expr(snps_mt_cate.flipped_n_alt_alleles, mean_impute=True) # (m, n) slow
     return maf, is_rare, vset
 
 

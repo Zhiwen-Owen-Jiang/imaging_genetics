@@ -75,7 +75,7 @@ class Test_VariantSetTest(unittest.TestCase):
         vset = np.array([1, 2, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1]).reshape(4, 3) # (n, m)
         maf = np.mean(vset, axis=0) / 2
         is_rare = np.array([False, False, True])
-        vset = BlockMatrix.from_numpy(vset.T, block_size=2048) # (m, n)
+        vset = BlockMatrix.from_numpy(vset.T) # (m, n)
         cls.vset_test.input_vset(vset, maf, is_rare, annotation_pred=None)
 
     def test_skat(self):

@@ -79,6 +79,14 @@ class GProcessor:
                            '_filter_hwe': ['hwe']}
         }
     }
+    
+    PARAMETERS = {'variant_type': 'Variant type', 
+                  'geno_ref': 'Reference genome', 
+                  'maf_min': 'Minimum MAF',
+                  'maf_max': 'Maximum MAF', 
+                  'mac_thresh': 'MAC threshold for very rare variants', 
+                  'call_rate': 'Call rate', 
+                  'hwe': 'HWE p-value threshold'}
 
     def __init__(self, snps_mt, geno_ref=None, variant_type=None, 
                  hwe=None, maf_min=None, maf_max=None, 
@@ -133,6 +141,13 @@ class GProcessor:
             if attr in defaults:
                 setattr(self, attr, getattr(self, attr) or defaults.get(attr))
         
+        self.logger.info('Variant QC parameters')
+        self.logger.info('---------------------')
+        for para_k, para_v in self.PARAMETERS.items():
+            if getattr(self, para_k) is not None:
+                self.logger.info(f'{para_v}: {getattr(self, para_k)}')
+        self.logger.info('---------------------\n')
+        
         for method in methods:
             method_conditions = conditions.get(method, [])
             if all(getattr(self, attr) is not None for attr in method_conditions):
@@ -151,9 +166,9 @@ class GProcessor:
         cls.logger = logging.getLogger(__name__)
         snps_mt = hl.read_matrix_table(dir)
         cls.logger.info((f"{snps_mt.count_cols()} subjects and "
-                         f"{snps_mt.rows().count()} variants in --geno-mt."))
+                         f"{snps_mt.rows().count()} variants in the genotype data.\n"))
         
-        return cls(snps_mt, snps_mt, *args, **kwargs)
+        return cls(snps_mt, *args, **kwargs)
 
     def save_interim_data(self, temp_dir):
         """
@@ -248,8 +263,8 @@ class GProcessor:
                     self.snps_mt.info.AF[-1]
                 )
             )
-        self.snps_mt = self.snps_mt.filter_rows((self.snps_mt.maf >= self.maf_min) & 
-                                                (self.snps_mt.maf <= self.maf_max))
+        self.snps_mt = self.snps_mt.filter_rows((self.snps_mt.maf > self.maf_min) & 
+                                                (self.snps_mt.maf < self.maf_max))
 
     def _extract_call_rate(self):
         """
@@ -361,9 +376,6 @@ class GProcessor:
         self.snps_mt = self.snps_mt.filter_cols(keep_idvs.contains(self.snps_mt.s))
 
 
-
-
-
 def get_common_ids(ids, snps_mt_ids, keep_idvs=None):
     """
     Extracting common ids
@@ -411,7 +423,7 @@ def keep_ldrs(n_ldrs, resid_ldr, bases=None):
     if resid_ldr.shape[1] < n_ldrs:
         raise ValueError('LDR residuals are less than --n-ldrs')
     resid_ldr = resid_ldr[:, :n_ldrs]
-    return bases, resid_ldr
+    return resid_ldr, bases
 
 
 def remove_dependent_columns(matrix):
