@@ -1,3 +1,4 @@
+import shutil
 import hail as hl
 import numpy as np
 import pandas as pd
@@ -428,7 +429,7 @@ class GProcessor:
         self.snps_mt = self.snps_mt.filter_cols(keep_idvs.contains(self.snps_mt.s))
 
 
-def get_common_ids(ids, snps_mt_ids, keep_idvs=None):
+def get_common_ids(ids, snps_mt_ids=None, keep_idvs=None):
     """
     Extracting common ids
 
@@ -448,7 +449,8 @@ def get_common_ids(ids, snps_mt_ids, keep_idvs=None):
         common_ids = set(keep_idvs).intersection(ids)
     else:
         common_ids = set(ids)
-    common_ids = common_ids.intersection(snps_mt_ids)
+    if snps_mt_ids is not None:
+        common_ids = common_ids.intersection(snps_mt_ids)
     return common_ids
 
 
@@ -522,3 +524,31 @@ def extract_align_subjects(current_id, target_id):
     target_id = target_id.merge(current_id, on='id')
     index = np.array(target_id['index'])
     return index
+
+
+def pandas_to_table(df, dir):
+    """
+    Converting a pd.DataFrame to hail.Table
+
+    Parameters:
+    ------------
+    df: a pd.DataFrame to convert, it must have a single index 'IID'
+    target_id: a list or np.array of ids of the another dataset
+
+    Returns:
+    ---------
+    index: a np.array of indices such that current_id[index] = target_id
+    
+    """
+    if not df.index.name == 'IID':
+        raise ValueError("the DataFrame must have a single index IID")
+    df.to_csv(f'{dir}.txt', sep='\t', na_rep='NA')
+
+    try:
+        table = hl.import_table(f'{dir}.txt', key='IID', impute=True, 
+                                types={'IID': hl.tstr}, missing='NA')
+    finally:
+        shutil.rmtree(f'{dir}.txt')
+
+    return table
+    

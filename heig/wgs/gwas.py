@@ -2,7 +2,7 @@ import os
 import shutil
 import hail as hl
 import heig.input.dataset as ds
-from heig.wgs.utils import GProcessor
+from heig.wgs.utils import GProcessor, pandas_to_table
 
 
 """
@@ -52,7 +52,6 @@ def check_input(args, log):
             raise ValueError('--maf-min must be greater than 0 and less than 0.5')
     else:
         args.maf_min = 0
-        # log.info(f"Set --maf-min as default 0.01")
     
     if args.variant_type is None:
         args.variant_type = 'variant'
@@ -102,23 +101,23 @@ def check_input(args, log):
     return start_chr, start_pos, end_pos, temp_path, geno_ref
 
 
-def do_gwas(snps_mt, n_ldrs, n_covar, log):
+def do_gwas(snps_mt, n_ldrs, n_covar):
     pheno_list = [snps_mt.ldrs[i] for i in range(n_ldrs)]
     covar_list = [snps_mt.covar[i] for i in range(n_covar)]
 
-    log.info(f'Doing GWAS for {n_ldrs} LDRs ...')
     gwas = hl.linear_regression_rows(
         y=pheno_list, x=snps_mt.GT.n_alt_alleles(),
-        covariates=covar_list, pass_through=[snps_mt.rsid, snps_mt.info.n_called]
+        covariates=covar_list, pass_through=[snps_mt.rsid]
     )
-    # gwas = gwas.annotate(n_called=snps_mt.index_rows(gwas.key).info.n_called)
+
     gwas = gwas.annotate(chr=gwas.locus.contig,
                          pos=gwas.locus.position,
                          ref_allele=gwas.alleles[0],
                          alt_allele=gwas.alleles[1])
     gwas = gwas.key_by() 
-    gwas = gwas.drop(*['locus', 'alleles', 'y_transpose_x', 'sum_x', 'n'])
-    gwas = gwas.select('chr', 'pos', 'rsid', 'ref_allele', 'alt_allele', 
+    gwas = gwas.drop(*['locus', 'alleles', 'y_transpose_x', 'sum_x'])
+    # gwas = gwas.drop(*['locus', 'alleles', 'n'])
+    gwas = gwas.select('chr', 'pos', 'rsid', 'ref_allele', 'alt_allele',
                        'n_called', 'beta', 'standard_error', 't_stat',
                        'p_value')
 
@@ -128,9 +127,8 @@ def do_gwas(snps_mt, n_ldrs, n_covar, log):
 def run(args, log):
     # check input and configure hail
     chr, start, end, temp_path, geno_ref = check_input(args, log)
-    hl.init(quiet=True)
-    hl.default_reference = geno_ref
 
+    # read LDRs and covariates
     log.info(f'Read LDRs from {args.ldrs}')
     ldrs = ds.Dataset(args.ldrs)
     log.info(f'{ldrs.data.shape[1]} LDRs and {ldrs.data.shape[0]} subjects.')
@@ -159,7 +157,10 @@ def run(args, log):
     else:
         keep_snps = None
 
-    # snps_mt
+    # read genotype data
+    hl.init(quiet=True)
+    hl.default_reference = geno_ref
+
     if args.bfile is not None:
         log.info(f'Read bfile from {args.bfile}')
         gprocessor = GProcessor.import_plink(args.bfile, geno_ref,
@@ -176,6 +177,7 @@ def run(args, log):
     gprocessor.extract_idvs(common_ids)
     gprocessor.do_processing(mode='gwas')
     if chr is not None and start is not None:
+        # TODO: add more options
         gprocessor.extract_gene(chr=chr, start=start, end=end)
     
     if not args.not_save_genotype_data:
@@ -184,6 +186,7 @@ def run(args, log):
     gprocessor.check_valid()
     
     try:
+        # extract common subjects and align data
         snps_mt_ids = gprocessor.subject_id()
         ldrs.to_single_index()
         covar.to_single_index()
@@ -193,10 +196,8 @@ def run(args, log):
         log.info(f'{len(common_ids)} common subjects in the data.')
         log.info(f"{covar.data.shape[1]} fixed effects in the covariates (including the intercept).")
 
-        covar.data.to_csv(f'{temp_path}_covar.txt', sep='\t')
-        covar_table = hl.import_table(f'{temp_path}_covar.txt', key='IID', impute=True, types={'IID': hl.tstr})
-        ldrs.data.to_csv(f'{temp_path}_ldrs.txt', sep='\t')
-        ldrs_table = hl.import_table(f'{temp_path}_ldrs.txt', key='IID', impute=True, types={'IID': hl.tstr})
+        covar_table = pandas_to_table(covar.data, temp_path)
+        ldrs_table = pandas_to_table(ldrs.data, temp_path)
 
         # annotate ldrs and covar to snps_mt
         gprocessor.annotate_cols(ldrs_table, 'ldrs')
@@ -205,16 +206,13 @@ def run(args, log):
         # gwas
         n_ldrs = ldrs.data.shape[1]
         n_covar = covar.data.shape[1]
-        gwas = do_gwas(gprocessor.snps_mt, n_ldrs, n_covar, log)
-        
-        ## 1:03 continue checking this
+        log.info(f'Doing GWAS for {n_ldrs} LDRs ...')
+        gwas = do_gwas(gprocessor.snps_mt, n_ldrs, n_covar)
 
         # save gwas results
-        log.info(f"Save GWAS results to {args.out}.txt.bgz")
         gwas.export(f"{args.out}.txt.bgz")
+        log.info(f"Save GWAS results to {args.out}.txt.bgz")
     finally:
         if os.path.exists(temp_path):
             shutil.rmtree(temp_path)
-        # shutil.rmtree(f'{temp_path}_covar.txt')
-        # shutil.rmtree(f'{temp_path}_ldrs.txt')
             log.info(f'Removed preprocessed genotype data at {temp_path}')

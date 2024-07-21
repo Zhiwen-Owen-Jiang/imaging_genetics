@@ -132,16 +132,8 @@ common_parser.add_argument('--geno-mt',
 common_parser.add_argument('--grch37', action='store_true',
                            help=('Using reference genome GRCh37. Otherwise using GRCh38. '
                                  'Supported modules: --gwas, --annot-vcf.'))
-common_parser.add_argument('--threads', type=int,
-                           help=('Number of computational threads to use. '
-                                 'Supported modules: --gwas.'))
-common_parser.add_argument('--skip-preprocess', action='store_true',
-                           help=('Skipping preprocess for genetic data in GWAS and WGS. '
-                                 'Default: False. '
-                                 'Supported modules: --gwas, --wgs-coding.'))
-common_parser.add_argument('--save-processed-mt', action='store_true',
-                           help=('Saving processed MatrixTable to disk. '
-                                 'Default: True. '
+common_parser.add_argument('--not-save-genotype-data', action='store_true',
+                           help=('Do not save preprocessed genotype data. '
                                  'Supported modules: --gwas, --wgs-coding.'))
 
 # arguments for herigc.py
@@ -266,8 +258,7 @@ annot_vcf_parser.add_argument('--favor-db',
                               help='Directory to unzipped FAVOR annotation files.')
 
 # arguments for gwas.py
-gwas_parser.add_argument('--not-save-genotype-data', action='store_true',
-                         help='Do not save preprocessed genotype data')
+
 
 # arguments for coding.py
 wgs_coding_parser.add_argument('--null-model',
@@ -316,7 +307,7 @@ def check_accepted_args(module, args, log):
         'wgs_coding': {'wgs_coding', 'out', 'geno_mt', 'null_model', 'variant_type', 
                        'variant_category', 'maf_max', 'maf_min', 'mac_thresh', 
                        'use_annotation_weights', 'n_ldrs', 'keep', 
-                       'extract', 'range','voxel'}            
+                       'extract', 'range','voxel', 'not_save_genotype_data'}            
     }
 
     ignored_args = []

@@ -384,6 +384,7 @@ def run(args, log):
         log.info(f'{len(keep_idvs)} subjects in --keep.')
     else:
         keep_idvs = None
+    common_ids = get_common_ids(ids, keep_idvs)
 
     # extract SNPs
     if args.extract is not None:
@@ -392,27 +393,30 @@ def run(args, log):
     else:
         keep_snps = None
     
-    hl.init(quiet=True) # TODO: how to suppress hail's log?
+    # read genotype data
+    hl.init(quiet=True)
     hl.default_reference = geno_ref
 
     log.info(f'Reading genotype data from {args.geno_mt}')
     gprocessor = GProcessor.read_matrix_table(args.geno_mt, geno_ref=geno_ref, 
                                               variant_type=args.variant_type,
                                               maf_min=args.maf_min, maf_max=args.maf_max)
-    snps_mt_ids = gprocessor.subject_id()
-    common_ids = get_common_ids(ids, snps_mt_ids, keep_idvs)
+    
+    # do preprocessing
+    log.info(f"Processing genotype data ...")
     gprocessor.extract_snps(keep_snps)
     gprocessor.extract_idvs(common_ids)
-
-    log.info(f"Processing genotype data ...")
     gprocessor.do_processing(mode='wgs')
     gprocessor.extract_gene(chr=chr, start=start, end=end)
     
-    log.info(f'Save preprocessed genotype data to {temp_path}')
-    gprocessor.save_interim_data(temp_path)
+    # save processsed data for faster analysis
+    if not args.not_save_genotype_data:
+        log.info(f'Save preprocessed genotype data to {temp_path}')
+        gprocessor.save_interim_data(temp_path)
     gprocessor.check_valid()
 
     try:
+        # extract and align subjects with the genotype data
         snps_mt_ids = gprocessor.subject_id()
         idx_common_ids = extract_align_subjects(ids, snps_mt_ids)
         resid_ldr = resid_ldr[idx_common_ids]
@@ -438,5 +442,6 @@ def run(args, log):
                                index=None, float_format='%.5e')
             log.info(f'Save results for {OFFICIAL_NAME[cate]} to {out_path}')
     finally:
-        shutil.rmtree(temp_path)
-        log.info(f'Removed preprocessed genotype data at {temp_path}')
+        if os.path.exists(temp_path):
+            shutil.rmtree(temp_path)
+            log.info(f'Removed preprocessed genotype data at {temp_path}')
