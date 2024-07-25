@@ -422,7 +422,7 @@ def run(args, log):
         resid_ldr = resid_ldr[idx_common_ids]
         covar = covar[idx_common_ids]
         covar = remove_dependent_columns(covar)
-        log.info(f'{len(common_ids)} common subjects in the data.')
+        log.info(f'{len(idx_common_ids)} common subjects in the data.')
         log.info(f"{covar.shape[1]} fixed effects in the covariates after removing redundant effects.\n")
 
         # single gene analysis

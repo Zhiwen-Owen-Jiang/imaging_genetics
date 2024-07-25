@@ -69,7 +69,7 @@ class GProcessor:
         'wgs':{
             'defaults': {'geno_ref': 'GRCh38', 'variant_type': 'variant',
                          'maf_max': 0.01, 'maf_min': 0, 'mac_thresh': 10, 
-                         'call_rate': 0.9, 'hwe': 10**-30},
+                         },
             'methods': ['_vcf_filter', '_flip_snps', 
                         '_extract_variant_type', '_extract_maf', 
                         '_extract_call_rate', '_filter_hwe',
@@ -149,6 +149,8 @@ class GProcessor:
         for para_k, para_v in self.PARAMETERS.items():
             if getattr(self, para_k) is not None:
                 self.logger.info(f'{para_v}: {getattr(self, para_k)}')
+        self.logger.info('Removed variants with missing alternative alleles.')
+        self.logger.info('Extracted variants with PASS in FILTER.')
         self.logger.info('---------------------\n')
         
         for method in methods:
@@ -286,7 +288,7 @@ class GProcessor:
         if self.variant_type == 'variant':
             return
         elif self.variant_type == 'snv':
-            func = hl.is_snp
+            func = hl.is_snp # the same as isSNV()
         elif self.variant_type == 'indel':
             func = hl.is_indel
         else:
@@ -313,7 +315,7 @@ class GProcessor:
                 )
             )
         self.snps_mt = self.snps_mt.filter_rows((self.snps_mt.maf > self.maf_min) & 
-                                                (self.snps_mt.maf < self.maf_max))
+                                                (self.snps_mt.maf <= self.maf_max))
 
     def _extract_call_rate(self):
         """
@@ -362,12 +364,12 @@ class GProcessor:
 
     def _annotate_rare_variants(self):
         """
-        Annotating if variants have a MAC < mac_thresh
+        Annotating if variants have a MAC <= mac_thresh
         
         """
         self.snps_mt = self.snps_mt.annotate_rows(
-            is_rare=hl.if_else(((self.snps_mt.info.AC[-1] < self.mac_thresh) | 
-                                (self.snps_mt.info.AN - self.snps_mt.info.AC[-1] < self.mac_thresh)),
+            is_rare=hl.if_else(((self.snps_mt.info.AC[-1] <= self.mac_thresh) | 
+                                (self.snps_mt.info.AN - self.snps_mt.info.AC[-1] <= self.mac_thresh)),
                                 True, False)
         )
 
@@ -504,7 +506,7 @@ def remove_dependent_columns(matrix):
 def extract_align_subjects(current_id, target_id):
     """
     Extracting and aligning subjects for a dataset based on another dataset
-    target_id must be the subset of current_id
+    target_id and current_id must only have order difference
 
     Parameters:
     ------------
@@ -516,8 +518,11 @@ def extract_align_subjects(current_id, target_id):
     index: a np.array of indices such that current_id[index] = target_id
 
     """
-    if not set(target_id).issubset(current_id):
-        raise ValueError('targettarget_id must be the subset of current_id')
+    # if not set(target_id).issubset(current_id):
+    #     raise ValueError('target_id must be the subset of current_id')
+    if set(current_id) != set(target_id):
+        raise ValueError(('subjects in LDRs and covariates must be included in genetic data. '
+                          'Use --keep in when fitting the null model'))
     n_current_id = len(current_id)
     current_id = pd.DataFrame({'id': current_id, 'index': range(n_current_id)})
     target_id = pd.DataFrame({'id': target_id})

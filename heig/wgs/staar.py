@@ -180,7 +180,7 @@ class VariantSetTest:
         pvalues = chi2.sf(burden_score, 1)
         return pvalues
 
-    def _acatv_test(self, weights):
+    def _acatv_test(self, weights_A, weights_B):
         """
         Computing ACATV pvalues for one weight and all voxels. (tested)
 
@@ -193,7 +193,8 @@ class VariantSetTest:
         
         Parameters:
         ------------
-        weights: (m, ) array
+        weights_A: (m, ) array, ACAT weights
+        weights_B: (m, ) array, Burden weights
 
         Returns:
         ---------
@@ -204,20 +205,20 @@ class VariantSetTest:
         if (~self.is_rare).any():
             denom = np.diag(self.cov_mat[~self.is_rare][:, ~self.is_rare]).reshape(-1, 1) * self.var.reshape(1, -1)  # (m, N)
             common_variant_pv = chi2.sf((self.half_score[~self.is_rare] ** 2 / denom), 1)  # (m1, N)
-            common_weights = weights[~self.is_rare] # (m1, )
+            common_weights = weights_A[~self.is_rare] # (m1, )
         else:
             common_variant_pv = None
             common_weights = None
 
         ## Burden test for rare variants
         if (self.is_rare).any():
-            rare_burden_score_num = np.dot(weights[self.is_rare], self.half_score[self.is_rare]) ** 2  # (N, )
+            rare_burden_score_num = np.dot(weights_B[self.is_rare], self.half_score[self.is_rare]) ** 2  # (N, )
             rare_burden_score_denom = self.var * \
-                np.dot(np.dot(weights[self.is_rare], self.cov_mat[self.is_rare][:, self.is_rare]), 
-                       weights[self.is_rare])  # (N, )
+                np.dot(np.dot(weights_B[self.is_rare], self.cov_mat[self.is_rare][:, self.is_rare]), 
+                       weights_B[self.is_rare])  # (N, )
             rare_burden_score = rare_burden_score_num / rare_burden_score_denom
             rare_burden_pv = chi2.sf(rare_burden_score, 1).reshape(1, -1) # (1, N)
-            rare_weights = np.atleast_1d(np.mean(weights[self.is_rare])) # (1, )
+            rare_weights = np.atleast_1d(np.mean(weights_A[self.is_rare])) # (1, )
         else:
             rare_burden_pv = None
             rare_weights = None
@@ -259,8 +260,8 @@ class VariantSetTest:
             skat_1_1_pvalues[i] = self._skat_test(self.weights['skat(1,1)'][i])
             burden_1_25_pvalues[i] = self._burden_test(self.weights['burden(1,25)'][i])
             burden_1_1_pvalues[i] = self._burden_test(self.weights['burden(1,1)'][i])
-            acatv_1_25_pvalues[i] = self._acatv_test(self.weights['acatv(1,25)'][i])
-            acatv_1_1_pvalues[i] = self._acatv_test(self.weights['acatv(1,1)'][i])
+            acatv_1_25_pvalues[i] = self._acatv_test(self.weights['acatv(1,25)'][i], self.weights['burden(1,25)'][i])
+            acatv_1_1_pvalues[i] = self._acatv_test(self.weights['acatv(1,1)'][i], self.weights['burden(1,1)'][i])
 
         all_pvalues = np.vstack([skat_1_25_pvalues, skat_1_1_pvalues, 
                                  burden_1_25_pvalues, burden_1_1_pvalues, 

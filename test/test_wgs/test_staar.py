@@ -67,43 +67,82 @@ class Test_VariantSetTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         hl.init(quiet=True)
-        bases = np.array([1, 2, 3]).reshape(3, 1) # (N, r)
+        bases = np.array([1]).reshape(1, 1) # (N, r)
         resid_ldr = np.array([-1.5, -0.5, 0.5, 1.5]).reshape(4, 1) # (n, r)
         covar = np.ones((4, 1)) # (n, p)
         cls.vset_test = VariantSetTest(bases, resid_ldr, covar)
 
-        vset = np.array([1, 2, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1]).reshape(4, 3) # (n, m)
+        vset = np.array([1, 1, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1]).reshape(4, 3) # (n, m)
         maf = np.mean(vset, axis=0) / 2
-        is_rare = np.array([False, False, True])
+        is_rare = np.array([False, True, True])
         vset = BlockMatrix.from_numpy(vset.T) # (m, n)
-        cls.vset_test.input_vset(vset, maf, is_rare, annotation_pred=None)
+        annot_pred = np.array([1,2,3]).reshape(3,1)
+        cls.vset_test.input_vset(vset, maf, is_rare, annotation_pred=annot_pred)
 
     def test_skat(self):
-        pvalues = self.vset_test.do_inference()
-        true_pvalues = pd.DataFrame({'STAAR-O': [0.18508660335357557, 0.18508660335357557, 0.18508660335357557],
-                                     'ACAT-O': [0.18508660335357557, 0.18508660335357557, 0.18508660335357557],
-                                     'SKAT(1,25)': [0.12389301828489946, 0.12389301828489946, 0.12389301828489946],
-                                     'SKAT(1,1)': [0.23087030555777366, 0.23087030555777366, 0.23087030555777366],
-                                     'Burden(1,25)': [0.1237858141574412, 0.1237858141574412, 0.12378581415744118],
-                                     'Burden(1,1)': [0.5838824207703648, 0.5838824207703648, 0.583882420770365],
-                                     'ACAT-V(1,25)': [0.12137422208635251, 0.12137422208635251, 0.12137422208635251],
-                                     'ACAT-V(1,1)': [0.2671592334810178, 0.2671592334810178, 0.2671592334810178]})
+        pvalues = self.vset_test.do_inference(['V1'])
+        true_pvalues = pd.DataFrame({'STAAR-O': 0.40763786107471944, 
+                                     'ACAT-O': 0.48029666314262487, 
+                                     'SKAT(1,25)': 0.22482785847788261, 
+                                     'SKAT(1,25)-V1': 0.1935911826673326, 
+                                     'STAAR-SKAT(1,25)': 0.2082148904083711, 
+                                     'SKAT(1,1)': 0.30965337344050614, 
+                                     'SKAT(1,1)-V1': 0.23560683333828553, 
+                                     'STAAR-SKAT(1,1)': 0.26886265460031966, 
+                                     'Burden(1,25)': 0.583886187905023, 
+                                     'Burden(1,25)-V1': 0.432234232782132, 
+                                     'STAAR-Burden(1,25)': 0.5085355733865713, 
+                                     'Burden(1,1)': 0.6547208460185768, 
+                                     'Burden(1,1)-V1': 0.4040862039643345, 
+                                     'STAAR-Burden(1,1)': 0.5344909199210232, 
+                                     'ACAT-V(1,25)': 0.5838975912961833, 
+                                     'ACAT-V(1,25)-V1': 0.43265025772359217, 
+                                     'STAAR-ACAT-V(1,25)': 0.508759196328998, 
+                                     'ACAT-V(1,1)': 0.6247893996804713, 
+                                     'ACAT-V(1,1)-V1': 0.5195962989957652, 
+                                     'STAAR-ACAT-V(1,1)': 0.5742355066368832},
+                                     index=[0])
         assert_frame_equal(pvalues, true_pvalues)
 
 
 if __name__ == '__main__':
-    pvalues = np.array([0, 0.01, 0.1, 0.5, 0.01, 10**-17]).reshape(3, 2)
-    cauchy_combination(pvalues)
+    # pvalues = np.array([0, 0.01, 0.1, 0.5, 0.01, 10**-17]).reshape(3, 2)
+    # cauchy_combination(pvalues)
 
-    bases = np.array([1, 2, 3]).reshape(3, 1) # (N, r)
+    bases = np.array([1]).reshape(1, 1) # (1, r)
     resid_ldr = np.array([-1.5, -0.5, 0.5, 1.5]).reshape(4, 1) # (n, r)
     covar = np.ones((4, 1)) # (n, p)
     vset_test = VariantSetTest(bases, resid_ldr, covar)
 
-    vset = np.array([1, 2, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1]).reshape(4, 3) # (n, m)
+    vset = np.array([1, 1, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1]).reshape(4, 3) # (n, m)
     maf = np.mean(vset, axis=0) / 2
-    is_rare = np.array([False, False, True])
-    vset = BlockMatrix.from_numpy(vset.T, block_size=2048) # (m, n)
-    vset_test.input_vset(vset, maf, is_rare, annotation_pred=None)
-    pvalues = vset_test.do_inference()
+    is_rare = np.array([False, True, True])
+    vset = BlockMatrix.from_numpy(vset.T) # (m, n)
+    annot_pred = np.array([1,2,3]).reshape(3,1)
+    vset_test.input_vset(vset, maf, is_rare, annotation_pred=annot_pred)
+    pvalues = vset_test.do_inference(['V1'])
     pvalues
+
+    # bases = np.array([1]).reshape(1, 1)
+    # resid_ldr = np.load('resid_ldr.npy')
+    # covar = np.load('covar.npy')
+    # vset_test = VariantSetTest(bases, resid_ldr, covar)
+    # vset = np.load('vset_array.npy') # (m, n)
+    # annot_pred = np.load('phred_cate.npy')
+    # maf = np.mean(vset, axis=1) / 2
+    # is_rare = np.sum(vset, axis=1) <= 2
+    # vset = BlockMatrix.from_numpy(vset) # (m, n)
+    # vset_test.input_vset(vset, maf, is_rare, annotation_pred=annot_pred)
+    # pvalues = vset_test.do_inference(["CADD",
+    #                "LINSIGHT",
+    #                "FATHMM.XF",
+    #                "aPC.EpigeneticActive",
+    #                "aPC.EpigeneticRepressed",
+    #                "aPC.EpigeneticTranscription",
+    #                "aPC.Conservation",
+    #                "aPC.LocalDiversity",
+    #                "aPC.LocalDiversity(-)",
+    #                "aPC.Mappability",
+    #                "aPC.TF",
+    #                "aPC.Protein"
+    #                ])
