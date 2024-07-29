@@ -83,8 +83,8 @@ class GProcessor:
     
     PARAMETERS = {'variant_type': 'Variant type', 
                   'geno_ref': 'Reference genome', 
-                  'maf_min': 'Minimum MAF',
-                  'maf_max': 'Maximum MAF', 
+                  'maf_min': 'Minimum MAF (>)',
+                  'maf_max': 'Maximum MAF (<=)', 
                   'mac_thresh': 'MAC threshold for very rare variants', 
                   'call_rate': 'Call rate', 
                   'hwe': 'HWE p-value threshold'}

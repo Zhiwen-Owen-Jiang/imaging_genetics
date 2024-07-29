@@ -130,8 +130,8 @@ def single_gene_analysis(snps_mt, variant_type, vset_test,
             cate_pvalues[cate] = None
         else:
             snps_mt_cate = coding.snps_mt.filter_rows(idx)
-            if snps_mt_cate.rows().count() == 0:
-                log.info(f'No {OFFICIAL_NAME[cate]}, skip.')
+            if snps_mt_cate.rows().count() <= 1:
+                log.info(f'Less than 2 variants for {OFFICIAL_NAME[cate]}, skip.')
                 continue
             if coding.annot_cols is not None:
                 annot_phred = snps_mt_cate.fa.select(*coding.annot_cols).collect()
@@ -231,7 +231,7 @@ def format_output(cate_pvalues, start, end, n_variants, n_voxels, variant_catego
     meta_data = pd.DataFrame({'INDEX': range(1, n_voxels+1), 
                               'VARIANT_CATEGORY': variant_category,
                               'START': start, 'END': end,
-                              'n_variants': n_variants})
+                              'N_VARIANT': n_variants})
     output = pd.concat([meta_data, cate_pvalues], axis=1)
     return output
 
