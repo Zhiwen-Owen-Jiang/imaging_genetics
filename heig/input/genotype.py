@@ -296,7 +296,8 @@ def read_plink(dir, keep_snps=None, keep_indivs=None, maf=None):
     array_indivs.df = array_indivs.df.set_index(['FID', 'IID'])
     if keep_indivs is not None:
         keep_indivs_idxs = np.array(range(n))[array_indivs.df.index.isin(keep_indivs)]
-        fam = array_indivs.df.loc[keep_indivs]
+        # fam = array_indivs.df.loc[keep_indivs]
+        fam = array_indivs.df.loc[keep_indivs[keep_indivs.isin(array_indivs.df.index)]]
     else:
         keep_indivs_idxs = None
         fam = array_indivs.df

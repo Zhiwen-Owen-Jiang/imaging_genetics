@@ -208,13 +208,14 @@ def process_missense(m_pvalues, dm_pvalues):
     return m_pvalues
 
 
-def format_output(cate_pvalues, start, end, n_variants, n_voxels, variant_category):
+def format_output(cate_pvalues, chr, start, end, n_variants, n_voxels, variant_category):
     """
     organizing pvalues to a structured format
 
     Parameters:
     ------------
     cate_pvalues: a pd.DataFrame of pvalues of the variant category
+    chr: chromosome
     start: start position of the gene
     end: end position of the gene
     n_variants: #variants of the category
@@ -230,6 +231,7 @@ def format_output(cate_pvalues, start, end, n_variants, n_voxels, variant_catego
     """
     meta_data = pd.DataFrame({'INDEX': range(1, n_voxels+1), 
                               'VARIANT_CATEGORY': variant_category,
+                              'CHR': chr,
                               'START': start, 'END': end,
                               'N_VARIANT': n_variants})
     output = pd.concat([meta_data, cate_pvalues], axis=1)
@@ -338,9 +340,9 @@ def check_input(args, log):
 
     temp_path = 'temp'
     i = 0
-    while os.path.exists(temp_path):
-        temp_path += str(i)
+    while os.path.exists(temp_path + str(i)):
         i += 1
+    temp_path += str(i)
 
     if args.grch37 is None or not args.grch37:
         geno_ref = 'GRCh38'
@@ -413,9 +415,9 @@ def run(args, log):
     if not args.not_save_genotype_data:
         log.info(f'Save preprocessed genotype data to {temp_path}')
         gprocessor.save_interim_data(temp_path)
-    gprocessor.check_valid()
 
     try:
+        gprocessor.check_valid()
         # extract and align subjects with the genotype data
         snps_mt_ids = gprocessor.subject_id()
         idx_common_ids = extract_align_subjects(ids, snps_mt_ids)
@@ -435,7 +437,7 @@ def run(args, log):
         n_voxels = bases.shape[0]
         log.info('')
         for cate, cate_results in cate_pvalues.items():
-            cate_output = format_output(cate_results['pvalues'], start, end,
+            cate_output = format_output(cate_results['pvalues'], chr, start, end,
                                         cate_results['n_variants'], n_voxels, cate)
             out_path = f'{args.out}_chr{chr}_start{start}_end{end}_{cate}.txt'
             cate_output.to_csv(out_path, sep='\t', header=True, na_rep='NA', 

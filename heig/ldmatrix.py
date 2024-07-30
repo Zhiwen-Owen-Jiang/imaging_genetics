@@ -491,8 +491,7 @@ def run(args, log):
 
     # reading bfiles
     log.info(f"Read bfile from {ld_bfile} with selected SNPs and individuals.")
-    ld_bim, _, ld_snp_getter = gt.read_plink(
-        ld_bfile, common_snps, ld_keep_idv)
+    ld_bim, _, ld_snp_getter = gt.read_plink(ld_bfile, common_snps, ld_keep_idv)
     log.info(f"Read bfile from {ld_inv_bfile} with selected SNPs and individuals.")
     ld_inv_bim, _, ld_inv_snp_getter = gt.read_plink(ld_inv_bfile, common_snps, ld_inv_keep_idv)
 

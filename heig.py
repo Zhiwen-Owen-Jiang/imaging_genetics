@@ -45,6 +45,8 @@ wgs_null_parser = parser.add_argument_group(
     title="Arguments specific to the null model of whole genome sequencing analysis")
 wgs_coding_parser = parser.add_argument_group(
     title='Arguments specific to whole genome sequencing analysis for coding variants')
+relatedness_parser = parser.add_argument_group(
+    title='Arguments specific to removing genetic relatedness in LDRs')
 
 # module arguments
 herigc_parser.add_argument('--heri-gc', action='store_true',
@@ -60,20 +62,23 @@ sumstats_parser.add_argument('--sumstats', action='store_true',
 voxelgwas_parser.add_argument('--voxel-gwas', action='store_true',
                               help='Recovering voxel-level GWAS results.')
 gwas_parser.add_argument('--gwas', action='store_true',
-                         help='Doing genome-wide association analysis.')
+                         help='Genome-wide association analysis.')
 annot_vcf_parser.add_argument('--annot-vcf', action='store_true',
                               help='Annotating VCF files.')
 wgs_null_parser.add_argument('--wgs-null', action='store_true',
-                        help='Fitting the null model of whole genome sequencing analysis.')
+                             help='Fitting the null model of whole genome sequencing analysis.')
 wgs_coding_parser.add_argument('--wgs-coding', action='store_true',
-                        help='Whole genome sequencing analysis for coding variants.')
+                               help='Whole genome sequencing analysis for coding variants.')
+relatedness_parser.add_argument('--relatedness', action='store_true',
+                                help='Removing genetic relatedness in LDRs')
 
 # common arguments
 common_parser.add_argument('--out',
                            help='Prefix of output.')
 common_parser.add_argument('--n-ldrs', type=int,
                            help=('Number of LDRs. Supported modules: '
-                                 '--heri-gc, --fpca, --voxel-gwas, --wgs-null, --wgs-coding.'))
+                                 '--heri-gc, --fpca, --voxel-gwas, --wgs-null, '
+                                 '--wgs-coding, --relatedness.'))
 common_parser.add_argument('--ldr-sumstats',
                            help=('Prefix of preprocessed LDR GWAS summary statistics. '
                                  'Supported modules: --heri-gc, --voxel-gwas.'))
@@ -102,20 +107,20 @@ common_parser.add_argument('--extract',
 common_parser.add_argument('--maf-min', type=float,
                            help=('Minimum minor allele frequency for screening SNPs. '
                                  'Supported modules: --ld-matrix, --sumstats, '
-                                 '--wgs-coding.'))
+                                 '--wgs-coding, --relatedness.'))
 common_parser.add_argument('--covar',
                            help=('Directory to covariate file. '
-                                 'Supported modules: --fpca, --gwas, --wgs-null.'))
+                                 'Supported modules: --fpca, --gwas, --wgs-null, --relatedness.'))
 common_parser.add_argument('--cat-covar-list',
                            help=('List of categorical covariates to include in the analysis. '
                                  'Multiple covariates are separated by comma. '
-                                 'Supported modules: --fpca, --gwas, --wgs-null.'))
+                                 'Supported modules: --fpca, --gwas, --wgs-null, --relatedness.'))
 common_parser.add_argument('--bfile',
                            help=('Prefix of PLINK bfile triplets. '
                                  'When estimating LD matrix and its inverse, two prefices should be provided '
                                  'and seperated by a comma, e.g., `prefix1,prefix2`. '
                                  'When doing GWAS, only one prefix is allowed. '
-                                 'Supported modules: --ld-matrix, --gwas.'))
+                                 'Supported modules: --ld-matrix, --gwas, --relatedness.'))
 common_parser.add_argument('--range',
                            help=('A segment of chromosome, e.g. `3:1000000,3:2000000`, '
                                  'from chromosome 3 bp 1000000 to chromosome 3 bp 2000000. '
@@ -126,7 +131,8 @@ common_parser.add_argument('--voxel',
                               help=('one-based index of voxel or a file containing voxels. '
                                     'Supported modules: --voxel-gwas, --wgs-coding.'))
 common_parser.add_argument('--ldrs',
-                           help='Directory to LDR file. Supported modules: --gwas, --wgs-null.')
+                           help=('Directory to LDR file. '
+                                 'Supported modules: --gwas, --wgs-null, --relatedness.'))
 common_parser.add_argument('--geno-mt',
                            help='Directory to genotype MatrixTable. Supported modules: --gwas, --wgs-coding.')
 common_parser.add_argument('--grch37', action='store_true',
@@ -134,7 +140,15 @@ common_parser.add_argument('--grch37', action='store_true',
                                  'Supported modules: --gwas, --annot-vcf.'))
 common_parser.add_argument('--not-save-genotype-data', action='store_true',
                            help=('Do not save preprocessed genotype data. '
-                                 'Supported modules: --gwas, --wgs-coding.'))
+                                 'Supported modules: --gwas, --wgs-coding.')) # may remove it
+common_parser.add_argument('--partition',
+                           help=('Genome partition file. '
+                                 'The file should be tab or space delimited without header, '
+                                 'with the first column being chromosome, '
+                                 'the second column being the start position, '
+                                 'and the third column being the end position.'
+                                 'Each row contains only one LD block. '
+                                 'Supported modules: --ld-matrix, --relatedness.'))
 
 # arguments for herigc.py
 herigc_parser.add_argument('--ld-inv',
@@ -191,13 +205,6 @@ fpca_parser.add_argument('--all', action='store_true',
                                'which may take longer time and very memory consuming.'))
 
 # arguments for ldmatrix.py
-makeld_parser.add_argument('--partition',
-                           help=('Genome partition file. '
-                                 'The file should be tab or space delimited without header, '
-                                 'with the first column being chromosome, '
-                                 'the second column being the start position, '
-                                 'and the third column being the end position.'
-                                 'Each row contains only one LD block.'))
 makeld_parser.add_argument('--ld-regu',
                            help=('Regularization for LD matrix and its inverse. '
                                  'Two values should be separated by a comma and between 0 and 1, '
@@ -307,7 +314,9 @@ def check_accepted_args(module, args, log):
         'wgs_coding': {'wgs_coding', 'out', 'geno_mt', 'null_model', 'variant_type', 
                        'variant_category', 'maf_max', 'maf_min', 'mac_thresh', 
                        'use_annotation_weights', 'n_ldrs', 'keep', 
-                       'extract', 'range','voxel', 'not_save_genotype_data'}            
+                       'extract', 'range','voxel', 'not_save_genotype_data'},
+        'relatedness': {'relatedness', 'out', 'ldrs', 'covar', 'cat_covar_list', 'bfile', 'partition',
+                    'maf_min', 'n_ldrs', 'grch37'} # more arguments to add            
     }
 
     ignored_args = []
@@ -338,10 +347,12 @@ def main(args, log):
     if dirname != '' and not os.path.exists(dirname):
         raise ValueError(f'{os.path.dirname(args.out)} does not exist')
     if (args.heri_gc + args.kernel_smooth + args.fpca + args.ld_matrix + args.sumstats + 
-        args.voxel_gwas + args.gwas + args.annot_vcf + args.wgs_null + args.wgs_coding != 1):
+        args.voxel_gwas + args.gwas + args.annot_vcf + args.wgs_null + args.wgs_coding + 
+        args.relatedness != 1):
         raise ValueError(('you must raise one and only one of following flags for doing analysis: '
                           '--heri-gc, --kernel-smooth, --fpca, --ld-matrix, --sumstats, '
-                          '--voxel-gwas, --gwas, --annot-vcf, --wgs-null, --wgs-coding'))
+                          '--voxel-gwas, --gwas, --annot-vcf, --wgs-null, --wgs-coding, '
+                          '--relatedness'))
     if args.keep is not None:
         args.keep = split_files(args.keep)
     if args.extract is not None:
@@ -387,6 +398,10 @@ def main(args, log):
         check_accepted_args('wgs_coding', args, log)
         import heig.wgs.coding as coding
         coding.run(args, log)
+    elif args.relatedness:
+        check_accepted_args('relatedness', args, log)
+        import heig.relatedness as relatedness
+        relatedness.run(args, log)
 
 
 if __name__ == '__main__':

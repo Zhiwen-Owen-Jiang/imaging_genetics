@@ -119,8 +119,8 @@ class GProcessor:
         self.call_rate = call_rate
         self.hwe = hwe
         self.logger = logging.getLogger(__name__)
-        self.logger.info((f"{snps_mt.count_cols()} subjects and "
-                          f"{snps_mt.rows().count()} variants in the genotype data.\n"))
+        # self.logger.info((f"{snps_mt.count_cols()} subjects and "
+        #                   f"{snps_mt.rows().count()} variants in the genotype data.\n"))
 
     def do_processing(self, mode):
         """
@@ -149,8 +149,9 @@ class GProcessor:
         for para_k, para_v in self.PARAMETERS.items():
             if getattr(self, para_k) is not None:
                 self.logger.info(f'{para_v}: {getattr(self, para_k)}')
-        self.logger.info('Removed variants with missing alternative alleles.')
-        self.logger.info('Extracted variants with PASS in FILTER.')
+        if mode == 'wgs':
+            self.logger.info('Removed variants with missing alternative alleles.')
+            self.logger.info('Extracted variants with PASS in FILTER.')
         self.logger.info('---------------------\n')
         
         for method in methods:
@@ -270,6 +271,14 @@ class GProcessor:
         table = table.key_by('IID')
         annot_expr = {annot_name: table[self.snps_mt.s]}
         self.snps_mt = self.snps_mt.annotate_cols(**annot_expr)
+
+    def get_bim(self):
+        """
+        Get SNP info in bim format 
+        
+        """
+        pass
+        # 11:42pm how to get the bim from a MatrixTable?
 
     def _vcf_filter(self):
         """

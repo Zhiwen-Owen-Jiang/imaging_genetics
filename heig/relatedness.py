@@ -1,13 +1,16 @@
 import os
 import h5py
+import shutil
 import numpy as np
 import pandas as pd
+import hail as hl
+from math import ceil
 from collections import defaultdict
 from sklearn.model_selection import KFold
-
-import input.dataset as ds
-import input.genotype as gt
-from ldmatrix import partition_genome
+import heig.input.dataset as ds
+from heig.ldmatrix import partition_genome
+from heig.wgs.utils import GProcessor
+from hail.linalg import BlockMatrix
 
 
 """
@@ -50,8 +53,7 @@ class Relatedness:
         self.n, self.r = ldrs.shape
 
         self.inner_covar_inv = np.linalg.inv(np.dot(covar.T, covar))
-        self.resid_ldrs = ldrs - \
-            np.dot(np.dot(covar, self.inner_covar_inv), np.dot(covar.T, ldrs))
+        self.resid_ldrs = ldrs - np.dot(np.dot(covar, self.inner_covar_inv), np.dot(covar.T, ldrs))
         self.covar = covar
 
     def level0_ridge_block(self, block):
@@ -70,16 +72,14 @@ class Relatedness:
         """
         level0_preds = np.zeros((self.r, self.n, len(self.shrinkage)))
         block_covar = np.dot(block.T, self.covar)  # m by p
-        resid_block = block - \
-            np.dot(np.dot(self.covar, self.inner_covar_inv),
-                   block_covar.T)  # n by m
+        resid_block = block - np.dot(np.dot(self.covar, self.inner_covar_inv), block_covar.T)  # n by m
         proj_inner_block = np.dot(block.T, resid_block)  # m by m
         proj_block_ldrs = np.dot(block.T, self.resid_ldrs)  # m by r
         for i, param in enumerate(self.shrinkage):
             preds = np.dot(
                 resid_block,
-                np.dot(np.linalg.inv(proj_inner_block +
-                       np.eye(block.shape[1]) * param), proj_block_ldrs)
+                np.dot(np.linalg.inv(proj_inner_block + np.eye(block.shape[1]) * param), 
+                       proj_block_ldrs)
             )  # n by r
             level0_preds[:, :, i] = preds.T
 
@@ -102,10 +102,13 @@ class Relatedness:
         best_params = np.zeros(self.r)
         chr_preds = np.zeros((self.r, self.n, len(chr_idxs)))
         for j in range(self.r):
-            best_params[j] = self._level1_ridge_ldr(
-                level0_preds_reader[j], self.resid_ldrs[:, j])
+            best_params[j] = self._level1_ridge_ldr(level0_preds_reader[j], self.resid_ldrs[:, j])
             chr_preds[j] = self._chr_preds_ldr(
-                best_params[j], level0_preds_reader[j], self.resid_ldrs[:, j], chr_idxs)
+                best_params[j], 
+                level0_preds_reader[j], 
+                self.resid_ldrs[:, j], 
+                chr_idxs
+            )
 
         return chr_preds
 
@@ -134,8 +137,7 @@ class Relatedness:
             inner_train_x = np.dot(train_x.T, train_x)
             train_xy = np.dot(train_x.T, train_y)
             for j, param in enumerate(self.shrinkage):
-                preditors = np.dot(np.linalg.inv(
-                    inner_train_x + np.eye(train_x.shape[1]) * param), train_xy)
+                preditors = np.dot(np.linalg.inv(inner_train_x + np.eye(train_x.shape[1]) * param), train_xy)
                 predictions = np.dot(test_x, preditors)
                 mse[i, j] = np.mean((test_y - predictions) ** 2)
         mse = np.mean(mse, axis=0)
@@ -190,8 +192,7 @@ def merge_blocks(block_sizes, bim):
     chr_idxs: a dict of chr: block idxs
 
     """
-    chr_idxs_df = bim[['CHR', 'block_idx']].drop_duplicates(
-        inplace=True).set_index('block_idx')
+    chr_idxs_df = bim[['CHR', 'block_idx']].drop_duplicates(inplace=True).set_index('block_idx')
     n_blocks = len(block_sizes)
     mean_size = sum(block_sizes) / 200
     merged_blocks = []
@@ -235,19 +236,35 @@ def merge_blocks(block_sizes, bim):
     return merged_block_sizes, chr_idxs
 
 
-def check_input(args):
+def get_ld_blocks(snps_mt, start, end, bim):
+    bim = bim.iloc[start: end, :]
+    if len(set(bim[0])) != 1:
+        raise ValueError('the LD block is cross chromosomes')
+    chr = bim[0]
+    start = bim.iloc[0, 3]
+    end = bim.iloc[-1, 3]
+    snps_mt_block = snps_mt.filter_rows((snps_mt.locus.contig == chr) & 
+                                        (snps_mt.locus.position >= start) & 
+                                        (snps_mt.locus.position < end))
+    ld_block = BlockMatrix.from_entry_expr(snps_mt_block.flipped_n_alt_alleles, mean_impute=True) # (m, n)
+    ld_block = ld_block.to_numpy().T
+    
+    return ld_block
+
+
+def check_input(args, log):
     # required arguments
     if args.bfile is None:
         raise ValueError('--bfile is required.')
     if args.covar is None:
         raise ValueError('--covar is required.')
-    if args.ldrs in None:
+    if args.ldrs is None:
         raise ValueError('--ldrs is required.')
     if args.partition is None:
         raise ValueError('--partition is required.')
     if args.maf_min is not None:
-        if args.maf_min >= 1 or args.maf_min <= 0:
-            raise ValueError('--maf must be greater than 0 and less than 1.')
+        if args.maf_min > 0.5 or args.maf_min < 0:
+            raise ValueError('--maf-min must be greater than 0 and less than 0.5')
     if args.n_ldrs is not None and args.n_ldrs <= 0:
         raise ValueError('--n-ldrs should be greater than 0.')
 
@@ -261,68 +278,127 @@ def check_input(args):
     for suffix in ['.bed', '.fam', '.bim']:
         if not os.path.exists(args.bfile + suffix):
             raise FileNotFoundError(f'{args.bfile + suffix} does not exist.')
+    
+    temp_path = 'temp'
+    i = 0
+    while os.path.exists(temp_path):
+        temp_path += str(i)
+        i += 1
+        
+    if args.grch37 is None or not args.grch37:
+        geno_ref = 'GRCh38'
+    else:
+        geno_ref = 'GRCh37'
+    log.info(f'Set {geno_ref} as the reference genome.')
+
+    return temp_path, geno_ref
 
 
 def run(args, log):
-    log.info(f"Read covariates from {args.covar}")
-    covar = ds.Covar(args.covar, args.cat_covar_list)
-    log.info(f"Read LDRs from {args.ldrs}")
-    ldrs = ds.Dataset(args.ldrs)
+    # check input and configure hail
+    temp_path, geno_ref = check_input(args, log)
 
+    # read LDRs and covariates
+    log.info(f'Read LDRs from {args.ldrs}')
+    ldrs = ds.Dataset(args.ldrs)
+    log.info(f'{ldrs.data.shape[1]} LDRs and {ldrs.data.shape[0]} subjects.')
+    if args.n_ldrs is not None:
+        ldrs.data = ldrs.data.iloc[:, :args.n_ldrs]
+        if ldrs.data.shape[1] > args.n_ldrs:
+            log.info(f'WARNING: --n-ldrs greater than #LDRs, use all LDRs.')
+        else:
+            log.info(f'Keep the top {args.n_ldrs} LDRs.')        
+
+    log.info(f'Read covariates from {args.covar}')
+    covar = ds.Covar(args.covar, args.cat_covar_list)
+
+    # keep subjects
     if args.keep is not None:
         keep_idvs = ds.read_keep(args.keep)
-        log.info(f'{len(keep_idvs)} subjects are in --keep.')
+        log.info(f'{len(keep_idvs)} subjects in --keep.')
     else:
         keep_idvs = None
-    common_idxs = ds.get_common_idxs([covar.index, ldrs.index, keep_idvs])
+    common_ids = ds.get_common_idxs(ldrs.data.index, covar.data.index, keep_idvs, single_id=True)
 
+    # extract SNPs
     if args.extract is not None:
         keep_snps = ds.read_extract(args.extract)
-        log.info(f"{keep_snps} SNPs are in --extract.")
+        log.info(f"{len(keep_snps)} SNPs in --extract.")
     else:
         keep_snps = None
 
-    log.info(f"Read bfile from {args.bfile} with selected SNPs and individuals.")
-    bim, fam, snp_getter = gt.read_plink(
-        args.bfile, common_idxs, keep_snps, args.maf_min)
-    covar.keep(fam[['FID', 'IID']])  # make sure subjects aligned
-    ldrs.keep(fam[['FID', 'IID']])
-    log.info(f'{len(covar.data)} subjects are common in these files.\n')
+    # read genotype data
+    hl.init(quiet=True)
+    hl.default_reference = geno_ref
 
-    # genome partition to get LD blocks
-    log.info(f"Read genome partition from {args.partition}")
-    genome_part = ds.read_geno_part(args.partition)
-    log.info(f"{genome_part.shape[0]} genome blocks to partition.")
-    num_snps_list, bim = partition_genome(bim, genome_part, log)
+    log.info(f'Read bfile from {args.bfile}')
+    gprocessor = GProcessor.import_plink(args.bfile, geno_ref, 
+                                         maf_min=args.maf_min)
+    log.info(f"Processing genetic data ...")
+    gprocessor.extract_snps(keep_snps)
+    gprocessor.extract_idvs(common_ids)
+    gprocessor.do_processing(mode='gwas')
 
-    # merge small blocks to get ~200 blocks
-    log.info(f"Merge small blocks to get ~200 blocks.")
-    num_snps_list, chr_idxs = merge_blocks(num_snps_list, bim)
+    if not args.not_save_genotype_data:
+        log.info(f'Save preprocessed genotype data to {temp_path}')
+        gprocessor.save_interim_data(temp_path)
+    
+    try:
+        gprocessor.check_valid()
+        snps_mt_ids = gprocessor.subject_id()
+        ldrs.to_single_index()
+        covar.to_single_index()
+        ldrs.keep(snps_mt_ids)
+        covar.keep(snps_mt_ids)
+        covar.cat_covar_intercept()
+        log.info(f'{len(common_ids)} common subjects in the data.')
+        log.info(f"{covar.data.shape[1]} fixed effects in the covariates (including the intercept).")
 
-    # initialize a remover and do level 0 ridge prediction
-    relatedness_remover = Relatedness(
-        bim.shape[1], np.array(ldrs.data), np.array(covar.data))
-    with h5py.File(f'{args.out}_l0_pred_temp.h5', 'w') as file:
-        log.info(f'Doing level0 ridge regression ...')
-        dset = file.create_dataset('level0_preds',
-                                   (ldrs.shape[1],
-                                    ldrs.shape[0],
-                                    len(relatedness_remover.shrinkage),
-                                    len(num_snps_list)),
-                                   dtype='float32')
-        for i in range(num_snps_list):
-            n_snps = num_snps_list[i]
-            block_level0_preds = relatedness_remover.level0_ridge_block(
-                snp_getter(n_snps))
-            dset[:, :, :, i] = block_level0_preds
-    log.info(f'Save level0 ridge predictions to a temporary file {args.out}_l0_pred_temp.h5')
+        bim = gprocessor.get_bim()
+        # genome partition to get LD blocks
+        log.info(f"Read genome partition from {args.partition}")
+        genome_part = ds.read_geno_part(args.partition)
+        log.info(f"{genome_part.shape[0]} genome blocks to partition.")
+        # bim = pd.read_csv(args.bfile + '.bim', sep='\s+', header=None)
+        num_snps_list, bim = partition_genome(bim, genome_part, log)
 
-    # load level 0 predictions by each ldr and do level 1 ridge prediction
-    with h5py.File(f'{args.out}_l0_pred_temp.h5', 'r') as file:
-        log.info(f'Doing level1 ridge regression ...')
-        level0_preds = file['level0_preds']
-        chr_preds = relatedness_remover.level1_ridge(level0_preds, chr_idxs)
+        # merge small blocks to get ~200 blocks
+        log.info(f"Merge small blocks to get ~200 blocks.")
+        num_snps_list, chr_idxs = merge_blocks(num_snps_list, bim)
 
-    with h5py.File(f'{args.out}_ldr_loco_preds.h5', 'w') as file:
-        dset = file.create_dataset('ldr_loco_preds', data=chr_preds)
-    log.info(f'Save level1 loco ridge predictions to {args.out}_ldr_loco_preds.h5')
+        # initialize a remover and do level 0 ridge prediction
+        n_variants = gprocessor.snps_mt.rows().count()
+        n_blocks = ceil(n_variants // 1000)
+        relatedness_remover = Relatedness(
+            n_variants, np.array(ldrs.data), np.array(covar.data)
+        )
+        with h5py.File(f'{args.out}_l0_pred_temp.h5', 'w') as file:
+            log.info(f'Doing level0 ridge regression ...')
+            dset = file.create_dataset('level0_preds',
+                                    (ldrs.shape[1],
+                                        ldrs.shape[0],
+                                        len(relatedness_remover.shrinkage),
+                                        n_blocks),
+                                    dtype='float32')
+            start = 0
+            for i, n_snps in enumerate(num_snps_list):
+                end = start + n_snps
+                block = get_ld_blocks(gprocessor.snps_mt, start, end, bim)
+                block_level0_preds = relatedness_remover.level0_ridge_block(block)
+                dset[:, :, :, i] = block_level0_preds
+                start = end
+        log.info(f'Save level0 ridge predictions to a temporary file {args.out}_l0_pred_temp.h5')
+
+        # load level 0 predictions by each ldr and do level 1 ridge prediction
+        with h5py.File(f'{args.out}_l0_pred_temp.h5', 'r') as file:
+            log.info(f'Doing level1 ridge regression ...')
+            level0_preds = file['level0_preds']
+            chr_preds = relatedness_remover.level1_ridge(level0_preds, chr_idxs)
+
+        with h5py.File(f'{args.out}_ldr_loco_preds.h5', 'w') as file:
+            dset = file.create_dataset('ldr_loco_preds', data=chr_preds)
+        log.info(f'Save level1 loco ridge predictions to {args.out}_ldr_loco_preds.h5')
+    finally:
+        if os.path.exists(temp_path):
+            shutil.rmtree(temp_path)
+            log.info(f'Removed preprocessed genotype data at {temp_path}')
