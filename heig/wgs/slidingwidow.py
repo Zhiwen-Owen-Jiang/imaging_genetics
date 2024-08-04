@@ -1,18 +1,21 @@
+import os
+import shutil
 import h5py
 import numpy as np
-import pandas as pd
 import hail as hl
 from heig.wgs.staar import VariantSetTest
+import heig.input.dataset as ds
 from heig.wgs.utils import *
 
 
+
 class SlidingWindow:
-    def __init__(self, snps, variant_type, window_length):
+    def __init__(self, snps_mt, variant_type, window_length):
         """
-        The specific type of variants have been extracted; snps data has aligned with covariates
+        The specific type of variants have been extracted; genotype data has aligned with covariates
         
         """
-        self.snps = snps
+        self.snps_mt = snps_mt
         self.variant_type = variant_type
         self.window_length = window_length
         self.anno_pred = self.get_annotation()
@@ -53,7 +56,7 @@ class SlidingWindow:
         return windows
     
 
-def single_gene_analysis(snps, start, end, variant_type, window_length, vset_test):
+def single_gene_analysis(snps, start, end, variant_type, window_length, vset_test, log):
     """
     Single gene analysis
 
@@ -93,17 +96,96 @@ def check_input(args, log):
 
 def run(args, log):
     # checking if input is valid
-    start, end = check_input(args, log)
+    chr, start, end, voxel_list, variant_category, temp_path, geno_ref = check_input(args, log)
 
-    # reading data
+    # reading data for unrelated subjects
+    log.info(f'Read null model from {args.null_model}')
     with h5py.File(args.null_model, 'r') as file:
         covar = file['covar'][:]
         resid_ldr = file['resid_ldr'][:]
-        var = file['var'][:]
-        ids = file['ids'][:]
+        ids = file['id'][:].astype(str)
+        bases = file['bases'][:]
 
-    bases = np.load(args.bases)
-    inner_ldr = np.load(args.inner_ldr)
+    # subset voxels
+    if voxel_list is not None:
+        if np.max(voxel_list) + 1 <= bases.shape[0] and np.min(voxel_list) >= 0:
+            log.info(f'{len(voxel_list)} voxels included.')
+        else:
+            raise ValueError('--voxel index (one-based) out of range')
+    else:
+        voxel_list = np.arange(bases.shape[0])
+    bases = bases[voxel_list]
+
+    # keep selected LDRs
+    if args.n_ldrs is not None:
+        resid_ldr, bases = keep_ldrs(args.n_ldrs, resid_ldr, bases)
+        log.info(f'Keep the top {args.n_ldrs} LDRs and bases.')
+        
+    # keep subjects
+    if args.keep is not None:
+        keep_idvs = ds.read_keep(args.keep)
+        log.info(f'{len(keep_idvs)} subjects in --keep.')
+    else:
+        keep_idvs = None
+    common_ids = get_common_ids(ids, keep_idvs)
+
+    # extract SNPs
+    if args.extract is not None:
+        keep_snps = ds.read_extract(args.extract)
+        log.info(f"{len(keep_snps)} SNPs in --extract.")
+    else:
+        keep_snps = None
+
+    log.info(f'Reading genotype data from {args.geno_mt}')
+    gprocessor = GProcessor.read_matrix_table(args.geno_mt, geno_ref=geno_ref, 
+                                              variant_type=args.variant_type,
+                                              maf_min=args.maf_min, maf_max=args.maf_max)
+    
+    # do preprocessing
+    log.info(f"Processing genotype data ...")
+    gprocessor.extract_snps(keep_snps)
+    gprocessor.extract_idvs(common_ids)
+    gprocessor.do_processing(mode='wgs')
+    gprocessor.extract_gene(chr=chr, start=start, end=end)
+    
+    # save processsed data for faster analysis
+    if not args.not_save_genotype_data:
+        log.info(f'Save preprocessed genotype data to {temp_path}')
+        gprocessor.save_interim_data(temp_path)
+
+
+    try:
+        gprocessor.check_valid()
+        # extract and align subjects with the genotype data
+        snps_mt_ids = gprocessor.subject_id()
+        idx_common_ids = extract_align_subjects(ids, snps_mt_ids)
+        resid_ldr = resid_ldr[idx_common_ids]
+        covar = covar[idx_common_ids]
+        covar = remove_dependent_columns(covar)
+        log.info(f'{len(idx_common_ids)} common subjects in the data.')
+        log.info(f"{covar.shape[1]} fixed effects in the covariates after removing redundant effects.\n")
+
+        # single gene analysis
+        vset_test = VariantSetTest(bases, resid_ldr, covar)
+        cate_pvalues = single_gene_analysis(gprocessor.snps_mt, start, end, 
+                                            args.window_length, vset_test, log)
+        
+        # format output
+        n_voxels = bases.shape[0]
+        log.info('')
+        for cate, cate_results in cate_pvalues.items():
+            cate_output = format_output(cate_results['pvalues'], chr, start, end,
+                                        cate_results['n_variants'], n_voxels, cate)
+            out_path = f'{args.out}_chr{chr}_start{start}_end{end}_{cate}.txt'
+            cate_output.to_csv(out_path, sep='\t', header=True, na_rep='NA', 
+                               index=None, float_format='%.5e')
+            log.info(f'Save results for {OFFICIAL_NAME[cate]} to {out_path}')
+    finally:
+        if os.path.exists(temp_path):
+            shutil.rmtree(temp_path)
+            log.info(f'Removed preprocessed genotype data at {temp_path}')
+
+
 
     vset_test = VariantSetTest(bases, inner_ldr, resid_ldr, covar, var)
     snps = hl.read_matrix_table(args.avcfmt)

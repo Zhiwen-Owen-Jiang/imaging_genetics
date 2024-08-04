@@ -58,7 +58,7 @@ Annotation_name = ["CADD",
 class GProcessor:
     MODE = {
         'gwas':{
-            'defaults': {'maf_max': 0.5},  
+            'defaults': {'maf_min': 0},  
             'methods': ['_extract_variant_type', '_extract_maf', 
                         '_extract_call_rate', '_filter_hwe'],
             'conditions': {'_extract_variant_type': ['variant_type'],

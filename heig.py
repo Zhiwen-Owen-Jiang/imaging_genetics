@@ -134,7 +134,8 @@ common_parser.add_argument('--ldrs',
                            help=('Directory to LDR file. '
                                  'Supported modules: --gwas, --wgs-null, --relatedness.'))
 common_parser.add_argument('--geno-mt',
-                           help='Directory to genotype MatrixTable. Supported modules: --gwas, --wgs-coding.')
+                           help=('Directory to genotype MatrixTable. '
+                                 'Supported modules: --gwas, --wgs-coding, --relatedness.'))
 common_parser.add_argument('--grch37', action='store_true',
                            help=('Using reference genome GRCh37. Otherwise using GRCh38. '
                                  'Supported modules: --gwas, --annot-vcf.'))
@@ -316,7 +317,7 @@ def check_accepted_args(module, args, log):
                        'use_annotation_weights', 'n_ldrs', 'keep', 
                        'extract', 'range','voxel', 'not_save_genotype_data'},
         'relatedness': {'relatedness', 'out', 'ldrs', 'covar', 'cat_covar_list', 'bfile', 'partition',
-                    'maf_min', 'n_ldrs', 'grch37'} # more arguments to add            
+                    'maf_min', 'n_ldrs', 'grch37', 'geno_mt', 'not_save_genotype_data'} # more arguments to add            
     }
 
     ignored_args = []
