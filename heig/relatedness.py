@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 import hail as hl
 from tqdm import tqdm
-from math import ceil
 from collections import defaultdict
 from sklearn.model_selection import KFold
 import heig.input.dataset as ds
@@ -50,17 +49,14 @@ class Relatedness:
 
         """
         ## these may come from the null model
-        # shrinkage = np.array([0.01, 0.05, 0.1, 0.2, 0.3])
         shrinkage = np.array([0.01, 0.25, 0.5, 0.75, 0.99])
         shrinkage_ = (1 - shrinkage) / shrinkage
         self.shrinkage_level0 = n_snps * shrinkage_
-
-        # shrinkage = np.array([0.01, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.99])
-        # shrinkage_ = (1 - shrinkage) / shrinkage
         self.shrinkage_level1 = len(shrinkage) * n_blocks * shrinkage_
-        # self.shrinkage_level1 = shrinkage_
-        self.kf = KFold(n_splits=5)
+        self.kf = KFold(n_splits=5, shuffle=True, random_state=42)
         self.n, self.r = ldrs.shape
+        self.n_blocks = n_blocks
+        self.n_params = len(shrinkage)
 
         self.inner_covar_inv = np.linalg.inv(np.dot(covar.T, covar))
         self.resid_ldrs = ldrs - np.dot(np.dot(covar, self.inner_covar_inv), 
@@ -89,13 +85,17 @@ class Relatedness:
 
         proj_inner_block = np.dot(block.T, resid_block) # Z'(I-M)Z, (m, m)
         proj_block_ldrs = np.dot(resid_block.T, self.resid_ldrs) # Z'(I-M)\Xi, (m, r)
-        for i, param in enumerate(self.shrinkage_level0):
-            preds = np.dot(
-                resid_block,
-                np.dot(np.linalg.inv(proj_inner_block + np.eye(block.shape[1]) * param), 
-                       proj_block_ldrs)
-            ) # (I-M)Z (Z'(I-M)Z+\lambdaI)^{-1} Z'(I-M)\Xi, (n, r)
-            level0_preds[:, :, i] = preds.T
+
+        for _, test_idxs in self.kf.split(range(self.n)):
+            proj_inner_block_ = proj_inner_block - np.dot(block[test_idxs].T, resid_block[test_idxs])
+            proj_block_ldrs_ = proj_block_ldrs - np.dot(resid_block[test_idxs].T, self.resid_ldrs[test_idxs])
+            for i, param in enumerate(self.shrinkage_level0):
+                preds = np.dot(
+                    resid_block[test_idxs],
+                    np.dot(np.linalg.inv(proj_inner_block_ + np.eye(proj_inner_block_.shape[1]) * param), 
+                        proj_block_ldrs_)
+                ) # (I-M)Z (Z'(I-M)Z+\lambdaI)^{-1} Z'(I-M)\Xi, (n, r)
+                level0_preds[:, test_idxs, i] = preds.T
 
         return level0_preds
 
@@ -115,17 +115,45 @@ class Relatedness:
         """
         best_params = np.zeros(self.r)
         chr_preds = np.zeros((self.r, self.n, len(chr_idxs)))
-        for j in range(self.r):
+        
+        ## get column idxs for each CHR after reshaping
+        reshaped_idxs = self._get_reshaped_idxs(chr_idxs)
+
+        ## this can do in parallel
+        for j in tqdm(range(self.r), desc=f'{self.r} LDRs'):
             best_params[j] = self._level1_ridge_ldr(level0_preds_reader[j], self.resid_ldrs[:, j])
             chr_preds[j] = self._chr_preds_ldr(
                 best_params[j], 
                 level0_preds_reader[j], 
                 self.resid_ldrs[:, j], 
-                chr_idxs
+                reshaped_idxs
             )
 
         return chr_preds
 
+    def _get_reshaped_idxs(self, chr_idxs):
+        """
+        Getting predictors for each CHR in reshaped level0 ridge predictions
+
+        Parameters:
+        ------------
+        chr_idxs: a dictionary of chromosome: [blocks idxs]
+
+        Returns:
+        ---------
+        reshaped_idxs: a dictionary of chromosome: [predictor idxs]
+        
+        """
+        reshaped_idxs = dict()
+        for chr, idxs in chr_idxs.items():
+            chr = int(chr)
+            reshaped_idxs_chr = list()
+            for idx in idxs:
+                reshaped_idxs_chr.extend(range(idx, self.n_params * self.n_blocks, self.n_blocks))
+            reshaped_idxs[chr] = reshaped_idxs_chr
+        
+        return reshaped_idxs
+    
     def _level1_ridge_ldr(self, level0_preds, ldr):
         """
         Using cross-validation to select the optimal parameter for each ldr.
@@ -144,15 +172,18 @@ class Relatedness:
         level0_preds = level0_preds / np.std(level0_preds, axis=0)
         mse = np.zeros((5, len(self.shrinkage_level1)))
 
-        for i, (train_idxs, test_idxs) in enumerate(self.kf.split(level0_preds)):
-            train_x = level0_preds[train_idxs]
+        ## overall results
+        inner_level0_preds = np.dot(level0_preds.T, level0_preds)
+        level0_preds_ldr = np.dot(inner_level0_preds.T, ldr)
+        
+        ## cross validation
+        for i, (_, test_idxs) in enumerate(self.kf.split(level0_preds)):
             test_x = level0_preds[test_idxs]
-            train_y = ldr[train_idxs]
             test_y = ldr[test_idxs]
-            inner_train_x = np.dot(train_x.T, train_x)
-            train_xy = np.dot(train_x.T, train_y)
+            inner_train_x = inner_level0_preds - np.dot(test_x.T, test_x)
+            train_xy = level0_preds_ldr - np.dot(test_x.T, test_y)
             for j, param in enumerate(self.shrinkage_level1):
-                preditors = np.dot(np.linalg.inv(inner_train_x + np.eye(train_x.shape[1]) * param), 
+                preditors = np.dot(np.linalg.inv(inner_train_x + np.eye(inner_train_x.shape[1]) * param), 
                                    train_xy)
                 predictions = np.dot(test_x, preditors)
                 mse[i, j] = np.mean((test_y - predictions) ** 2)
@@ -162,7 +193,7 @@ class Relatedness:
 
         return best_param
 
-    def _chr_preds_ldr(self, best_param, level0_preds, ldr, chr_idxs):
+    def _chr_preds_ldr(self, best_param, level0_preds, ldr, reshaped_idxs):
         """
         Using the optimal parameter to get the chromosome-wise predictions
 
@@ -171,31 +202,37 @@ class Relatedness:
         best_param: the optimal parameter
         level0_preds: n by n_params by n_blocks matrix for ldr j
         ldr: resid ldr 
-        chr_idxs: a dictionary of chromosome: [blocks idxs]
+        reshaped_idxs: a dictionary of chromosome: [idxs in reshaped predictors]
 
         Returns:
         ---------
-        chr_predictions: loco predictions for ldr j
+        loco_predictions: loco predictions for ldr j, (n, 22)
 
         """
-        chr_predictions = np.zeros((self.n, len(chr_idxs)))
-        for chr, idxs in chr_idxs.items():
-            chr = int(chr)
-            chr_level0_preds = level0_preds[:, :, idxs]
-            chr_level0_preds = chr_level0_preds.reshape(chr_level0_preds.shape[0], -1)
-            chr_level0_preds = chr_level0_preds / np.std(chr_level0_preds, axis=0)
-            inner_chr_level0_preds = np.dot(chr_level0_preds.T, chr_level0_preds)
-            chr_preds_ldr = np.dot(chr_level0_preds.T, ldr)
-            chr_preditors = np.dot(
-                np.linalg.inv(
-                inner_chr_level0_preds + np.eye(chr_level0_preds.shape[1]) * best_param), 
-                chr_preds_ldr
-                )
-            chr_prediction = np.dot(chr_level0_preds, chr_preditors)
-            chr_predictions[:, chr-1] = chr_prediction
-        chr_predictions = np.sum(chr_predictions, axis=1) - chr_predictions
+        loco_predictions = np.zeros((self.n, 22))
+        level0_preds = level0_preds.reshape(self.n, -1)
+        level0_preds = level0_preds / np.std(level0_preds, axis=0)
 
-        return chr_predictions
+        ## overall results
+        inner_level0_preds = np.dot(level0_preds.T, level0_preds)
+        preds_ldr = np.dot(level0_preds.T, ldr)
+
+        ## exclude predictors from each CHR
+        for chr, idxs in reshaped_idxs.items():
+            chr = int(chr)
+            mask = np.ones(self.n_params * self.n_blocks, dtype=bool)
+            mask[idxs] = False
+            inner_loco_level0_preds = inner_level0_preds[mask, mask]
+            loco_preds_ldr = preds_ldr[mask]
+            loco_preditors = np.dot(
+                np.linalg.inv(
+                inner_loco_level0_preds + np.eye(inner_loco_level0_preds.shape[1]) * best_param), 
+                loco_preds_ldr
+                )
+            loco_prediction = np.dot(level0_preds[:, mask], loco_preditors)
+            loco_predictions[:, chr-1] = loco_prediction
+
+        return loco_predictions
 
 
 def merge_blocks(block_sizes, bim):
@@ -453,7 +490,7 @@ def run(args, log):
                                         ldrs.data.shape[0],
                                         len(relatedness_remover.shrinkage_level0),
                                         n_blocks),
-                                    dtype='float32')
+                                        dtype='float32')
             for i, block in enumerate(tqdm(blocks, desc=f'{n_blocks} blocks')):
                 # block = get_ld_blocks(gprocessor.snps_mt, start, end, bim)
                 block = BlockMatrix.from_entry_expr(block.GT.n_alt_alleles(), mean_impute=True) # (m, n)
@@ -469,7 +506,7 @@ def run(args, log):
             chr_preds = relatedness_remover.level1_ridge(level0_preds, chr_idxs)
 
         with h5py.File(f'{args.out}_ldr_loco_preds.h5', 'w') as file:
-            dset = file.create_dataset('ldr_loco_preds', data=chr_preds)
+            file.create_dataset('ldr_loco_preds', data=chr_preds, dtype='float32')
         log.info(f'Save level1 loco ridge predictions to {args.out}_ldr_loco_preds.h5')
     finally:
         if os.path.exists(temp_path):

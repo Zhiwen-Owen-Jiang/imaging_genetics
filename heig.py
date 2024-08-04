@@ -421,10 +421,10 @@ if __name__ == '__main__':
         opts = vars(args)
         non_defaults = [x for x in opts.keys() if opts[x] != defaults[x]]
         header = "heig.py \\\n"
-        options = ['--'+x.replace('_', '-')+' ' +
+        options = ['--' + x.replace('_', '-') + ' ' +
                    str(opts[x]) + ' \\' for x in non_defaults]
         header += '\n'.join(options).replace(' True', '').replace(' False', '')
-        header = header+'\n'
+        header = header +'\n'
         log.info(header)
         main(args, log)
     except Exception:
