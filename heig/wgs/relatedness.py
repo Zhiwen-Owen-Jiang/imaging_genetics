@@ -2,39 +2,39 @@ import os
 import h5py
 import shutil
 import numpy as np
-import pandas as pd
 import hail as hl
 from tqdm import tqdm
 from collections import defaultdict
 from sklearn.model_selection import KFold
 import heig.input.dataset as ds
-from heig.ldmatrix import partition_genome
 from heig.wgs.utils import GProcessor
 from hail.linalg import BlockMatrix
 
 
 """
-TODO: support parallel
+TODO: 
+1. support parallel
+2. spark configure
 
 """
 
 
 class Relatedness:
     """
-    Remove relatedness by ridge regression.
+    Remove genetic relatedness by ridge regression.
     Level 0 ridge:
-    1. Read SNPs by LD block
+    1. Read SNPs by block
     2. Generate a range of shrinkage parameters
-    For each LDR:
+    For each LDR, split the data into 5 folds:
     3. Compute predictors for each pair of LD block and shrinkage parameter
-    4. Save the predictors (?)
+    4. Save the predictors
 
     Level 1 ridge:
     For each LDR:
     1. Generate a range of shrinkage parameters
     2. Cross-validation to select the optimal shrinkage parameter
     2. Compute predictors using the optimal parameter
-    3. Save the predictors by each chromosome
+    3. Save the LOCO predictors for each chromosome and LDR
 
     """
 
@@ -49,14 +49,15 @@ class Relatedness:
 
         """
         ## these may come from the null model
-        shrinkage = np.array([0.01, 0.25, 0.5, 0.75, 0.99])
-        shrinkage_ = (1 - shrinkage) / shrinkage
-        self.shrinkage_level0 = n_snps * shrinkage_
-        self.shrinkage_level1 = len(shrinkage) * n_blocks * shrinkage_
-        self.kf = KFold(n_splits=5, shuffle=True, random_state=42)
         self.n, self.r = ldrs.shape
         self.n_blocks = n_blocks
         self.n_params = len(shrinkage)
+
+        shrinkage = np.array([0.01, 0.25, 0.5, 0.75, 0.99])
+        shrinkage_ = (1 - shrinkage) / shrinkage
+        self.shrinkage_level0 = n_snps * shrinkage_
+        self.shrinkage_level1 = self.n_params * n_blocks * shrinkage_
+        self.kf = KFold(n_splits=5, shuffle=True, random_state=42)
 
         self.inner_covar_inv = np.linalg.inv(np.dot(covar.T, covar))
         self.resid_ldrs = ldrs - np.dot(np.dot(covar, self.inner_covar_inv), 
@@ -78,11 +79,11 @@ class Relatedness:
 
         """
         level0_preds = np.zeros((self.r, self.n, len(self.shrinkage_level0)))
+
         block_covar = np.dot(block.T, self.covar) # Z'X, (m, p)
         resid_block = block - np.dot(np.dot(self.covar, self.inner_covar_inv), 
                                      block_covar.T) # (I-M)Z = Z-X(X'X)^{-1}X'Z, (n, m)
         resid_block = resid_block / np.std(resid_block, axis=0)
-
         proj_inner_block = np.dot(block.T, resid_block) # Z'(I-M)Z, (m, m)
         proj_block_ldrs = np.dot(resid_block.T, self.resid_ldrs) # Z'(I-M)\Xi, (m, r)
 
@@ -137,7 +138,7 @@ class Relatedness:
 
         Parameters:
         ------------
-        chr_idxs: a dictionary of chromosome: [blocks idxs]
+        chr_idxs: a dictionary of chromosome: [block idxs]
 
         Returns:
         ---------
@@ -174,10 +175,10 @@ class Relatedness:
 
         ## overall results
         inner_level0_preds = np.dot(level0_preds.T, level0_preds)
-        level0_preds_ldr = np.dot(inner_level0_preds.T, ldr)
+        level0_preds_ldr = np.dot(level0_preds.T, ldr)
         
         ## cross validation
-        for i, (_, test_idxs) in enumerate(self.kf.split(level0_preds)):
+        for i, (_, test_idxs) in enumerate(self.kf.split(range(self.n))):
             test_x = level0_preds[test_idxs]
             test_y = ldr[test_idxs]
             inner_train_x = inner_level0_preds - np.dot(test_x.T, test_x)
@@ -186,8 +187,8 @@ class Relatedness:
                 preditors = np.dot(np.linalg.inv(inner_train_x + np.eye(inner_train_x.shape[1]) * param), 
                                    train_xy)
                 predictions = np.dot(test_x, preditors)
-                mse[i, j] = np.mean((test_y - predictions) ** 2)
-        mse = np.mean(mse, axis=0)
+                mse[i, j] = np.sum((test_y - predictions) ** 2) # squared L2 norm
+        mse = np.sum(mse, axis=0) / self.n
         min_idx = np.argmin(mse)
         best_param = self.shrinkage_level1[min_idx]
 
@@ -219,10 +220,9 @@ class Relatedness:
 
         ## exclude predictors from each CHR
         for chr, idxs in reshaped_idxs.items():
-            chr = int(chr)
             mask = np.ones(self.n_params * self.n_blocks, dtype=bool)
             mask[idxs] = False
-            inner_loco_level0_preds = inner_level0_preds[mask, mask]
+            inner_loco_level0_preds = inner_level0_preds[mask, :][:, mask]
             loco_preds_ldr = preds_ldr[mask]
             loco_preditors = np.dot(
                 np.linalg.inv(
@@ -235,117 +235,149 @@ class Relatedness:
         return loco_predictions
 
 
-def merge_blocks(block_sizes, bim):
+class GenoBlocks:
     """
-    Merge adjacent blocks such that we have ~200 blocks with similar size
-
-    Parameters:
-    ------------
-    block_sizes: a list of LD block sizes 
-    bim: a snpinfo df including block idxs
-
-    Returns:
-    ---------
-    merged_blocks: a list of merged blocks. Each element is the size of merged blocks
-    chr_idxs: a dict of chr: block idxs
-
+    Splitting the genome into blocks based on
+    1. Pre-defined LD blocks, or
+    2. equal-size blocks (REGENIE)
+    
     """
-    chr_idxs_df = bim[['CHR', 'block_idx']].drop_duplicates(inplace=True).set_index('block_idx')
-    n_blocks = len(block_sizes)
-    mean_size = sum(block_sizes) / 200
-    merged_blocks = []
-    cur_size = 0
-    cur_group = []
-    last_chr = chr_idxs_df.loc[0, 'CHR']
-    for i, block_size in enumerate(block_sizes):
-        cur_chr = chr_idxs_df.loc[i, 'CHR']
-        if last_chr != cur_chr:
-            merged_blocks.append(tuple(cur_group))
-            cur_group = [i]
-            cur_size = block_size
-            last_chr = cur_chr
-            continue
-        if i < n_blocks - 1:
-            if cur_size + block_size <= mean_size or cur_size + block_size // 2 <= mean_size:
-                cur_group.append(i)
-                cur_size += block_size
-            else:
-                merged_blocks.append(tuple(cur_group))
-                cur_group = [i]
-                cur_size = block_size
+    def __init__(self, snps_mt, partition=None, block_size=1000):
+        """
+        Parameters:
+        ------------
+        snps_mt: genotype data in MatrixTable
+        partition: a pd.DataFrame of genome partition file with columns (without header)
+            0: chr, 1: start, 2: end
+        block_size: block size (if equal-size block) 
+        
+        """
+        self.snps_mt = snps_mt
+        self.partition = partition
+        self.block_size = block_size
+
+        if self.partition is not None:
+            self.blocks, self.chr_idxs = self._split_ld_blocks()
         else:
-            if cur_size + block_size <= mean_size or cur_size + block_size // 2 <= mean_size:
-                cur_group.append(i)
-                merged_blocks.append(tuple(cur_group))
-            else:
-                merged_blocks.append(tuple([i]))
-        last_chr = cur_chr
+            self.blocks, self.chr_idxs = self._split_equal_blocks()
 
-    merged_block_sizes = []
-    chr_idxs = defaultdict(list)
+    def _split_ld_blocks(self):
+        """
+        Splitting the genotype data into pre-defined LD blocks
+        Merging into ~200 blocks
 
-    for merged_block in merge_blocks:
-        block_size = 0
-        for idx in merged_block:
-            block_size += block_sizes[idx]
-            chr_idxs[chr_idxs_df.loc[idx, 'CHR']].append(idx)
-        merged_block_sizes.append(block_size)
+        Returns:
+        ---------
+        blocks: a list of blocks in MatrixTable
+        chr_idxs: a dictionary of chromosome: [block idxs]
 
-    return merged_block_sizes, chr_idxs
+        """
+        if self.partition is None:
+            raise ValueError('input a genome partition file by --partition')
+        
+        n_unique_chrs = len(set(self.partition[0]))
+        if n_unique_chrs > 22:
+            raise ValueError('sex chromosomes are not supported')
+        if n_unique_chrs < 22:
+            raise ValueError('genotype data including all autosomes is required')
 
-
-def split_blocks(snps_mt, block_size=1000):
-    """
-    Splitting the genotype data into equal-size blocks
-    
-    """
-    blocks = []
-    chr_idxs = defaultdict(list)
-    overall_block_idx = 0
-    chrs = set(snps_mt.aggregate_rows(hl.agg.collect(snps_mt.locus.contig))) # slow
-    
-    if len(chrs) > 22:
-        raise ValueError('sex chromosomes are not supported')
-    if len(chrs) < 22:
-        raise ValueError('genotype data including all autosomes is required')
-
-    for chr in chrs:
-        snps_mt_chr = snps_mt.filter_rows(snps_mt.locus.contig == chr)
-        snps_mt_chr = snps_mt_chr.add_row_index()
-        n_variants = snps_mt_chr.count_rows()
-        n_blocks = (n_variants // block_size) + int(n_variants % block_size > 0)
-        block_size_chr = n_variants // n_blocks
-
-        for block_idx in range(n_blocks):
-            start = block_idx * block_size_chr
-            if block_idx == n_blocks - 1:
-                end = n_variants
-            else:
-                end = (block_idx + 1) * block_size_chr
-            block_mt = snps_mt_chr.filter_rows(
-                (snps_mt_chr.row_idx >= start) & (snps_mt_chr.row_idx < end)
+        if self.partition.shape[0] > 200:
+            merged_partition = self._merge_ld_blocks()
+        else:
+            merged_partition = self.partition
+        blocks = []
+        chr_idxs = defaultdict(list)
+        overall_block_idx = 0
+        for _, block in merged_partition.iterrows():
+            contig = str(block[0])
+            if hl.default_reference == 'GRCh38':
+                contig = 'chr' + contig
+            start = block[1]
+            end = block[2]
+            block_mt = self.snps_mt.filter_rows(
+                (self.snps_mt.locus.contig == contig) & 
+                (self.snps_mt.locus.position >= start) & 
+                (self.snps_mt.locus.position < end)
             )
             blocks.append(block_mt)
-            chr_idxs[chr].append(overall_block_idx)
+            chr_idxs[block[0]].append(overall_block_idx)
             overall_block_idx += 1
 
-    return blocks, chr_idxs
+        return blocks, chr_idxs
 
+    def _merge_ld_blocks(self):
+        """
+        Merging small LD blocks to ~200 blocks
 
-def get_ld_blocks(snps_mt, start, end, bim):
-    bim = bim.iloc[start: end, :]
-    if len(set(bim[0])) != 1:
-        raise ValueError('the LD block is cross chromosomes')
-    chr = bim[0]
-    start = bim.iloc[0, 3]
-    end = bim.iloc[-1, 3]
-    snps_mt_block = snps_mt.filter_rows((snps_mt.locus.contig == chr) & 
-                                        (snps_mt.locus.position >= start) & 
-                                        (snps_mt.locus.position < end))
-    ld_block = BlockMatrix.from_entry_expr(snps_mt_block.flipped_n_alt_alleles, mean_impute=True) # (m, n)
-    ld_block = ld_block.to_numpy().T
-    
-    return ld_block
+        Returns:
+        ---------
+        merged_partition: a pd.DataFrame of merged partition
+        
+        """
+        ## merge blocks by CHR
+        n_blocks = self.partition.shape[0]
+        n_to_merge = n_blocks // 200
+        idx_to_extract = []
+        for _, chr_blocks in self.partition.groupby(0):
+            n_chr_blocks = chr_blocks.shape[0]
+            idx = chr_blocks.index
+            idx_to_extract.append(idx[0])
+            if n_chr_blocks >= n_to_merge:
+                idx_to_extract += list(idx[n_to_merge: : n_to_merge])
+            if idx[-1] not in idx_to_extract:
+                idx_to_extract.append(idx[-1])
+        merged_partition = self.partition.loc[idx_to_extract].copy()
+
+        ## the end of the current block should be the start of the next
+        updated_end = list()
+        for _, chr_blocks in merged_partition.groupby(0):
+            updated_end.extend(list(chr_blocks.iloc[1:, 1]))
+            updated_end.append(chr_blocks.iloc[-1, 2])
+        merged_partition[2] = updated_end
+
+        return merged_partition
+
+    def _split_equal_blocks(self):
+        """
+        Splitting the genotype data into approximately equal-size blocks
+
+        Returns:
+        ---------
+        blocks: a list of blocks in MatrixTable
+        chr_idxs: a dictionary of chromosome: [block idxs]
+        
+        """
+        blocks = []
+        chr_idxs = defaultdict(list)
+        overall_block_idx = 0
+        chrs = set(self.snps_mt.aggregate_rows(hl.agg.collect(self.snps_mt.locus.contig))) # slow
+        
+        if len(chrs) > 22:
+            raise ValueError('sex chromosomes are not supported')
+        if len(chrs) < 22:
+            raise ValueError('genotype data including all autosomes is required')
+
+        for chr in chrs:
+            snps_mt_chr = self.snps_mt.filter_rows(self.snps_mt.locus.contig == chr)
+            snps_mt_chr = snps_mt_chr.add_row_index()
+            n_variants = snps_mt_chr.count_rows()
+            n_blocks = (n_variants // self.block_size) + int(n_variants % self.block_size > 0)
+            block_size_chr = n_variants // n_blocks
+
+            for block_idx in range(n_blocks):
+                start = block_idx * block_size_chr
+                if block_idx == n_blocks - 1:
+                    end = n_variants
+                else:
+                    end = (block_idx + 1) * block_size_chr
+                block_mt = snps_mt_chr.filter_rows(
+                    (snps_mt_chr.row_idx >= start) & (snps_mt_chr.row_idx < end)
+                )
+                blocks.append(block_mt)
+                chr_idxs[chr].append(overall_block_idx)
+                overall_block_idx += 1
+
+        return blocks, chr_idxs
 
 
 def check_input(args, log):
@@ -356,8 +388,6 @@ def check_input(args, log):
         raise ValueError('--covar is required.')
     if args.ldrs is None:
         raise ValueError('--ldrs is required.')
-    if args.partition is None:
-        raise ValueError('--partition is required.')
     if args.maf_min is not None:
         if args.maf_min > 0.5 or args.maf_min < 0:
             raise ValueError('--maf-min must be greater than 0 and less than 0.5')
@@ -369,15 +399,19 @@ def check_input(args, log):
         raise FileNotFoundError(f"{args.covar} does not exist.")
     if not os.path.exists(args.ldrs):
         raise FileNotFoundError(f"{args.ldrs} does not exist.")
-    if not os.path.exists(args.partition):
+    if args.partition is not None and not os.path.exists(args.partition):
         raise FileNotFoundError(f"{args.partition} does not exist.")
-    if args.geno_mt is not None:
-        if not os.path.exists(args.geno_mt):
+    if args.geno_mt is not None and not os.path.exists(args.geno_mt):
             raise FileNotFoundError(f"{args.geno_mt} does not exist.")
     if args.bfile is not None:
         for suffix in ['.bed', '.fam', '.bim']:
             if not os.path.exists(args.bfile + suffix):
                 raise FileNotFoundError(f'{args.bfile + suffix} does not exist.')
+            
+    if args.bsize is not None and args.bsize < 1000:
+        raise ValueError('--bsize should be no less than 1000.')
+    elif args.bsize is None:
+        args.bsize = 1000
     
     temp_path = 'temp'
     i = 0
@@ -464,20 +498,20 @@ def run(args, log):
         log.info(f'{len(snps_mt_ids)} common subjects in the data.')
         log.info(f"{covar.data.shape[1]} fixed effects in the covariates (including the intercept).")
 
-        # bim = gprocessor.get_bim()
-        # # genome partition to get LD blocks
-        # log.info(f"Read genome partition from {args.partition}")
-        # genome_part = ds.read_geno_part(args.partition)
-        # log.info(f"{genome_part.shape[0]} genome blocks to partition.")
-        # # bim = pd.read_csv(args.bfile + '.bim', sep='\s+', header=None)
-        # num_snps_list, bim = partition_genome(bim, genome_part, log)
-
-        # # merge small blocks to get ~200 blocks
-        # log.info(f"Merge small blocks to get ~200 blocks.")
-        # num_snps_list, chr_idxs = merge_blocks(num_snps_list, bim)
+        # split the genome into blocks
+        if args.partition is not None:
+            genome_part = ds.read_geno_part(args.partition)
+            log.info(f"{genome_part.shape[0]} genome blocks to partition ...")
+            if genome_part.shape[0] > 200:
+                log.info(f'Merge into ~200 blocks.')
+        else:
+            genome_part = None
+            log.info(f"Partition the genome into blocks of size ~{args.bsize} ...")
+        
+        geno_block = GenoBlocks(gprocessor.snps_mt, genome_part, args.bsize)
+        blocks, chr_idxs = geno_block.blocks, geno_block.chr_idxs
 
         # initialize a remover and do level 0 ridge prediction
-        blocks, chr_idxs = split_blocks(gprocessor.snps_mt)
         n_variants = gprocessor.snps_mt.count_rows()
         n_blocks = len(blocks)
         relatedness_remover = Relatedness(
@@ -492,7 +526,6 @@ def run(args, log):
                                         n_blocks),
                                         dtype='float32')
             for i, block in enumerate(tqdm(blocks, desc=f'{n_blocks} blocks')):
-                # block = get_ld_blocks(gprocessor.snps_mt, start, end, bim)
                 block = BlockMatrix.from_entry_expr(block.GT.n_alt_alleles(), mean_impute=True) # (m, n)
                 block = block.to_numpy().T
                 block_level0_preds = relatedness_remover.level0_ridge_block(block)
@@ -502,8 +535,8 @@ def run(args, log):
         # load level 0 predictions by each ldr and do level 1 ridge prediction
         with h5py.File(f'{args.out}_l0_pred_temp.h5', 'r') as file:
             log.info(f'Doing level1 ridge regression ...')
-            level0_preds = file['level0_preds']
-            chr_preds = relatedness_remover.level1_ridge(level0_preds, chr_idxs)
+            level0_preds_reader = file['level0_preds']
+            chr_preds = relatedness_remover.level1_ridge(level0_preds_reader, chr_idxs)
 
         with h5py.File(f'{args.out}_ldr_loco_preds.h5', 'w') as file:
             file.create_dataset('ldr_loco_preds', data=chr_preds, dtype='float32')

@@ -287,6 +287,10 @@ wgs_coding_parser.add_argument('--mac-thresh', type=int,
 wgs_coding_parser.add_argument('--use-annotation-weights', action='store_true',
                                help='If using annotation weights.')
 
+# arguments for relatedness.py
+relatedness_parser.add_argument('--bsize', type=int,
+                                help="Block size of genotype blocks. Default: 1000.")
+
 
 def check_accepted_args(module, args, log):
     accepted_args = {
@@ -317,7 +321,8 @@ def check_accepted_args(module, args, log):
                        'use_annotation_weights', 'n_ldrs', 'keep', 
                        'extract', 'range','voxel', 'not_save_genotype_data'},
         'relatedness': {'relatedness', 'out', 'ldrs', 'covar', 'cat_covar_list', 'bfile', 'partition',
-                    'maf_min', 'n_ldrs', 'grch37', 'geno_mt', 'not_save_genotype_data'} # more arguments to add            
+                        'maf_min', 'n_ldrs', 'grch37', 'geno_mt', 'not_save_genotype_data', 
+                        'bsize'} # more arguments to add            
     }
 
     ignored_args = []
@@ -401,7 +406,7 @@ def main(args, log):
         coding.run(args, log)
     elif args.relatedness:
         check_accepted_args('relatedness', args, log)
-        import heig.relatedness as relatedness
+        import heig.wgs.relatedness as relatedness
         relatedness.run(args, log)
 
 
