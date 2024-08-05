@@ -315,8 +315,7 @@ def check_input(args, log):
         start_chr, start_pos = [int(x) for x in start.split(':')]
         end_chr, end_pos = [int(x) for x in end.split(':')]
     except:
-        raise ValueError(
-            '--range should be in this format: <CHR>:<POS1>,<CHR>:<POS2>')
+        raise ValueError('--range should be in this format: <CHR>:<POS1>,<CHR>:<POS2>')
     if start_chr != end_chr:
         raise ValueError((f'starting with chromosome {start_chr} '
                             f'while ending with chromosome {end_chr} '
