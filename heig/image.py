@@ -1,10 +1,129 @@
 import os
+import logging
 import h5py
+from abc import ABC, abstractmethod
 import numpy as np
 import pandas as pd
 import nibabel as nib
 from tqdm import tqdm
 import heig.input.dataset as ds
+
+
+class ImageReader(ABC):
+    """
+    An abstract class for reading images.
+    
+    """
+    def __init__(self, img_files, ids, out_dir):
+        self.img_files = img_files
+        self.n_images = len(self.img_files)
+        self.ids = ids
+        self.out_dir = out_dir
+        self.logger = logging.getLogger(__name__)
+
+    def create_dataset(self, coord_img_file):
+        """
+        Creating a HDF5 file saving images, coordinates, and ids
+        
+        """
+        coord = self._get_coord(coord_img_file)
+        image = self._read_image(self.img_files[0])
+        self.n_voxels = len(image)
+        if coord.shape[0] != self.n_voxels:
+            raise ValueError('images and coordinates have different resolution')
+        
+        with h5py.File(self.out_dir, 'w') as h5f:
+            images = h5f.create_dataset('images', shape=(self.n_images, self.n_voxels), dtype='float32')
+            h5f.create_dataset('id', data=np.array(self.ids.tolist(), dtype='S10'))
+            h5f.create_dataset('coord', data=coord)
+            images.attrs['id'] = 'id'
+            images.attrs['coord'] = 'coord'
+        self.logger.info((f"{self.n_images} subjects and {self.n_voxels} voxels (vertices) '
+                          'in the imaging data."))
+
+    def read_save_image(self):
+        """
+        Reading and saving images one by one
+        
+        """
+        with h5py.File(self.out_dir, 'r+') as h5f:
+            images = h5f['images']
+            for i, img_file in enumerate(tqdm(self.img_files, desc=f'Loading {self.n_images} images')):
+                image = self._read_image(img_file)
+                if len(image) != self.n_voxels:
+                    raise ValueError('images have inconsistent resolution')
+                images[i] = image
+
+    @abstractmethod
+    def _get_coord(self, coord_img_file):
+        pass
+
+    @abstractmethod
+    def _read_image(self, img_file):
+        pass
+
+
+class NIFTIReader(ImageReader):
+    """
+    Reading NIFTI images and coordinates.
+    
+    """
+    def _get_coord(self, coord_img_file):
+        img = nib.load(coord_img_file)
+        data = img.get_fdata()
+        coord = np.stack(np.nonzero(data)).T
+        return coord
+
+    def _read_image(self, img_file):
+        try:
+            img = nib.load(img_file)
+            data = img.get_fdata()
+            idxs = data != 0
+            return data[idxs]
+        except:
+            raise ValueError(('cannot read the image, did you provide FreeSurfer images '
+                            'but forget to provide a Freesurfer surface mesh file?'))
+
+
+class CIFTIReader(ImageReader):
+    """
+    Reading CIFTI images and coordinates.
+    
+    """
+    def _get_coord(self, coord_img_file):
+        """
+        Reading coordinates from a GIFTI image.
+        
+        """
+        coord = nib.load(coord_img_file).darrays[0].data
+        return coord
+
+    def _read_image(self, img_file):
+        try:
+            img = nib.load(img_file)
+            data = img.get_fdata()[0]
+            return data
+        except:
+            raise ValueError(('cannot read the image, did you provide FreeSurfer images '
+                            'but forget to provide a Freesurfer surface mesh file?'))
+
+
+class FreeSurferReader(ImageReader):
+    """
+    Loading FreeSurfer outputs and coordinates.
+    
+    """
+    def _get_coord(self, coord_img_file):
+        """
+        Reading coordinates from a Freesurfer surface mesh file
+        
+        """
+        coord = nib.freesurfer.read_geometry(coord_img_file)[0]
+        return coord
+
+    def _read_image(self, img_file):
+        data = nib.freesurfer.read_morph_data(img_file)
+        return data
 
 
 def get_image_list(img_dirs, suffixes, log, keep_idvs=None):
@@ -45,112 +164,19 @@ def get_image_list(img_dirs, suffixes, log, keep_idvs=None):
     return ids, img_files_list
 
 
-def load_nifti(img_files):
-    """
-    Loading NifTi images.
-
-    Parameters:
-    ------------
-    img_files: a list of image files
-
-    Returns:
-    ---------
-    images (n, N): a np.array of imaging data
-    coord (N, dim): a np.array of coordinates
-
-    """
-    try:
-        img = nib.load(img_files[0])
-    except:
-        raise ValueError(('cannot read the image, did you provide FreeSurfer images '
-                          'but forget to provide a Freesurfer surface mesh file?'))
-
-    for i, img_file in enumerate(tqdm(img_files, desc=f'Loading {len(img_files)} images')):
-        img = nib.load(img_file)
-        data = img.get_fdata()
-        if i == 0:
-            idxs = data != 0
-            coord = np.stack(np.nonzero(data)).T
-            n_voxels = np.sum(idxs)
-            images = np.zeros((len(img_files), n_voxels), dtype=np.float32)
-        images[i] = data[idxs]
-
-    return images, coord
-
-
-def load_cifti(img_files, coord):
-    """
-    Loading CIFTI images.
-
-    Parameters:
-    ------------
-    img_files: a list of image files
-
-    Returns:
-    ---------
-    images (n, N): a np.array of imaging data
-
-    """
-    try:
-        img = nib.load(img_files[0])
-    except:
-        raise ValueError(('cannot read the image, did you provide FreeSurfer images '
-                          'but forget to provide a Freesurfer surface mesh file?'))
-
-    for i, img_file in enumerate(tqdm(img_files, desc=f'Loading {len(img_files)} images')):
-        img = nib.load(img_file)
-        data = img.get_fdata()[0]
-        if i == 0:
-            n_voxels = len(data)
-            if n_voxels != coord.shape[0]:
-                raise ValueError('the CIFTI and GIFTI data has different number of vertices')
-            images = np.zeros((len(img_files), n_voxels), dtype=np.float32)
-        images[i] = data
-
-    return images
-
-
-def load_freesurfer(img_files, coord):
-    """
-    Loading freeSurfer outputs.
-
-    Parameters:
-    ------------
-    img_files: a list of image files
-    coord (N, dim): a np.array of coordinates 
-
-    Returns:
-    ---------
-    images (n, N): a np.array of imaging data
-
-    """
-    for i, img_file in enumerate(tqdm(img_files, desc=f'Loading {len(img_files)} images')):
-        data = nib.freesurfer.read_morph_data(img_file)
-        if i == 0:
-            images = np.zeros((len(img_files), len(data)), dtype=np.float32)
-            if coord.shape[0] != images.shape[1]:
-                raise ValueError(('the FreeSurfer surface mesh data and morphometry data '
-                                  'have inconsistent coordinates'))
-        if len(data) != images.shape[1]:
-            raise ValueError('images have inconsistent resolution')
-        images[i] = data
-
-    return images
-
-
-def save_images(out, images, coord, id):
+def save_images(out_dir, images, coord, id):
     """
     Save imaging data to a HDF5 file.
 
     Parameters:
     ------------
-    out: prefix of output
+    out_dir: prefix of output
     images (n, N): a np.array of imaging data
     coord (N, dim): a np.array of coordinate 
     id: a pd.MultiIndex instance of IDs (FID, IID)
 
     """
-    with h5py.File(f'{out}.h5', 'w') as file:
+    with h5py.File(out_dir, 'w') as file:
         dset = file.create_dataset('images', data=images)
         file.create_dataset('id', data=np.array(id.tolist(), dtype='S10'))
         file.create_dataset('coord', data=coord)
@@ -188,12 +214,10 @@ def check_input(args):
     if args.gifti is not None and not os.path.exists(args.gifti):
         raise FileNotFoundError(f"{args.gifti} does not exist")
 
-    return args
-
 
 def run(args, log):
     # check input
-    args = check_input(args)
+    check_input(args)
 
     # subjects to keep
     if args.keep is not None:
@@ -203,32 +227,33 @@ def run(args, log):
         keep_idvs = None
 
     # read images
+    out_dir = f"{args.out}_images.h5"
     if args.image_txt is not None:
         images = ds.Dataset(args.image_txt)
-        log.info(f'{images.data.shape[0]} subjects and {images.data.shape[1]} voxels read from {args.image_txt}')
+        log.info((f'{images.data.shape[0]} subjects and {images.data.shape[1]} '
+                 f'voxels (vertices) read from {args.image_txt}'))
         if keep_idvs is not None:
             images.keep(keep_idvs)
             log.info(f'Keep {images.data.shape[0]} subjects.')
         ids = images.data.index
+        images = np.array(images, dtype=np.float32)
 
         coord = pd.read_csv(args.coord, sep='\s+', header=None)
-        log.info(f'Read coordinate from {args.coord}')
-        if coord.shape[0] != images.data.shape[1]:
+        log.info(f'Read coordinates from {args.coord}')
+        if coord.shape[0] != images.shape[1]:
             raise ValueError('images and coordinates have different resolution')
-        images = np.array(images, dtype=np.float32)
+        save_images(out_dir, images, coord, ids)
     else:
         ids, img_files = get_image_list(args.image_dir, args.image_suffix, log, keep_idvs)
         if args.surface_mesh is not None:
-            coord = nib.freesurfer.read_geometry(args.surface_mesh)[0]
-            images = load_freesurfer(img_files, coord)
+            img_reader = FreeSurferReader(img_files, ids, out_dir)
+            img_reader.create_dataset(args.surface_mesh)
         elif args.gifti is not None:
-            coord = nib.load(args.gifti).darrays[0].data
-            images = load_cifti(img_files)
+            img_reader = CIFTIReader(img_files, ids, out_dir)
+            img_reader.create_dataset(args.gifti)
         else:
-            images, coord = load_nifti(img_files)
-        log.info((f"{images.shape[0]} subjects and {images.shape[1]} voxels '
-                  'in the imaging data."))
+            img_reader = NIFTIReader(img_files, ids, out_dir)
+            img_reader.create_dataset(img_files[0])
+        img_reader.read_save_image()   
 
-    # save images
-    save_images(args.out + '_images', images, coord, ids)
-    log.info(f'Save the images to {args.out}_images.h5')
+    log.info(f'Save the images to {out_dir}')
