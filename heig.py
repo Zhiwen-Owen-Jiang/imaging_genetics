@@ -27,10 +27,12 @@ parser = argparse.ArgumentParser(
 common_parser = parser.add_argument_group(title="Common arguments")
 herigc_parser = parser.add_argument_group(
     title="Arguments specific to heritability and (cross-trait) genetic correlation analysis")
-ksm_parser = parser.add_argument_group(
-    title="Arguments specific to Kernel smoothing")
+image_parser = parser.add_argument_group(
+    title="Arguments specific to reading images")
 fpca_parser = parser.add_argument_group(
     title="Arguments specific to functional PCA")
+ldr_parser = parser.add_argument_group(
+    title="Arguments specific to constructing LDRs")
 makeld_parser = parser.add_argument_group(
     title="Arguments specific to making an LD matrix and its inverse")
 sumstats_parser = parser.add_argument_group(
@@ -54,10 +56,12 @@ relatedness_parser = parser.add_argument_group(
 # module arguments
 herigc_parser.add_argument('--heri-gc', action='store_true',
                            help='Heritability and (cross-trait) genetic correlation analysis.')
-ksm_parser.add_argument('--kernel-smooth', action='store_true',
-                        help='Kernel smoothing.')
+image_parser.add_argument('--read-image', action='store_true',
+                          help='Reading images.')
 fpca_parser.add_argument('--fpca', action='store_true',
                          help='Functional PCA.')
+ldr_parser.add_argument('--make-ldr', action='store_true',
+                        help='Constructing LDRs.')
 makeld_parser.add_argument('--ld-matrix', action='store_true',
                            help='Making an LD matrix and its inverse.')
 sumstats_parser.add_argument('--sumstats', action='store_true',
@@ -80,16 +84,19 @@ relatedness_parser.add_argument('--relatedness', action='store_true',
 # common arguments
 common_parser.add_argument('--out',
                            help='Prefix of output.')
+common_parser.add_argument('--image',
+                           help=('Directory to processed raw images in HDF5 format. '
+                                 'Supported modules: --fpca, --make-ldr.'))
 common_parser.add_argument('--n-ldrs', type=int,
                            help=('Number of LDRs. Supported modules: '
-                                 '--heri-gc, --fpca, --voxel-gwas, --wgs-null, '
+                                 '--make-ldr, --fpca, --heri-gc, --voxel-gwas, --wgs-null, '
                                  '--wgs-coding, --wgs-sliding-window, --relatedness.'))
 common_parser.add_argument('--ldr-sumstats',
                            help=('Prefix of preprocessed LDR GWAS summary statistics. '
                                  'Supported modules: --heri-gc, --voxel-gwas.'))
 common_parser.add_argument('--bases',
                            help=('Directory to functional bases. Supported modules: '
-                                 '--heri-gc, --voxel-gwas, --wgs-null.'))
+                                 '--make-ldr, --heri-gc, --voxel-gwas, --wgs-null.'))
 common_parser.add_argument('--inner-ldr',
                            help=('Directory to inner product of LDRs. '
                                  'Supported modules: --heri-gc, --voxel-gwas.'))
@@ -99,7 +106,7 @@ common_parser.add_argument('--keep',
                                  'with the first column being FID and the second column being IID. '
                                  'Other columns will be ignored. '
                                  'Each row contains only one subject. '
-                                 'Supported modules: --kernel-smooth, --fpca, --ld-matrix, '
+                                 'Supported modules: --read-image, --fpca, --make-ldr, --ld-matrix, '
                                  '--wgs-null, --wgs-coding, --wgs-sliding-window, --relatedness.'))
 common_parser.add_argument('--extract',
                            help=('SNP file(s). Multiple files are separated by comma. '
@@ -115,11 +122,12 @@ common_parser.add_argument('--maf-min', type=float,
                                  '--wgs-coding, --wgs-sliding-window, --relatedness.'))
 common_parser.add_argument('--covar',
                            help=('Directory to covariate file. '
-                                 'Supported modules: --fpca, --gwas, --wgs-null, --relatedness.'))
+                                 'The file should be tab or space delimited, with each row only one subject. '
+                                 'Supported modules: --make-ldr, --gwas, --wgs-null, --relatedness.'))
 common_parser.add_argument('--cat-covar-list',
                            help=('List of categorical covariates to include in the analysis. '
                                  'Multiple covariates are separated by comma. '
-                                 'Supported modules: --fpca, --gwas, --wgs-null, --relatedness.'))
+                                 'Supported modules: --make-ldr, --gwas, --wgs-null, --relatedness.'))
 common_parser.add_argument('--bfile',
                            help=('Prefix of PLINK bfile triplets. '
                                  'When estimating LD matrix and its inverse, two prefices should be provided '
@@ -177,43 +185,45 @@ herigc_parser.add_argument('--heri-only', action='store_true',
                            help=('Flag for only computing voxelwise heritability '
                                  'and skipping voxelwise genetic correlation within images.'))
 
-# arguments for ksm.py
-ksm_parser.add_argument('--image-dir',
-                        help=('Directory to images. All images in the directory with matched suffix '
-                              '(see --image-suffix) will be loaded. '
-                              'Multiple directories can be provided and separated by comma. '
-                              '--keep can be used to load a subset of images (see --keep). '
-                              'The supported formats include NIFTI and CIFTI images '
-                              'and FreeSurfer morphometry data file.'))
-ksm_parser.add_argument('--image-suffix',
-                        help=('Suffix of images. HEIG requires the name of each image in the format <ID><suffix>, '
-                              'e.g., `1000001_masked_FAskel.nii.gz`, where `1000001` is the ID '
-                              'and `_masked_FAskel.nii.gz` is the suffix. '
-                              'HEIG will collect ID for each image. '
-                              'Multiple suffixes can be specified and separated by comma '
-                              'and the number of directories must match the number of suffices.'))
-ksm_parser.add_argument('--surface-mesh',
-                        help=('Directory to FreeSurfer surface mesh data. '
-                              'Required if loading FreeSurfer morphometry data files.'))
-ksm_parser.add_argument('--gifti',
-                        help=('Directory to GIFTI data for surface geometry. '
-                              'Required if loading CIFTI2 surface data.'))
-ksm_parser.add_argument('--bw-opt', type=float,
-                        help=('The bandwidth you want to use in kernel smoothing. '
-                              'HEIG will skip searching the optimal bandwidth. '
-                              'For images of any dimension, just specify one number, e.g, 0.5 '
-                              'for 3D images'))
+# arguments for image.py
+image_parser.add_argument('--image-txt',
+                          help=('Directory to images in txt format. '
+                                'The file should be tab or space delimited, with each row only one subject.'))
+image_parser.add_argument('--coord',
+                          help=('Directory to images in txt format. '
+                                'The file should be tab or space delimited, with each row only one voxel (vertex).'))
+image_parser.add_argument('--image-dir',
+                          help=('Directory to images. All images in the directory with matched suffix '
+                                '(see --image-suffix) will be loaded. '
+                                'Multiple directories can be provided and separated by comma. '
+                                '--keep can be used to load a subset of images (see --keep). '
+                                'The supported formats include NIFTI and CIFTI images '
+                                'and FreeSurfer morphometry data file.'))
+image_parser.add_argument('--image-suffix',
+                          help=('Suffix of images. HEIG requires the name of each image in the format <ID><suffix>, '
+                                'e.g., `1000001_masked_FAskel.nii.gz`, where `1000001` is the ID '
+                                'and `_masked_FAskel.nii.gz` is the suffix. '
+                                'HEIG will collect ID for each image. '
+                                'Multiple suffixes can be specified and separated by comma '
+                                'and the number of directories must match the number of suffices.'))
+image_parser.add_argument('--surface-mesh',
+                          help=('Directory to FreeSurfer surface mesh data. '
+                                'Required if loading FreeSurfer morphometry data files.'))
+image_parser.add_argument('--gifti',
+                          help=('Directory to GIFTI data for surface geometry. '
+                                'Required if loading CIFTI2 surface data.'))
 
 # arguments for fpca.py
-fpca_parser.add_argument('--image',
-                         help='Directory to processed raw images in HDF5 format.')
-fpca_parser.add_argument('--sm-image',
-                         help='Directory to processed smoothed images in HDF5 format.')
 fpca_parser.add_argument('--prop', type=float,
                          help='Proportion of imaging signals to keep, must be a number between 0 and 1.')
 fpca_parser.add_argument('--all', action='store_true',
                          help=('Flag for generating all principal components which is min(n_subs, n_voxels), '
                                'which may take longer time and very memory consuming.'))
+fpca_parser.add_argument('--bw-opt', type=float,
+                         help=('The bandwidth you want to use in kernel smoothing. '
+                              'HEIG will skip searching the optimal bandwidth. '
+                              'For images of any dimension, just specify one number, e.g, 0.5 '
+                              'for 3D images'))
 
 # arguments for ldmatrix.py
 makeld_parser.add_argument('--ld-regu',
@@ -311,10 +321,10 @@ def check_accepted_args(module, args, log):
         'heri_gc': {'out', 'heri_gc', 'ld_inv', 'ld', 'y2_sumstats',
                     'overlap', 'heri_only', 'n_ldrs', 'ldr_sumstats',
                     'bases', 'inner_ldr', 'extract', },
-        'kernel_smooth': {'out', 'kernel_smooth', 'keep', 'image_dir', 'image_suffix',
-                          'surface_mesh', 'gifti', 'bw_opt'},
-        'fpca': {'out', 'fpca', 'image', 'sm_image', 'prop', 'all', 'n_ldrs',
-                 'keep', 'covar', 'cat_covar_list'},
+        'read_image': {'out', 'read_image', 'keep', 'image_txt', 'coord', 
+                       'image_dir', 'image_suffix','surface_mesh', 'gifti'},
+        'fpca': {'out', 'fpca', 'image', 'prop', 'all', 'n_ldrs', 'keep', 'bw_opt'},
+        'make_ldr': {'out', 'make_ldr', 'image', 'bases', 'covar', 'cat_covar_list', 'keep'},
         'ld_matrix': {'out', 'ld_matrix', 'partition', 'ld_regu', 'bfile', 'keep',
                       'extract', 'maf_min'},
         'sumstats': {'out', 'sumstats', 'ldr_gwas', 'y2_gwas', 'n', 'n_col',
@@ -370,11 +380,11 @@ def main(args, log):
     dirname = os.path.dirname(args.out)
     if dirname != '' and not os.path.exists(dirname):
         raise ValueError(f'{os.path.dirname(args.out)} does not exist')
-    if (args.heri_gc + args.kernel_smooth + args.fpca + args.ld_matrix + args.sumstats + 
+    if (args.heri_gc + args.read_image + args.fpca + args.make_ldr + args.ld_matrix + args.sumstats + 
         args.voxel_gwas + args.gwas + args.annot_vcf + args.wgs_null + args.wgs_coding + 
         args.wgs_sliding_window + args.relatedness != 1):
         raise ValueError(('you must raise one and only one of following flags for doing analysis: '
-                          '--heri-gc, --kernel-smooth, --fpca, --ld-matrix, --sumstats, '
+                          '--heri-gc, --read-image, --fpca, --make-ldr, --ld-matrix, --sumstats, '
                           '--voxel-gwas, --gwas, --annot-vcf, --wgs-null, --wgs-coding, '
                           '--wgs-sliding-window, --relatedness'))
     if args.keep is not None:
@@ -386,14 +396,18 @@ def main(args, log):
         check_accepted_args('heri_gc', args, log)
         import heig.herigc as herigc
         herigc.run(args, log)
-    elif args.kernel_smooth:
-        check_accepted_args('kernel_smooth', args, log)
-        import heig.ksm as ksm
-        ksm.run(args, log)
+    elif args.read_image:
+        check_accepted_args('read_image', args, log)
+        import heig.image as image
+        image.run(args, log)
     elif args.fpca:
         check_accepted_args('fpca', args, log)
         import heig.fpca as fpca
         fpca.run(args, log)
+    elif args.make_ldr:
+        check_accepted_args('make_ldr', args, log)
+        import heig.ldr as ldr
+        ldr.run(args, log)
     elif args.ld_matrix:
         check_accepted_args('ld_matrix', args, log)
         import heig.ldmatrix as ldmatrix
