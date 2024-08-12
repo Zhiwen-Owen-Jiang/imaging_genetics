@@ -4,12 +4,6 @@ import numpy as np
 import pandas as pd
 import heig.input.dataset as ds
 
-"""
-Input: bases, covar
-Ouput: ldr, inner_ldr
-
-"""
-
 
 def projection_ldr(ldr, covar):
     """
@@ -76,36 +70,35 @@ def run(args, log):
 
     # read images
     log.info(f'Read raw images from {args.image}')
-    file = h5py.File(args.image, 'r')
-    images = file['images']
-    ids = file['id'][:]
-    ids = pd.MultiIndex.from_arrays(ids.astype(str).T, names=['FID', 'IID'])
-    if n_voxels != images.shape[1]:
-        raise ValueError('the images and bases have different resolution')
+    with h5py.File(args.image, 'r') as file:
+        images = file['images']
+        ids = file['id'][:]
+        ids = pd.MultiIndex.from_arrays(ids.astype(str).T, names=['FID', 'IID'])
+        if n_voxels != images.shape[1]:
+            raise ValueError('the images and bases have different resolution')
 
-    # read covariates
-    log.info(f"Read covariates from {args.covar}")
-    covar = ds.Covar(args.covar, args.cat_covar_list)
+        # read covariates
+        log.info(f"Read covariates from {args.covar}")
+        covar = ds.Covar(args.covar, args.cat_covar_list)
 
-    # keep subjects
-    if args.keep is not None:
-        keep_idvs = ds.read_keep(args.keep)
-        log.info(f'{len(keep_idvs)} subjects in --keep.')
-    else:
-        keep_idvs = None
+        # keep subjects
+        if args.keep is not None:
+            keep_idvs = ds.read_keep(args.keep)
+            log.info(f'{len(keep_idvs)} subjects in --keep.')
+        else:
+            keep_idvs = None
 
-    # keep common subjects
-    common_idxs = ds.get_common_idxs(ids, covar.data.index, keep_idvs)
-    log.info(f'{len(common_idxs)} common subjects in these files.')
+        # keep common subjects
+        common_idxs = ds.get_common_idxs(ids, covar.data.index, keep_idvs)
+        log.info(f'{len(common_idxs)} common subjects in these files.')
 
-    # contruct ldrs
-    ids_ = ids.isin(common_idxs)
-    id_idxs = np.arange(len(ids))[ids_]
-    ldrs = np.zeros((len(id_idxs), n_ldrs))
-    for i in id_idxs:
-        ldrs[i] = np.dot(images[i], bases)
-    file.close()
-    log.info(f'{n_ldrs} LDRs constructed.')
+        # contruct ldrs
+        ids_ = ids.isin(common_idxs)
+        id_idxs = np.arange(len(ids))[ids_]
+        ldrs = np.zeros((len(id_idxs), n_ldrs))
+        for i, id_idx in enumerate(id_idxs):
+            ldrs[i] = np.dot(images[id_idx], bases)
+        log.info(f'{n_ldrs} LDRs constructed.')
 
     # process covar
     covar.keep(common_idxs)
@@ -122,4 +115,4 @@ def run(args, log):
     np.save(f"{args.out}_proj_innerldr_top{n_ldrs}.npy", proj_inner_ldr)
 
     log.info(f"Save the raw LDRs to {args.out}_ldr_top{n_ldrs}.txt")
-    log.info(f"Save the projected inner product of LDRs to {args.out}_innerldr_top{n_ldrs}.npy")
+    log.info(f"Save the projected inner product of LDRs to {args.out}_proj_innerldr_top{n_ldrs}.npy")

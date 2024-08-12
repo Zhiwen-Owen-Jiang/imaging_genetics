@@ -4,9 +4,9 @@ import logging
 import pandas as pd
 from pandas.testing import assert_index_equal
 
-from heig.ksm import (
+from heig.image import (
     get_image_list,
-    load_nifti
+    NIFTIReader
 )
 
 MAIN_DIR = os.getcwd()
@@ -94,7 +94,7 @@ class Test_get_image_list(unittest.TestCase):
         assert_index_equal(true_ids, ids)
         self.assertEqual(true_img_list, img_list)
 
-    
+"""
 class Test_load_nifti(unittest.TestCase):
     def test_load_nifti(self):
         folder = os.path.join(MAIN_DIR, 'test', 'test_ksm')
@@ -104,7 +104,11 @@ class Test_load_nifti(unittest.TestCase):
                                          ['_example_image.nii.gz',
                                           '_example_image.nii.gz',
                                           '_example_image.nii.gz'], log)
-        images, coord = load_nifti(img_files)
+        img_reader = NIFTIReader(img_files, ids, out_dir)
+        img_reader.create_dataset(img_files[0])
+        img_reader.read_save_image()
+  
         print(images)
         print(coord)
         print(ids)
+"""

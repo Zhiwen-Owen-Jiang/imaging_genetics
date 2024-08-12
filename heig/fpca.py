@@ -72,7 +72,7 @@ class KernelSmooth:
             sparse_sm_weight = self.smoother(bw)
             mean_sm_weight_diag = np.sum(sparse_sm_weight.diagonal()) / self.N
             if sparse_sm_weight is not None:
-                diff = [np.sum((self.images[i] - self.images[i] @ sparse_sm_weight) ** 2) for i in self.id_idxs]
+                diff = [np.sum((self.images[id_idx] - self.images[id_idx] @ sparse_sm_weight) ** 2) for id_idx in self.id_idxs]
                 mean_diff = np.mean(diff)
                 score[cii] = mean_diff / (1 - mean_sm_weight_diag + 10**-10) ** 2
                 if score[cii] == 0:
@@ -170,47 +170,44 @@ def do_kernel_smoothing(raw_image_dir, sm_image_dir, keep_idvs, bw_opt, log):
     subject_wise_mean (N, ): sample mean of smoothed images, used in PCA
 
     """
-    file = h5py.File(raw_image_dir, 'r')
+    with h5py.File(raw_image_dir, 'r') as file:
+        images = file['images']
+        coord = file['coord'][:]
+        ids = file['id'][:]
+        ids = pd.MultiIndex.from_arrays(ids.astype(str).T, names=['FID', 'IID'])
 
-    images = file['images']
-    coord = file['coord'][:]
-    ids = file['id'][:]
-    ids = pd.MultiIndex.from_arrays(ids.astype(str).T, names=['FID', 'IID'])
+        if keep_idvs is not None:
+            common_ids = ds.get_common_idxs(ids, keep_idvs)
+        else:
+            common_ids = ids
+        id_idxs = np.arange(len(ids))[ids.isin(common_ids)]
 
-    if keep_idvs is not None:
-        common_ids = ds.get_common_idxs(ids, keep_idvs)
-    else:
-        common_ids = ids
-    id_idxs = np.arange(len(ids))[ids.isin(common_ids)]
+        ks = LocalLinear(images, coord, id_idxs)
+        if not bw_opt:
+            bw_list = ks.bw_cand()
+            log.info(f"Selecting the optimal bandwidth from\n{np.round(bw_list, 3)}.")
+            bw_opt = ks.gcv(bw_list, log)
+        else:
+            bw_opt = np.repeat(bw_opt, coord.shape[1])
+        log.info(f"Doing kernel smoothing using the optimal bandwidth.\n")
+        sparse_sm_weight = ks.smoother(bw_opt)
 
-    ks = LocalLinear(images, coord, id_idxs)
-    if not bw_opt:
-        bw_list = ks.bw_cand()
-        log.info(f"Selecting the optimal bandwidth from\n{np.round(bw_list, 3)}.")
-        bw_opt = ks.gcv(bw_list, log)
-    else:
-        bw_opt = np.repeat(bw_opt, coord.shape[1])
-    log.info(f"Doing kernel smoothing using the optimal bandwidth.\n")
-    sparse_sm_weight = ks.smoother(bw_opt)
-
-    n_voxels = images.shape[1]
-    n_subjects = len(id_idxs)
-    if sparse_sm_weight is not None:
-        subject_wise_mean = np.zeros(n_voxels)
-        with h5py.File(sm_image_dir, 'w') as h5f:
-            sm_images = h5f.create_dataset('sm_images', shape=(n_subjects, n_voxels), dtype='float32')
-            for i in range(n_subjects):
-                sm_image_i = images[i] @ sparse_sm_weight
-                sm_images[i] = sm_image_i
-                subject_wise_mean += sm_image_i / n_subjects
-            h5f.create_dataset('id', data=np.array(common_ids.tolist(), dtype='S10'))
-            h5f.create_dataset('coord', data=coord)
-            images.attrs['id'] = 'id'
-            images.attrs['coord'] = 'coord'
-    else:
-        raise ValueError('the bandwidth provided by --bw-opt may be problematic')
-
-    file.close()
+        n_voxels = images.shape[1]
+        n_subjects = len(id_idxs)
+        if sparse_sm_weight is not None:
+            subject_wise_mean = np.zeros(n_voxels)
+            with h5py.File(sm_image_dir, 'w') as h5f:
+                sm_images = h5f.create_dataset('sm_images', shape=(n_subjects, n_voxels), dtype='float32')
+                for i in range(n_subjects):
+                    sm_image_i = images[i] @ sparse_sm_weight
+                    sm_images[i] = sm_image_i
+                    subject_wise_mean += sm_image_i / n_subjects
+                h5f.create_dataset('id', data=np.array(common_ids.tolist(), dtype='S10'))
+                h5f.create_dataset('coord', data=coord)
+                images.attrs['id'] = 'id'
+                images.attrs['coord'] = 'coord'
+        else:
+            raise ValueError('the bandwidth provided by --bw-opt may be problematic')
 
     return subject_wise_mean
 
@@ -227,12 +224,11 @@ class fPCA:
         n_ldrs: a specified number of components
         
         """
+        self.logger = logging.getLogger(__name__)
         self.n_top = self._get_n_top(n_ldrs, max_n_pc, n_sub, dim, compute_all)
         self.batch_size = self._get_batch_size(max_n_pc, n_sub)
         self.n_batches = n_sub // self.batch_size
         self.ipca = IncrementalPCA(n_components=self.n_top, batch_size=self.batch_size)
-
-        self.logger = logging.getLogger(__name__)
         self.logger.info(f"Computing the top {self.n_top} components.")
 
     def _get_batch_size(self, max_n_pc, n_sub):
@@ -299,57 +295,54 @@ class fPCA:
 
 
 def do_fpca(sm_image_dir, subject_wise_mean, args, log):
-    file = h5py.File(sm_image_dir, 'r')
-    
-    sm_images = file['images']
-    n_subjects, n_voxels = sm_images.shape
-    coord = file['coord']
-    _, dim = coord.shape
+    with h5py.File(sm_image_dir, 'r') as file:
+        sm_images = file['images']
+        n_subjects, n_voxels = sm_images.shape
+        coord = file['coord']
+        _, dim = coord.shape
 
-    # setup parameters
-    log.info(f'Doing functional PCA ...')
-    max_n_pc = np.min((n_subjects, n_voxels))
-    fpca = fPCA(n_subjects, max_n_pc, dim, args.all, args.n_ldrs)
+        # setup parameters
+        log.info(f'Doing functional PCA ...')
+        max_n_pc = np.min((n_subjects, n_voxels))
+        fpca = fPCA(n_subjects, max_n_pc, dim, args.all, args.n_ldrs)
 
-    # incremental PCA
-    max_avail_n_sub = fpca.n_batches * fpca.batch_size
-    log.info((f'The smoothed images are split into {fpca.n_batches} batch(es), '
-                f'with batch size {fpca.batch_size}.'))
-    for i in tqdm(range(0, max_avail_n_sub, fpca.batch_size), desc=f"{fpca.n_batches} batch(es)"):
-        fpca.ipca.partial_fit(sm_images[i: i+fpca.batch_size] - subject_wise_mean)
-    values = fpca.ipca.singular_values_ ** 2
-    bases = fpca.ipca.components_.T
-    eff_num = np.sum(values) ** 2 / np.sum(values ** 2)
-
-    file.close()
+        # incremental PCA
+        max_avail_n_sub = fpca.n_batches * fpca.batch_size
+        log.info((f'The smoothed images are split into {fpca.n_batches} batch(es), '
+                    f'with batch size {fpca.batch_size}.'))
+        for i in tqdm(range(0, max_avail_n_sub, fpca.batch_size), desc=f"{fpca.n_batches} batch(es)"):
+            fpca.ipca.partial_fit(sm_images[i: i+fpca.batch_size] - subject_wise_mean)
+        values = fpca.ipca.singular_values_ ** 2
+        bases = fpca.ipca.components_.T
+        eff_num = np.sum(values) ** 2 / np.sum(values ** 2)
 
     return values, bases, eff_num, fpca.n_top
 
 
 def determine_n_ldr(values, prop, log):
-        """
-        Determine the number of LDRs for preserving a proportion of variance
+    """
+    Determine the number of LDRs for preserving a proportion of variance
 
-        Parameters:
-        ------------
-        values: a np.array of eigenvalues
-        prop: a scalar of proportion between 0 and 1
-        log: a logger
+    Parameters:
+    ------------
+    values: a np.array of eigenvalues
+    prop: a scalar of proportion between 0 and 1
+    log: a logger
 
-        Returns:
-        ---------
-        n_opt: the number of LDRs
+    Returns:
+    ---------
+    n_opt: the number of LDRs
 
-        """
-        eff_num = np.sum(values) ** 2 / np.sum(values ** 2)
-        prop_var = np.cumsum(values) / np.sum(values)
-        idxs = (prop_var <= prop) & (values != 0)
-        n_idxs = np.sum(idxs) + 1
-        n_opt = max(n_idxs, int(eff_num) + 1)
-        var_prop = np.sum(values[:n_opt]) / np.sum(values)
-        log.info((f'Approximately {round(var_prop * 100, 1)}% variance '
-                f'is captured by the top {n_opt} components.\n'))
-        return n_opt
+    """
+    eff_num = np.sum(values) ** 2 / np.sum(values ** 2)
+    prop_var = np.cumsum(values) / np.sum(values)
+    idxs = (prop_var <= prop) & (values != 0)
+    n_idxs = np.sum(idxs) + 1
+    n_opt = max(n_idxs, int(eff_num) + 1)
+    var_prop = np.sum(values[:n_opt]) / np.sum(values)
+    log.info((f'Approximately {round(var_prop * 100, 1)}% variance '
+            f'is captured by the top {n_opt} components.\n'))
+    return n_opt
 
 
 def check_input(args, log):

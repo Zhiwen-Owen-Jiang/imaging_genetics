@@ -26,20 +26,17 @@ class ImageReader(ABC):
         Creating a HDF5 file saving images, coordinates, and ids
         
         """
-        coord = self._get_coord(coord_img_file)
-        image = self._read_image(self.img_files[0])
-        self.n_voxels = len(image)
-        if coord.shape[0] != self.n_voxels:
-            raise ValueError('images and coordinates have different resolution')
+        self.coord = self._get_coord(coord_img_file)
+        self.n_voxels = self.coord.shape[0]
         
         with h5py.File(self.out_dir, 'w') as h5f:
             images = h5f.create_dataset('images', shape=(self.n_images, self.n_voxels), dtype='float32')
             h5f.create_dataset('id', data=np.array(self.ids.tolist(), dtype='S10'))
-            h5f.create_dataset('coord', data=coord)
+            h5f.create_dataset('coord', data=self.coord)
             images.attrs['id'] = 'id'
             images.attrs['coord'] = 'coord'
-        self.logger.info((f"{self.n_images} subjects and {self.n_voxels} voxels (vertices) '
-                          'in the imaging data."))
+        self.logger.info((f'{self.n_images} subjects and {self.n_voxels} voxels (vertices) '
+                          'in the imaging data.'))
 
     def read_save_image(self):
         """
@@ -51,7 +48,7 @@ class ImageReader(ABC):
             for i, img_file in enumerate(tqdm(self.img_files, desc=f'Loading {self.n_images} images')):
                 image = self._read_image(img_file)
                 if len(image) != self.n_voxels:
-                    raise ValueError('images have inconsistent resolution')
+                    raise ValueError(f'{img_file} is of resolution {len(image)} but the coordinate is of resolution {self.n_voxels}')
                 images[i] = image
 
     @abstractmethod
@@ -78,8 +75,8 @@ class NIFTIReader(ImageReader):
         try:
             img = nib.load(img_file)
             data = img.get_fdata()
-            idxs = data != 0
-            return data[idxs]
+            data = data[tuple(self.coord.T)]
+            return data
         except:
             raise ValueError(('cannot read the image, did you provide FreeSurfer images '
                             'but forget to provide a Freesurfer surface mesh file?'))
@@ -187,18 +184,18 @@ def save_images(out_dir, images, coord, id):
 def check_input(args):
     ## --image-txt + --coord or --image-dir + --image-suffix is required
     if args.image_txt is not None:
-        if args.coord is None:
-            raise ValueError('--coord is required')
+        if args.coord_txt is None:
+            raise ValueError('--coord-txt is required')
         if not os.path.exists(args.image_txt):
             raise FileNotFoundError(f"{args.image_txt} does not exist")
-        if not os.path.exists(args.coord):
-            raise FileNotFoundError(f"{args.coord} does not exist")
+        if not os.path.exists(args.coord_txt):
+            raise FileNotFoundError(f"{args.coord_txt} does not exist")
     elif args.image_dir is not None and args.image_suffix is None:
         raise ValueError('--image-suffix is required')
     elif args.image_dir is None and args.image_suffix is not None:
         raise ValueError('--image-dir is required')
-    else:
-        raise ValueError('--image-txt + --coord or --image-dir + --image-suffix is required')
+    elif args.image_dir is None and args.image_suffix is None:
+        raise ValueError('--image-txt + --coord-txt or --image-dir + --image-suffix is required')
     
     ## process arguments
     if args.image_dir is not None and args.image_suffix is not None:
@@ -209,10 +206,8 @@ def check_input(args):
         for image_dir in args.image_dir:
             if not os.path.exists(image_dir):
                 raise FileNotFoundError(f"{image_dir} does not exist")
-    if args.surface_mesh is not None and not os.path.exists(args.surface_mesh):
-        raise FileNotFoundError(f"{args.surface_mesh} does not exist")
-    if args.gifti is not None and not os.path.exists(args.gifti):
-        raise FileNotFoundError(f"{args.gifti} does not exist")
+    if args.coord_dir is not None and not os.path.exists(args.coord_dir):
+        raise FileNotFoundError(f"{args.coord_dir} does not exist")
 
 
 def run(args, log):
@@ -236,7 +231,7 @@ def run(args, log):
             images.keep(keep_idvs)
             log.info(f'Keep {images.data.shape[0]} subjects.')
         ids = images.data.index
-        images = np.array(images, dtype=np.float32)
+        images = np.array(images.data, dtype=np.float32)
 
         coord = pd.read_csv(args.coord, sep='\s+', header=None)
         log.info(f'Read coordinates from {args.coord}')
@@ -245,15 +240,15 @@ def run(args, log):
         save_images(out_dir, images, coord, ids)
     else:
         ids, img_files = get_image_list(args.image_dir, args.image_suffix, log, keep_idvs)
-        if args.surface_mesh is not None:
-            img_reader = FreeSurferReader(img_files, ids, out_dir)
-            img_reader.create_dataset(args.surface_mesh)
-        elif args.gifti is not None:
-            img_reader = CIFTIReader(img_files, ids, out_dir)
-            img_reader.create_dataset(args.gifti)
-        else:
+        if len(img_files) == 0:
+            raise ValueError(f'no image in {args.image_dir} with suffix {args.image_suffix}')
+        if args.coord_dir.endswith('nii.gz') or args.coord_dir.endswith('nii'):
             img_reader = NIFTIReader(img_files, ids, out_dir)
-            img_reader.create_dataset(img_files[0])
+        elif args.coord_dir.endswith('gii.gz') or args.coord_dir.endswith('gii'):
+            img_reader = CIFTIReader(img_files, ids, out_dir)
+        else:
+            img_reader = FreeSurferReader(img_files, ids, out_dir)
+        img_reader.create_dataset(args.coord_dir)
         img_reader.read_save_image()   
 
     log.info(f'Save the images to {out_dir}')

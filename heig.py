@@ -189,7 +189,7 @@ herigc_parser.add_argument('--heri-only', action='store_true',
 image_parser.add_argument('--image-txt',
                           help=('Directory to images in txt format. '
                                 'The file should be tab or space delimited, with each row only one subject.'))
-image_parser.add_argument('--coord',
+image_parser.add_argument('--coord-txt',
                           help=('Directory to images in txt format. '
                                 'The file should be tab or space delimited, with each row only one voxel (vertex).'))
 image_parser.add_argument('--image-dir',
@@ -206,12 +206,11 @@ image_parser.add_argument('--image-suffix',
                                 'HEIG will collect ID for each image. '
                                 'Multiple suffixes can be specified and separated by comma '
                                 'and the number of directories must match the number of suffices.'))
-image_parser.add_argument('--surface-mesh',
-                          help=('Directory to FreeSurfer surface mesh data. '
-                                'Required if loading FreeSurfer morphometry data files.'))
-image_parser.add_argument('--gifti',
-                          help=('Directory to GIFTI data for surface geometry. '
-                                'Required if loading CIFTI2 surface data.'))
+image_parser.add_argument('--coord-dir',
+                          help=('Directory to mask or complementary image for coordinates. '
+                                'It should be a NIFTI file (nii.gz) for NIFTI images; '
+                                'a GIFTI file (gii) for CIFTI2 surface data; '
+                                'a FreeSurfer surface mesh file (.pial) for FreeSurfer morphometry data.'))
 
 # arguments for fpca.py
 fpca_parser.add_argument('--prop', type=float,
@@ -321,10 +320,10 @@ def check_accepted_args(module, args, log):
         'heri_gc': {'out', 'heri_gc', 'ld_inv', 'ld', 'y2_sumstats',
                     'overlap', 'heri_only', 'n_ldrs', 'ldr_sumstats',
                     'bases', 'inner_ldr', 'extract', },
-        'read_image': {'out', 'read_image', 'keep', 'image_txt', 'coord', 
+        'read_image': {'out', 'read_image', 'keep', 'image_txt', 'coord_txt', 
                        'image_dir', 'image_suffix','surface_mesh', 'gifti'},
         'fpca': {'out', 'fpca', 'image', 'prop', 'all', 'n_ldrs', 'keep', 'bw_opt'},
-        'make_ldr': {'out', 'make_ldr', 'image', 'bases', 'covar', 'cat_covar_list', 'keep'},
+        'make_ldr': {'out', 'make_ldr', 'image', 'bases', 'n_ldrs', 'covar', 'cat_covar_list', 'keep'},
         'ld_matrix': {'out', 'ld_matrix', 'partition', 'ld_regu', 'bfile', 'keep',
                       'extract', 'maf_min'},
         'sumstats': {'out', 'sumstats', 'ldr_gwas', 'y2_gwas', 'n', 'n_col',

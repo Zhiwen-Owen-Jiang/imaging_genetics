@@ -112,7 +112,7 @@ def run(args, log):
             inner_ldr = inner_ldr[:args.n_ldrs, :args.n_ldrs]
 
     if bases.shape[1] != ldr_gwas.beta.shape[1] or bases.shape[1] != inner_ldr.shape[0]:
-        raise ValueError('dimension mismatch for --bases, --inner-ldr, and --ldr-sumstats')
+        raise ValueError('dimension mismatch for --bases, --inner-ldr, and --ldr-sumstats. Try to use --n-ldrs')
     log.info(f'Keep the top {bases.shape[1]} components.\n')
 
     # getting the outpath and SNP list
@@ -147,6 +147,7 @@ def run(args, log):
     ldr_se = ldr_gwas.se[idx]
     ldr_n = np.array(ldr_gwas.snpinfo['N']).reshape(-1, 1)
     ldr_n = ldr_n[idx]
+    # ldr_n = np.max(ldr_n) # to get the image sample size
     snp_info = ldr_gwas.snpinfo.loc[idx]
 
     # getting threshold
