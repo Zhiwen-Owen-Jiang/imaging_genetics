@@ -70,9 +70,9 @@ class KernelSmooth:
         for cii, bw in enumerate(bw_list):
             log.info(f"Doing generalized cross-validation (GCV) for bandwidth {np.round(bw, 3)} ...")
             sparse_sm_weight = self.smoother(bw)
-            mean_sm_weight_diag = np.sum(sparse_sm_weight.diagonal()) / self.N
             if sparse_sm_weight is not None:
-                diff = [np.sum((self.images[id_idx] - self.images[id_idx] @ sparse_sm_weight) ** 2) for id_idx in self.id_idxs]
+                mean_sm_weight_diag = np.sum(sparse_sm_weight.diagonal()) / self.N
+                diff = [np.sum((self.images[id_idx] - self.images[id_idx] @ sparse_sm_weight.T) ** 2) for id_idx in self.id_idxs]
                 mean_diff = np.mean(diff)
                 score[cii] = mean_diff / (1 - mean_sm_weight_diag + 10**-10) ** 2
                 if score[cii] == 0:
@@ -155,7 +155,7 @@ class LocalLinear(KernelSmooth):
 
 def do_kernel_smoothing(raw_image_dir, sm_image_dir, keep_idvs, bw_opt, log):
     """
-    A wrap function for doing kernel smoothing.
+    A wrapper function for doing kernel smoothing.
 
     Parameters:
     ------------
@@ -176,20 +176,24 @@ def do_kernel_smoothing(raw_image_dir, sm_image_dir, keep_idvs, bw_opt, log):
         ids = file['id'][:]
         ids = pd.MultiIndex.from_arrays(ids.astype(str).T, names=['FID', 'IID'])
 
+        log.info(f"{len(ids)} subjects and {coord.shape[0]} voxels (vertices) read from {raw_image_dir}")
+
         if keep_idvs is not None:
             common_ids = ds.get_common_idxs(ids, keep_idvs)
         else:
             common_ids = ids
         id_idxs = np.arange(len(ids))[ids.isin(common_ids)]
+        log.info(f"Using {len(id_idxs)} common subjects.")
 
+        log.info('\nDoing kernel smoothing ...')
         ks = LocalLinear(images, coord, id_idxs)
-        if not bw_opt:
+        if bw_opt is None:
             bw_list = ks.bw_cand()
             log.info(f"Selecting the optimal bandwidth from\n{np.round(bw_list, 3)}.")
             bw_opt = ks.gcv(bw_list, log)
         else:
             bw_opt = np.repeat(bw_opt, coord.shape[1])
-        log.info(f"Doing kernel smoothing using the optimal bandwidth.\n")
+        log.info(f"Doing kernel smoothing using the optimal bandwidth.")
         sparse_sm_weight = ks.smoother(bw_opt)
 
         n_voxels = images.shape[1]
@@ -198,14 +202,14 @@ def do_kernel_smoothing(raw_image_dir, sm_image_dir, keep_idvs, bw_opt, log):
             subject_wise_mean = np.zeros(n_voxels)
             with h5py.File(sm_image_dir, 'w') as h5f:
                 sm_images = h5f.create_dataset('sm_images', shape=(n_subjects, n_voxels), dtype='float32')
-                for i in range(n_subjects):
-                    sm_image_i = images[i] @ sparse_sm_weight
+                for i, id_idx in enumerate(id_idxs):
+                    sm_image_i = images[id_idx] @ sparse_sm_weight.T
                     sm_images[i] = sm_image_i
                     subject_wise_mean += sm_image_i / n_subjects
                 h5f.create_dataset('id', data=np.array(common_ids.tolist(), dtype='S10'))
                 h5f.create_dataset('coord', data=coord)
-                images.attrs['id'] = 'id'
-                images.attrs['coord'] = 'coord'
+                sm_images.attrs['id'] = 'id'
+                sm_images.attrs['coord'] = 'coord'
         else:
             raise ValueError('the bandwidth provided by --bw-opt may be problematic')
 
@@ -295,8 +299,26 @@ class fPCA:
 
 
 def do_fpca(sm_image_dir, subject_wise_mean, args, log):
+    """
+    A wrapper function for doing functional PCA.
+
+    Parameters:
+    ------------
+    sm_image_dir: directory to HDF5 file of smoothed images
+    subject_wise_mean (N, ): sample mean of smoothed images, used in PCA
+    args: arguments
+    log: a logger
+
+    Returns:
+    ---------
+    values (n_top, ): eigenvalues
+    bases (N, n_top): functional bases
+    eff_num (1, ): effective number
+    fpca.n_top (1, ): #PCs
+
+    """
     with h5py.File(sm_image_dir, 'r') as file:
-        sm_images = file['images']
+        sm_images = file['sm_images']
         n_subjects, n_voxels = sm_images.shape
         coord = file['coord']
         _, dim = coord.shape
@@ -381,9 +403,9 @@ def run(args, log):
 
     # kernel smoothing
     sm_image_dir = f'{args.out}_sm_images.h5'
-    subject_wise_mean = do_kernel_smoothing(args.image, sm_image_dir, 
-                                            args.bw_opt, keep_idvs, log)
-    log.info(f'Save smoothed images to {sm_image_dir}')
+    subject_wise_mean = do_kernel_smoothing(args.image, sm_image_dir, keep_idvs,
+                                            args.bw_opt,  log)
+    log.info(f'Save smoothed images to {sm_image_dir}\n')
 
     # fPCA
     values, bases, eff_num, n_top = do_fpca(sm_image_dir, subject_wise_mean, args, log)
@@ -396,8 +418,8 @@ def run(args, log):
     
     np.save(f"{args.out}_bases_top{n_opt}.npy", bases)
     np.save(f"{args.out}_eigenvalues_top{n_top}.npy", values)
-    log.info((f"The effective number of independent voxels is {round(eff_num, 3)}, "
+    log.info((f"The effective number of independent voxels (vertices) is {round(eff_num, 3)}, "
               f"which can be used in the Bonferroni p-value threshold (e.g., 0.05/{round(eff_num, 3)}) "
-              "across all voxels."))
+              "across all voxels (vertices)."))
     log.info(f"Save the top {n_opt} bases to {args.out}_bases_top{n_opt}.npy")
     log.info(f"Save the top {n_top} eigenvalues to {args.out}_eigenvalues_top{n_top}.npy")

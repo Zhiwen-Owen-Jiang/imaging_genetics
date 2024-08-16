@@ -233,8 +233,8 @@ def run(args, log):
         ids = images.data.index
         images = np.array(images.data, dtype=np.float32)
 
-        coord = pd.read_csv(args.coord, sep='\s+', header=None)
-        log.info(f'Read coordinates from {args.coord}')
+        coord = pd.read_csv(args.coord_txt, sep='\s+', header=None)
+        log.info(f'Read coordinates from {args.coord_txt}')
         if coord.shape[0] != images.shape[1]:
             raise ValueError('images and coordinates have different resolution')
         save_images(out_dir, images, coord, ids)
