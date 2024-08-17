@@ -3,6 +3,7 @@ import h5py
 import numpy as np
 import pandas as pd
 import heig.input.dataset as ds
+from heig.fpca import image_reader
 
 
 def projection_ldr(ldr, covar):
@@ -96,8 +97,12 @@ def run(args, log):
         ids_ = ids.isin(common_idxs)
         id_idxs = np.arange(len(ids))[ids_]
         ldrs = np.zeros((len(id_idxs), n_ldrs))
-        for i, id_idx in enumerate(id_idxs):
-            ldrs[i] = np.dot(images[id_idx], bases)
+        
+        start_idx, end_idx = 0, 0
+        for images_ in image_reader(images, id_idxs):
+            start_idx = end_idx
+            end_idx += images_.shape[0]
+            ldrs[start_idx: end_idx] = np.dot(images_, bases)
         log.info(f'{n_ldrs} LDRs constructed.')
 
     # process covar

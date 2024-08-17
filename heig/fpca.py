@@ -72,8 +72,8 @@ class KernelSmooth:
             sparse_sm_weight = self.smoother(bw)
             if sparse_sm_weight is not None:
                 mean_sm_weight_diag = np.sum(sparse_sm_weight.diagonal()) / self.N
-                diff = [np.sum((self.images[id_idx] - self.images[id_idx] @ sparse_sm_weight.T) ** 2) for id_idx in self.id_idxs]
-                mean_diff = np.mean(diff)
+                diff = [np.sum((images_ - images_ @ sparse_sm_weight.T) ** 2) for images_ in image_reader(self.images, self.id_idxs)]
+                mean_diff = np.sum(diff) / self.n
                 score[cii] = mean_diff / (1 - mean_sm_weight_diag + 10**-10) ** 2
                 if score[cii] == 0:
                     score[cii] = np.nan
@@ -153,6 +153,33 @@ class LocalLinear(KernelSmooth):
         return sparse_sm_weight
 
 
+def image_reader(images, id_idxs):
+    """
+    Reading imaging data in chunks, each chunk is ~5 GB
+
+    Parameters:
+    ------------
+    images (n, N): raw imaging data reference
+    id_idxs (n1, ): numerical indices of subjects that included in the analysis
+
+    Returns:
+    ---------
+    A generator of images
+
+    """
+    N = images.shape[1]
+    n = len(id_idxs)
+    memory_use = n * N * np.dtype(np.float32).itemsize / (1024 ** 3)
+    if memory_use <= 5:
+        batch_size = n
+    else:
+        batch_size = int(n / memory_use * 5)
+    
+    for i in range(0, n, batch_size):
+        id_idx_chuck = id_idxs[i: i+batch_size]
+        yield images[id_idx_chuck]
+
+
 def do_kernel_smoothing(raw_image_dir, sm_image_dir, keep_idvs, bw_opt, log):
     """
     A wrapper function for doing kernel smoothing.
@@ -202,10 +229,14 @@ def do_kernel_smoothing(raw_image_dir, sm_image_dir, keep_idvs, bw_opt, log):
             subject_wise_mean = np.zeros(n_voxels)
             with h5py.File(sm_image_dir, 'w') as h5f:
                 sm_images = h5f.create_dataset('sm_images', shape=(n_subjects, n_voxels), dtype='float32')
-                for i, id_idx in enumerate(id_idxs):
-                    sm_image_i = images[id_idx] @ sparse_sm_weight.T
-                    sm_images[i] = sm_image_i
-                    subject_wise_mean += sm_image_i / n_subjects
+                start_idx, end_idx = 0, 0
+                for images_ in image_reader(images, id_idxs):
+                    start_idx = end_idx
+                    end_idx += images_.shape[0]
+                    sm_image_ = images_ @ sparse_sm_weight.T
+                    sm_images[start_idx: end_idx] = sm_image_
+                    subject_wise_mean += np.sum(sm_image_, axis=0)
+                subject_wise_mean /= n_subjects
                 h5f.create_dataset('id', data=np.array(common_ids.tolist(), dtype='S10'))
                 h5f.create_dataset('coord', data=coord)
                 sm_images.attrs['id'] = 'id'
@@ -415,7 +446,8 @@ def run(args, log):
         n_opt = determine_n_ldr(values, args.prop, log)
     else:
         n_opt = n_top
-    
+    bases = bases[:, :n_opt]
+
     np.save(f"{args.out}_bases_top{n_opt}.npy", bases)
     np.save(f"{args.out}_eigenvalues_top{n_top}.npy", values)
     log.info((f"The effective number of independent voxels (vertices) is {round(eff_num, 3)}, "
