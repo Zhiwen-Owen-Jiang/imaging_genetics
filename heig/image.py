@@ -228,7 +228,8 @@ def run(args, log):
         log.info((f'{images.data.shape[0]} subjects and {images.data.shape[1]} '
                  f'voxels (vertices) read from {args.image_txt}'))
         if keep_idvs is not None:
-            images.keep(keep_idvs)
+            common_ids = ds.get_common_idxs(images.data.index, keep_idvs)
+            images.keep(common_ids)
             log.info(f'Keep {images.data.shape[0]} subjects.')
         ids = images.data.index
         images = np.array(images.data, dtype=np.float32)

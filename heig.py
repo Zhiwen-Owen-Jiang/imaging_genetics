@@ -12,7 +12,7 @@ numexpr.set_num_threads(int(os.environ['NUMEXPR_MAX_THREADS']))
 
 VERSION = '1.1.0'
 MASTHEAD = "******************************************************************************\n"
-MASTHEAD += "* Highly-Efficient Imaging Genetics (HEIG)\n"
+MASTHEAD += "* Highly Efficient Imaging Genetics (HEIG)\n"
 MASTHEAD += f"* Version {VERSION}\n"
 MASTHEAD += f"* Zhiwen Jiang and Hongtu Zhu\n"
 MASTHEAD += f"* Department of Biostatistics, University of North Carolina at Chapel Hill\n"
@@ -22,7 +22,7 @@ MASTHEAD += "*******************************************************************
 
 
 parser = argparse.ArgumentParser(
-    description='\n Highly-Efficient Imaging Genetics (HEIG) v1.1.0')
+    description=f'\n Highly Efficient Imaging Genetics (HEIG) v{VERSION}')
 
 common_parser = parser.add_argument_group(title="Common arguments")
 herigc_parser = parser.add_argument_group(

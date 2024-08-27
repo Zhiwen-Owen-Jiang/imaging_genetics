@@ -102,7 +102,8 @@ class KernelSmooth:
 
         """
         bw_raw = self.N ** (-1 / (4 + self.d))
-        weights = [0.2, 0.5, 1, 2, 5, 10]
+        # weights = [0.2, 0.5, 1, 2, 5, 10]
+        weights = [0.5, 0.8, 1, 1.2, 1.5, 2]
         bw_list = np.zeros((len(weights), self.d))
 
         for i, weight in enumerate(weights):

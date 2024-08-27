@@ -119,7 +119,8 @@ class Covar(Dataset):
             self.logger.info(f"{len(catlist)} categorical variables provided by --cat-covar-list.")
             self.data = self._dummy_covar(catlist)
         if not self.data.shape[1] == self.data.select_dtypes(include=np.number).shape[1]:
-            raise ValueError('did you forget some categorical variables?')
+            raise ValueError(('did you forget some categorical variables? Probably you left NAs as blank. '
+                              'Fill NAs as `NA`, `-9`, `NONE`, or `.`'))
         self._add_intercept()
         if self._check_singularity():
             raise ValueError('the covarite matrix is singular')
