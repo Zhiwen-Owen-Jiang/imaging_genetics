@@ -337,7 +337,7 @@ def check_input(args, log):
     else:
         voxel_list = None
 
-    temp_path = 'temp'
+    temp_path = os.path.join(os.path.dirname(args.out), 'temp')
     i = 0
     while os.path.exists(temp_path + str(i)):
         i += 1

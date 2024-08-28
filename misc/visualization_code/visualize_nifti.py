@@ -26,7 +26,7 @@ def main(args):
     
     # reading coordinate
     if args.coord is not None:
-        coord = np.loadtxt(args.coord, dtype=np.int)
+        coord = np.loadtxt(args.coord, dtype=int)
         print(f"Read coordinates from {args.coord}")
     elif args.coord_h5 is not None:
         with h5py.File(args.coord_h5, 'r') as file:
@@ -46,11 +46,11 @@ def main(args):
     
     # reading result file
     print(f"Read results from {args.res}")
-    res_file = pd.read_csv(args.res, delim_whitespace=True)
+    res_file = pd.read_csv(args.res, sep='\s+')
     
     # getting results and filling into the mask
     if hasattr(res_file, args.col_name):
-        res = res_file[args.col_name]
+        res = res_file[args.col_name] + args.offset
     else:
         raise ValueError(f'{args.col_name} cannot be found in {args.res}')
     temp_data[tuple(zip(*coord))] = res 
@@ -79,6 +79,7 @@ parser.add_argument('--coord', help='a white space-delimited coordinate file')
 parser.add_argument('--coord-h5', help=('a h5 image file produced by `--ksm` in HEIG. '
                                         'Coordinates are in the metadata.'))
 parser.add_argument('--mask', help='a mask file (e.g., .nii.gz) as template')
+parser.add_argument('--offset', type=int, help='a fixed number to ensure every result greater than 0.')
 parser.add_argument('--res', help='a white space-delimited result file')
 parser.add_argument('--col-name', help='which column in the result file you want to visualize')
 parser.add_argument('--out', help='output (prefix)')        

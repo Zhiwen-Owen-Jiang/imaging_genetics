@@ -7,6 +7,7 @@ from heig.wgs.utils import GProcessor, pandas_to_table
 
 """
 TODO: consider providing more preprocessing options? such as --chr
+incorporate spark config
 
 """
 
@@ -86,7 +87,7 @@ def check_input(args, log):
     else:
         start_chr, start_pos, end_pos = None, None, None
 
-    temp_path = 'temp'
+    temp_path = os.path.join(os.path.dirname(args.out), 'temp')
     i = 0
     while os.path.exists(temp_path):
         temp_path += str(i)
@@ -107,7 +108,7 @@ def do_gwas(snps_mt, n_ldrs, n_covar):
 
     gwas = hl.linear_regression_rows(
         y=pheno_list, x=snps_mt.GT.n_alt_alleles(),
-        covariates=covar_list, pass_through=[snps_mt.rsid]
+        covariates=covar_list, pass_through=[snps_mt.rsid, snps_mt.info.n_called]
     )
 
     gwas = gwas.annotate(chr=gwas.locus.contig,
@@ -158,7 +159,12 @@ def run(args, log):
         keep_snps = None
 
     # read genotype data
-    hl.init(quiet=True)
+    spark_conf = {
+    'spark.executor.memory': '8g',
+    'spark.driver.memory': '8g',
+    'spark.master': 'local[8]'
+    }
+    hl.init(quiet=True, spark_conf=spark_conf)
     hl.default_reference = geno_ref
 
     if args.bfile is not None:
@@ -196,8 +202,8 @@ def run(args, log):
         log.info(f'{len(common_ids)} common subjects in the data.')
         log.info(f"{covar.data.shape[1]} fixed effects in the covariates (including the intercept).")
 
-        covar_table = pandas_to_table(covar.data, temp_path)
-        ldrs_table = pandas_to_table(ldrs.data, temp_path)
+        covar_table = pandas_to_table(covar.data, f'{temp_path}_covar')
+        ldrs_table = pandas_to_table(ldrs.data, f'{temp_path}_ldr')
 
         # annotate ldrs and covar to snps_mt
         gprocessor.annotate_cols(ldrs_table, 'ldrs')
@@ -216,3 +222,9 @@ def run(args, log):
         if os.path.exists(temp_path):
             shutil.rmtree(temp_path)
             log.info(f'Removed preprocessed genotype data at {temp_path}')
+        if os.path.exists(f'{temp_path}_covar.txt'):
+            os.remove(f'{temp_path}_covar.txt')
+            log.info(f'Removed temporary covariate data at {temp_path}_covar.txt')
+        if os.path.exists(f'{temp_path}_ldr.txt'):
+            os.remove(f'{temp_path}_ldr.txt')
+            log.info(f'Removed temporary LDR data at {temp_path}_ldr.txt')

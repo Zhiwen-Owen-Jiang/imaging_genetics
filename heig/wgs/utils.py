@@ -1,4 +1,4 @@
-import shutil
+import os
 import hail as hl
 import numpy as np
 import pandas as pd
@@ -558,11 +558,8 @@ def pandas_to_table(df, dir):
         raise ValueError("the DataFrame must have a single index IID")
     df.to_csv(f'{dir}.txt', sep='\t', na_rep='NA')
 
-    try:
-        table = hl.import_table(f'{dir}.txt', key='IID', impute=True, 
-                                types={'IID': hl.tstr}, missing='NA')
-    finally:
-        shutil.rmtree(f'{dir}.txt')
+    table = hl.import_table(f'{dir}.txt', key='IID', impute=True, 
+                            types={'IID': hl.tstr}, missing='NA')      
 
     return table
     

@@ -420,29 +420,35 @@ def main(args, log):
         import heig.voxelgwas as voxelgwas
         voxelgwas.run(args, log)
     elif args.gwas:
-        check_accepted_args('gwas', args, log)
-        import heig.wgs.gwas as gwas
-        gwas.run(args, log)
+        log.info('--gwas module is under development.')
+        # check_accepted_args('gwas', args, log)
+        # import heig.wgs.gwas as gwas
+        # gwas.run(args, log)
     elif args.annot_vcf:
-        check_accepted_args('annot_vcf', args, log)
-        import heig.wgs.vcf2mt as vcf2mt
-        vcf2mt.run(args, log)
+        log.info('--annot-vcf module is under development.')
+        # check_accepted_args('annot_vcf', args, log)
+        # import heig.wgs.vcf2mt as vcf2mt
+        # vcf2mt.run(args, log)
     elif args.wgs_null:
-        check_accepted_args('wgs_null', args, log)
-        import heig.wgs.null as null
-        null.run(args, log)
+        log.info('--wgs-null module is under development.')
+        # check_accepted_args('wgs_null', args, log)
+        # import heig.wgs.null as null
+        # null.run(args, log)
     elif args.wgs_coding:
-        check_accepted_args('wgs_coding', args, log)
-        import heig.wgs.coding as coding
-        coding.run(args, log)
+        log.info('--wgs-coding module is under development.')
+        # check_accepted_args('wgs_coding', args, log)
+        # import heig.wgs.coding as coding
+        # coding.run(args, log)
     elif args.wgs_sliding_window:
-        check_accepted_args('wgs_sliding_window', args, log)
-        import heig.wgs.slidingwindow as slidingwindow
-        slidingwindow.run(args, log)
+        log.info('--wgs-sliding-window module is under development.')
+        # check_accepted_args('wgs_sliding_window', args, log)
+        # import heig.wgs.slidingwindow as slidingwindow
+        # slidingwindow.run(args, log)
     elif args.relatedness:
-        check_accepted_args('relatedness', args, log)
-        import heig.wgs.relatedness as relatedness
-        relatedness.run(args, log)
+        log.info('--relatedness module is under development.')
+        # check_accepted_args('relatedness', args, log)
+        # import heig.wgs.relatedness as relatedness
+        # relatedness.run(args, log)
 
 
 if __name__ == '__main__':
