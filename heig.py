@@ -213,8 +213,6 @@ image_parser.add_argument('--coord-dir',
                                 'a FreeSurfer surface mesh file (.pial) for FreeSurfer morphometry data.'))
 
 # arguments for fpca.py
-fpca_parser.add_argument('--prop', type=float,
-                         help='Proportion of imaging signals to keep, must be a number between 0 and 1.')
 fpca_parser.add_argument('--all', action='store_true',
                          help=('Flag for generating all principal components which is min(n_subs, n_voxels), '
                                'which may take longer time and very memory consuming.'))
@@ -321,8 +319,8 @@ def check_accepted_args(module, args, log):
                     'overlap', 'heri_only', 'n_ldrs', 'ldr_sumstats',
                     'bases', 'inner_ldr', 'extract', },
         'read_image': {'out', 'read_image', 'keep', 'image_txt', 'coord_txt', 
-                       'image_dir', 'image_suffix','surface_mesh', 'gifti'},
-        'fpca': {'out', 'fpca', 'image', 'prop', 'all', 'n_ldrs', 'keep', 'bw_opt'},
+                       'image_dir', 'image_suffix','coord_dir'},
+        'fpca': {'out', 'fpca', 'image', 'all', 'n_ldrs', 'keep', 'bw_opt'},
         'make_ldr': {'out', 'make_ldr', 'image', 'bases', 'n_ldrs', 'covar', 'cat_covar_list', 'keep'},
         'ld_matrix': {'out', 'ld_matrix', 'partition', 'ld_regu', 'bfile', 'keep',
                       'extract', 'maf_min'},

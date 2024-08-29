@@ -102,8 +102,8 @@ class KernelSmooth:
 
         """
         bw_raw = self.N ** (-1 / (4 + self.d))
-        # weights = [0.2, 0.5, 1, 2, 5, 10]
-        weights = [0.5, 0.8, 1, 1.2, 1.5, 2]
+        weights = [0.2, 0.5, 1, 2, 5, 10]
+        # weights = [1, 1.5, 2, 2.5, 3]
         bw_list = np.zeros((len(weights), self.d))
 
         for i, weight in enumerate(weights):
@@ -249,7 +249,7 @@ def do_kernel_smoothing(raw_image_dir, sm_image_dir, keep_idvs, bw_opt, log):
 
 
 class fPCA:
-    def __init__(self, n_sub, max_n_pc, dim, compute_all, n_ldrs):
+    def __init__(self, n_sub, max_n_pc, compute_all, n_ldrs):
         """
         Parameters:
         ------------
@@ -261,41 +261,13 @@ class fPCA:
         
         """
         self.logger = logging.getLogger(__name__)
-        self.n_top = self._get_n_top(n_ldrs, max_n_pc, n_sub, dim, compute_all)
-        self.batch_size = self._get_batch_size(max_n_pc, n_sub)
+        self.n_top = self._get_n_top(n_ldrs, max_n_pc, n_sub, compute_all)
+        self.batch_size = self.n_top
         self.n_batches = n_sub // self.batch_size
         self.ipca = IncrementalPCA(n_components=self.n_top, batch_size=self.batch_size)
         self.logger.info(f"Computing the top {self.n_top} components.")
 
-    def _get_batch_size(self, max_n_pc, n_sub):
-        """
-        Adaptively determine batch size
-
-        Parameters:
-        ------------
-        max_n_pc: the maximum possible number of components
-        n_sub: the sample size
-
-        Returns:
-        ---------
-        batch size for IncrementalPCA
-
-        """
-        if max_n_pc <= 15000:
-            if n_sub <= 50000:
-                return n_sub
-            else:
-                return n_sub // (n_sub // 50000 + 1)
-        else:
-            if self.n_top > 15000 or n_sub > 50000:
-                i = 2
-                while n_sub // i > 50000:
-                    i += 1
-                return n_sub // i
-            else:
-                return n_sub
-
-    def _get_n_top(self, n_ldrs, max_n_pc, n_sub, dim, compute_all):
+    def _get_n_top(self, n_ldrs, max_n_pc, n_sub, compute_all):
         """
         Determine the number of top components to compute in PCA.
 
@@ -304,7 +276,6 @@ class fPCA:
         n_ldrs: a specified number of components
         max_n_pc: the maximum possible number of components
         n_sub: the sample size
-        dim: the dimension of images
         compute_all: a boolean variable for computing all components
 
         Returns:
@@ -321,10 +292,7 @@ class fPCA:
             else:
                 n_top = n_ldrs
         else:
-            if dim == 1:
-                n_top = max_n_pc
-            else:
-                n_top = int(max_n_pc / (dim - 1))
+            n_top = int(max_n_pc / 10)
 
         n_top = np.min((n_top, n_sub))
         return n_top
@@ -352,13 +320,11 @@ def do_fpca(sm_image_dir, subject_wise_mean, args, log):
     with h5py.File(sm_image_dir, 'r') as file:
         sm_images = file['sm_images']
         n_subjects, n_voxels = sm_images.shape
-        coord = file['coord']
-        _, dim = coord.shape
 
         # setup parameters
         log.info(f'Doing functional PCA ...')
         max_n_pc = np.min((n_subjects, n_voxels))
-        fpca = fPCA(n_subjects, max_n_pc, dim, args.all, args.n_ldrs)
+        fpca = fPCA(n_subjects, max_n_pc, args.all, args.n_ldrs)
 
         # incremental PCA
         max_avail_n_sub = fpca.n_batches * fpca.batch_size
@@ -399,22 +365,41 @@ def determine_n_ldr(values, prop, log):
     return n_opt
 
 
+def print_prop_ldr(values, log):
+    prop_var = np.cumsum(values) / np.sum(values)
+    prop_ldrs = {}
+    for prop in [0.7, 0.75, 0.8, 0.85, 0.9, 0.95]:
+        prop_ldrs[prop] = np.sum(prop_var <= prop) + 1
+
+    max_key_len = max(len(str(key)) for key in prop_ldrs.keys())
+    max_val_len = max(len(str(value)) for value in prop_ldrs.values())
+    max_len = max([max_key_len, max_val_len])
+    keys_str = "  ".join(f"{str(key):<{max_len}}" for key in prop_ldrs.keys())
+    values_str = "  ".join(f"{str(value):<{max_len}}" for value in prop_ldrs.values())
+
+    log.info('The number of LDRs for preserving varying proportion of image variance:')
+    log.info(keys_str)
+    log.info(values_str)
+    log.info(('Note: they were estimated based on computed eigenvalues, might be downward biased. '
+              'Try to construct more LDRs if computationally affordable in downstream analyses.'))
+    
+    prop_ldrs_df = pd.DataFrame.from_dict(prop_ldrs, orient='index')
+    prop_ldrs_df.index.name = 'prop_var'
+    prop_ldrs_df = prop_ldrs_df.rename({0: 'n_ldrs'}, axis=1)
+
+    return prop_ldrs_df
+
 def check_input(args, log):
     if args.image is None:
         raise ValueError('--image is required')
     if args.all:
         log.info(('WARNING: computing all principal components might be very time '
-                  'and memory consuming when images are huge.'))
+                  'and memory consuming when images are of high resolution.'))
     if args.n_ldrs is not None and args.n_ldrs <= 0:
         raise ValueError('--n-ldrs should be greater than 0')
     if args.all and args.n_ldrs is not None:
         log.info('--all is ignored as --n-ldrs specified.')
         args.all = False
-    if args.prop is not None:
-        if args.prop <= 0 or args.prop > 1:
-            raise ValueError('--prop should be between 0 and 1')
-        elif args.prop < 0.8:
-            log.info('WARNING: keeping less than 80% of variance will have bad performance.')
     if args.bw_opt is not None and args.bw_opt <= 0:
         raise ValueError('--bw-opt should be positive')
 
@@ -441,18 +426,14 @@ def run(args, log):
 
     # fPCA
     values, bases, eff_num, n_top = do_fpca(sm_image_dir, subject_wise_mean, args, log)
+    prop_ldrs_df = print_prop_ldr(values, log)
 
-    # keep components
-    if args.prop:
-        n_opt = determine_n_ldr(values, args.prop, log)
-    else:
-        n_opt = n_top
-    bases = bases[:, :n_opt]
-
-    np.save(f"{args.out}_bases_top{n_opt}.npy", bases)
+    np.save(f"{args.out}_bases_top{n_top}.npy", bases)
     np.save(f"{args.out}_eigenvalues_top{n_top}.npy", values)
+    prop_ldrs_df.to_csv(f"{args.out}_ldrs_prop_var.txt", sep='\t')
     log.info((f"The effective number of independent voxels (vertices) is {round(eff_num, 3)}, "
               f"which can be used in the Bonferroni p-value threshold (e.g., 0.05/{round(eff_num, 3)}) "
-              "across all voxels (vertices)."))
-    log.info(f"Save the top {n_opt} bases to {args.out}_bases_top{n_opt}.npy")
+              "across all voxels (vertices).\n"))
+    log.info(f"Save the top {n_top} bases to {args.out}_bases_top{n_top}.npy")
     log.info(f"Save the top {n_top} eigenvalues to {args.out}_eigenvalues_top{n_top}.npy")
+    log.info(f"Save the number of LDRs table to {args.out}_ldrs_prop_var.txt")

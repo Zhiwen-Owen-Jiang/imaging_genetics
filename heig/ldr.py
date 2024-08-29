@@ -32,6 +32,11 @@ def projection_ldr(ldr, covar):
     return inner_ldr - part2
 
 
+def image_recovery_quality(images, ldrs, bases):
+    rec_images = np.dot(ldrs, bases.T)
+    corr = [np.corrcoef([rec_images[i], images[i]])[1,0] for i in range(images.shape[0])]
+    return corr
+
 def check_input(args):
     # required arguments
     if args.image is None:
@@ -99,11 +104,15 @@ def run(args, log):
         ldrs = np.zeros((len(id_idxs), n_ldrs))
         
         start_idx, end_idx = 0, 0
+        rec_corr = []
         for images_ in image_reader(images, id_idxs):
             start_idx = end_idx
             end_idx += images_.shape[0]
-            ldrs[start_idx: end_idx] = np.dot(images_, bases)
+            ldrs_ = np.dot(images_, bases)
+            ldrs[start_idx: end_idx] = ldrs_
+            rec_corr.extend(image_recovery_quality(images_, ldrs_, bases))
         log.info(f'{n_ldrs} LDRs constructed.')
+        log.info(f'Mean correlation between reconstructed images and raw images: {round(np.mean(rec_corr), 2)}.\n')
 
     # process covar
     covar.keep(common_idxs)
