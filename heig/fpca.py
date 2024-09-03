@@ -102,8 +102,8 @@ class KernelSmooth:
 
         """
         bw_raw = self.N ** (-1 / (4 + self.d))
-        weights = [0.2, 0.5, 1, 2, 5, 10]
-        # weights = [1, 1.5, 2, 2.5, 3]
+        # weights = [0.2, 0.5, 1, 2, 5, 10]
+        weights = [1, 1.5, 2, 2.5, 3, 5, 10]
         bw_list = np.zeros((len(weights), self.d))
 
         for i, weight in enumerate(weights):
@@ -334,6 +334,7 @@ def do_fpca(sm_image_dir, subject_wise_mean, args, log):
             fpca.ipca.partial_fit(sm_images[i: i+fpca.batch_size] - subject_wise_mean)
         values = fpca.ipca.singular_values_ ** 2
         bases = fpca.ipca.components_.T
+        bases = bases.astype(np.float32)
         eff_num = np.sum(values) ** 2 / np.sum(values ** 2)
 
     return values, bases, eff_num, fpca.n_top

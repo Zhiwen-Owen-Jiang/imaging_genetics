@@ -3,6 +3,7 @@ import h5py
 import numpy as np
 import pandas as pd
 import heig.input.dataset as ds
+from collections import defaultdict
 from heig.fpca import image_reader
 
 
@@ -33,9 +34,38 @@ def projection_ldr(ldr, covar):
 
 
 def image_recovery_quality(images, ldrs, bases):
+    """
+    Computing correlation between raw images and reconstructed images
+
+    Parameters:
+    ------------
+    images: a reference to a dataset in HDF5 file
+    ldrs: constructed LDRs
+    bases: corresponding bases
+    
+    """
     rec_images = np.dot(ldrs, bases.T)
     corr = [np.corrcoef([rec_images[i], images[i]])[1,0] for i in range(images.shape[0])]
     return corr
+
+
+def print_alt_corr(rec_corr, log):
+    max_key_len = max(len(str(key)) for key in rec_corr.keys())
+    max_val_len = max(len(str(value)) for value in rec_corr.values())
+    max_len = max([max_key_len, max_val_len])
+    keys_str = "  ".join(f"{str(key):<{max_len}}" for key in rec_corr.keys())
+    values_str = "  ".join(f"{str(value):<{max_len}}" for value in rec_corr.values())
+
+    log.info('Mean correlation between reconstructed images and raw images using varying numbers of LDRs:')
+    log.info(keys_str)
+    log.info(values_str)
+
+    max_corr = max(rec_corr.values())
+    max_n_ldrs = max(rec_corr.keys())
+    if max_corr < 0.85:
+        log.info((f'Using {max_n_ldrs} LDRs can achieve a correlation coefficient of {max_corr}, '
+                    'which might be too low, consider increasing LDRs.\n'))
+
 
 def check_input(args):
     # required arguments
@@ -104,15 +134,20 @@ def run(args, log):
         ldrs = np.zeros((len(id_idxs), n_ldrs))
         
         start_idx, end_idx = 0, 0
-        rec_corr = []
+        rec_corr = defaultdict(list)
+        alt_n_ldrs_list = [int(n_ldrs * prop) for prop in (0.6, 0.7, 0.8, 0.9, 1)]
+        log.info(f'Constructing {n_ldrs} LDRs ...')
         for images_ in image_reader(images, id_idxs):
             start_idx = end_idx
             end_idx += images_.shape[0]
             ldrs_ = np.dot(images_, bases)
             ldrs[start_idx: end_idx] = ldrs_
-            rec_corr.extend(image_recovery_quality(images_, ldrs_, bases))
-        log.info(f'{n_ldrs} LDRs constructed.')
-        log.info(f'Mean correlation between reconstructed images and raw images: {round(np.mean(rec_corr), 2)}.\n')
+            for alt_n_ldrs in alt_n_ldrs_list:
+                rec_corr[alt_n_ldrs].extend(image_recovery_quality(images_, ldrs_[:, :alt_n_ldrs], bases[:, :alt_n_ldrs]))
+
+        for alt_n_ldrs, corr in rec_corr.items():
+            rec_corr[alt_n_ldrs] = round(np.mean(corr), 2)
+        print_alt_corr(rec_corr, log)
 
     # process covar
     covar.keep(common_idxs)

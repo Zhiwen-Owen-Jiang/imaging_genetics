@@ -266,9 +266,6 @@ sumstats_parser.add_argument('--info-col',
                              help='INFO score column.')
 sumstats_parser.add_argument('--info-min', type=float,
                              help='Minimum INFO score for screening SNPs.')
-sumstats_parser.add_argument('--fast-sumstats', action='store_true',
-                             help=('Faster version of processing LDR summary statistics, '
-                                   'where only the first LDR is subject to quality checking and SNP pruning.'))
 
 # arguments for voxelgwas.py
 voxelgwas_parser.add_argument('--sig-thresh', type=float,
@@ -328,7 +325,7 @@ def check_accepted_args(module, args, log):
                      'chr_col', 'pos_col', 'snp_col', 'a1_col',
                      'a2_col', 'effect_col', 'se_col', 'z_col',
                      'p_col', 'maf_col', 'maf_min', 'info_col',
-                     'info_min', 'fast_sumstats'},
+                     'info_min'},
         'voxel_gwas': {'out', 'voxel_gwas', 'sig_thresh', 'voxel', 'range',
                        'extract', 'ldr_sumstats', 'n_ldrs',
                        'inner_ldr', 'bases'},

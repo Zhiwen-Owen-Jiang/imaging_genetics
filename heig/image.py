@@ -107,7 +107,7 @@ class CIFTIReader(ImageReader):
 
 class FreeSurferReader(ImageReader):
     """
-    Loading FreeSurfer outputs and coordinates.
+    Reading FreeSurfer outputs and coordinates.
     
     """
     def _get_coord(self, coord_img_file):

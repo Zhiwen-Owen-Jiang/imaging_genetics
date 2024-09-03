@@ -102,15 +102,16 @@ def run(args, log):
 
     # LDR subsetting
     if args.n_ldrs:
-        if args.n_ldrs > ldr_gwas.beta.shape[1] or args.n_ldrs > bases.shape[1] or args.n_ldrs > inner_ldr.shape[0]:
+        if args.n_ldrs > ldr_gwas.n_ldrs or args.n_ldrs > bases.shape[1] or args.n_ldrs > inner_ldr.shape[0]:
             log.info('WARNING: --n-ldrs is greater than the maximum #LDRs. Use all LDRs.')
         else:
-            ldr_gwas.beta = ldr_gwas.beta[:, :args.n_ldrs]
-            ldr_gwas.se = ldr_gwas.se[:, :args.n_ldrs]
+            # ldr_gwas.beta = ldr_gwas.beta[:, :args.n_ldrs]
+            # ldr_gwas.se = ldr_gwas.se[:, :args.n_ldrs]
+            ldr_gwas.n_ldrs = args.n_ldrs
             bases = bases[:, :args.n_ldrs]
             inner_ldr = inner_ldr[:args.n_ldrs, :args.n_ldrs]
 
-    if bases.shape[1] != ldr_gwas.beta.shape[1] or bases.shape[1] != inner_ldr.shape[0]:
+    if bases.shape[1] != ldr_gwas.n_ldrs or bases.shape[1] != inner_ldr.shape[0]:
         raise ValueError('dimension mismatch for --bases, --inner-ldr, and --ldr-sumstats. Try to use --n-ldrs')
     log.info(f'Keep the top {bases.shape[1]} components.\n')
 
@@ -142,8 +143,8 @@ def run(args, log):
         log.info(f"Keep {len(keep_snps['SNP'])} SNP(s) from --extract.")
 
     # extracting SNPs
-    ldr_beta = ldr_gwas.beta[idx]
-    ldr_se = ldr_gwas.se[idx]
+    # ldr_beta = ldr_gwas.beta[idx]
+    # ldr_se = ldr_gwas.se[idx]
     ldr_n = np.array(ldr_gwas.snpinfo['N']).reshape(-1, 1)
     ldr_n = ldr_n[idx]
     # ldr_n = np.max(ldr_n) # to get the image sample size
