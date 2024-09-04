@@ -155,38 +155,57 @@ def read_sumstats(prefix):
         raise FileNotFoundError(f"either .sumstats or .snpinfo file does not exist")
     
     file = h5py.File(sumstats_dir, 'r')
-    beta = file['beta']
-    se = file['se']
-    z = file['z']
     snpinfo = pd.read_csv(snpinfo_dir, sep='\s+')
 
-    if beta.shape[0] > 0:
-        n_snps = beta.shape[0]
-    else:
-        n_snps = z.shape[0]
-    if snpinfo.shape[0] != n_snps:
+    if snpinfo.shape[0] != file.attrs['n_snps']:
         raise ValueError(("summary statistics and the meta data contain different number of SNPs, "
                           "which means the files have been modified"))
 
-    return GWAS(beta, se, z, snpinfo)
+    return GWAS(file, snpinfo)
 
 
 class GWAS:
-    complement = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C'}
-
-    def __init__(self, beta, se, z, snpinfo):
+    def __init__(self, file, snpinfo):
         """
         Parameters:
         ------------
-        beta, se, and z are reference to a H5DF file
+        file: opened HDF5 file
         snpinfo: a pd.DataFrame of SNP info
         
         """
-        self.beta = beta
-        self.se = se
-        self.z = z
+        self.beta = file['beta']
+        self.se = file['se']
+        self.z = file['z']
+        self.n_snps = file.attrs['n_snps']
+        self.n_gwas = file.attrs['n_gwas']
+        self.file = file
         self.snpinfo = snpinfo
-        self.n_ldrs = beta.shape[1]
+
+    def data_reader(self, data_type_list, gwas_idxs, snps_idxs):
+        """
+        Reading summary statistics in chunks, each chunk is ~5 GB
+
+        Parameters:
+        ------------
+        data_type_list: a list of data type, including `beta`, `se`, and `z`
+        gwas_idxs (r, ): numerical indices of gwas to extract
+        snps_idxs (d, ): numerical/boolean indices of SNPs to extract
+
+        Returns:
+        ---------
+        A generator of sumstats
+
+        """
+        data_list = [getattr(self, data_type) for data_type in data_type_list] 
+        memory_use = self.n_snps * self.n_gwas * np.dtype(np.float32).itemsize / (1024 ** 3)
+        if memory_use <= 5:
+            batch_size = self.n_gwas
+        else:
+            batch_size = int(self.n_gwas / memory_use * 5)
+        
+        for i in range(0, self.n_gwas, batch_size):
+            gwas_idxs_chuck = gwas_idxs[i: i+batch_size]
+            yield [data[snps_idxs][:, gwas_idxs_chuck] for data in data_list]
 
     def get_zscore(self):
         """
@@ -230,6 +249,7 @@ class GWAS:
 
 
 class ProcessGWAS(ABC):
+    complement = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C'}
     required_cols = None
 
     def __init__(self, gwas_files, cols_map, cols_map2, out_dir, maf_min=None, info_min=None):
@@ -403,13 +423,15 @@ class GWASLDR(ProcessGWAS):
     required_cols = ['CHR', 'POS', 'SNP', 'A1', 'A2']
     
     def _create_dataset(self, n_snps):
-        with h5py.File(self.out_dir, 'w') as file:
+        with h5py.File(f'{self.out_dir}.sumstats', 'w') as file:
             file.create_dataset('beta', shape=(n_snps, self.n_gwas_files), dtype='float32')
             file.create_dataset('se', shape=(n_snps, self.n_gwas_files), dtype='float32')
             file.create_dataset('z', shape=(0,), dtype='float32')
+            file.attrs['n_snps'] = n_snps
+            file.attrs['n_gwas'] = self.n_gwas_files
 
     def _save_sumstats(self, index, beta, se):
-        with h5py.File(self.out_dir, 'r+') as file:
+        with h5py.File(f'{self.out_dir}.sumstats', 'r+') as file:
             file['beta'][:, index] = beta
             file['se'][:, index] = se
     
@@ -419,9 +441,9 @@ class GWASLDR(ProcessGWAS):
 
         """
         self.logger.info((f'Reading and processing {self.n_gwas_files} LDR GWAS summary statistics files. '
-                          'Only the first GWAS file will be QCed...\n'))
+                          'Only the first GWAS file will be QCed...'))
         
-        for i, gwas_file in tqdm(self.gwas_files, desc=f'Processing {self.n_gwas_files} LDR GWAS files'):
+        for i, gwas_file in tqdm(enumerate(self.gwas_files), desc=f'Processing {self.n_gwas_files} LDR GWAS files'):
             gwas_data = self._read_gwas(gwas_file)
 
             if i == 0:
@@ -431,8 +453,8 @@ class GWASLDR(ProcessGWAS):
                 orig_snps_list = gwas_data[['CHR', 'POS', 'SNP', 'A1', 'A2', 'N']]
                 valid_snp_idxs = np.ones(gwas_data.shape[0], dtype=bool)
 
-                self.logger.info(f'Pruning SNPs for {gwas_file} ...')
-                gwas_data = self._prune_snps(gwas_data, self.maf_min, self.info_min)
+                self.logger.info(f'Pruning SNPs for the first GWAS file ...')
+                gwas_data = self._prune_snps(gwas_data)
                 self._create_dataset(gwas_data.shape[0])
                 final_snps_list = gwas_data['SNP']
                 valid_snp_idxs = valid_snp_idxs & orig_snps_list['SNP'].isin(final_snps_list).values
@@ -452,13 +474,15 @@ class GWASY2(ProcessGWAS):
     required_cols = ['SNP', 'A1', 'A2']
 
     def _create_dataset(self, n_snps):
-        with h5py.File(self.out_dir, 'w') as file:
+        with h5py.File(f'{self.out_dir}.sumstats', 'w') as file:
             file.create_dataset('beta', shape=(0,), dtype='float32')
             file.create_dataset('se', shape=(0,), dtype='float32')
             file.create_dataset('z', shape=(n_snps, self.n_gwas_files), dtype='float32')
+            file.attrs['n_snps'] = n_snps
+            file.attrs['n_gwas'] = self.n_gwas_files
 
     def _save_sumstats(self, index, z):
-        with h5py.File(self.out_dir, 'r+') as file:
+        with h5py.File(f'{self.out_dir}.sumstats', 'r+') as file:
             file['z'][:, index] = z
 
     def process(self):
