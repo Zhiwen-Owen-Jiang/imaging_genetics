@@ -180,8 +180,13 @@ class GWAS:
         self.n_gwas = file.attrs['n_gwas']
         self.file = file
         self.snpinfo = snpinfo
+        self.snp_idxs = None
+        self.change_sign = None
 
-    def data_reader(self, data_type_list, gwas_idxs, snps_idxs):
+    def close(self):
+        self.file.close()
+
+    def data_reader(self, data_type_list, gwas_idxs, snps_idxs, all_gwas=False):
         """
         Reading summary statistics in chunks, each chunk is ~5 GB
 
@@ -190,6 +195,7 @@ class GWAS:
         data_type_list: a list of data type, including `beta`, `se`, and `z`
         gwas_idxs (r, ): numerical indices of gwas to extract
         snps_idxs (d, ): numerical/boolean indices of SNPs to extract
+        all: if reading all gwas
 
         Returns:
         ---------
@@ -198,7 +204,7 @@ class GWAS:
         """
         data_list = [getattr(self, data_type) for data_type in data_type_list] 
         memory_use = self.n_snps * self.n_gwas * np.dtype(np.float32).itemsize / (1024 ** 3)
-        if memory_use <= 5:
+        if memory_use <= 5 or all_gwas:
             batch_size = self.n_gwas
         else:
             batch_size = int(self.n_gwas / memory_use * 5)
@@ -229,12 +235,28 @@ class GWAS:
             keep_snps = pd.DataFrame(keep_snps, columns=['SNP'])
         self.snpinfo['id'] = self.snpinfo.index  # keep the index in df
         self.snpinfo = keep_snps.merge(self.snpinfo, on='SNP')
-        if self.z is None:
-            self.beta = self.beta[self.snpinfo['id']]
-            self.se = self.se[self.snpinfo['id']]
-        else:
-            self.z = self.z[self.snpinfo['id']]
+        self.snp_idxs = self.snpinfo['id'].values
+        self.n_snps = len(self.snp_idxs)
         del self.snpinfo['id']
+
+    def align_alleles(self, ref):
+        """
+        Aligning the summary statistics with the reference such that 
+        the Z scores are measured on the same allele.
+        This function requires that the gwas and the reference have
+        identical SNPs.
+
+        Parameters:
+        ------------
+        ref: a pd.Dataframe of bim file
+
+        """
+        if not (np.array(ref['SNP']) == np.array(self.snpinfo['SNP'])).all():
+            raise ValueError("the GWAS and the reference have different SNPs")
+
+        self.change_sign = ref['A1'].values != self.snpinfo['A1'].values
+        self.snpinfo['A1'] = ref['A1'].values
+        self.snpinfo['A2'] = ref['A2'].values
 
     def __eq__(self, other):
         if isinstance(other, GWAS):

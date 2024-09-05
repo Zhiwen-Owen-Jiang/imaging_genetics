@@ -1,42 +1,14 @@
 import os
+import h5py
 import numpy as np
 import pandas as pd
+from abc import ABC, abstractmethod
 from scipy.stats import chi2
-
 from heig import sumstats
 import heig.input.dataset as ds
 from heig.ldmatrix import LDmatrix
 from heig.ldsc import LDSC
 
-
-def align_alleles(ref, gwas):
-    """
-    Aligning the gwas with the reference such that 
-    the Z scores are measured on the same allele.
-    This function requires that the gwas and the reference have
-    identical SNPs.
-
-    Parameters:
-    ------------
-    ref: a pd.Dataframe of bim file
-    gwas: a GWAS instance
-
-    Returns:
-    ---------
-    gwas: a GWAS instance with align alleles
-
-    """
-    if not (np.array(ref['SNP']) == np.array(gwas.snpinfo['SNP'])).all():
-        raise ValueError("the GWAS and the reference have different SNPs")
-
-    aligned_z = [-gwas.z[i] if a11 != a12 else gwas.z[i]
-                 for i, (a11, a12) in enumerate(zip(ref['A1'], gwas.snpinfo['A1']))]
-
-    gwas.z = np.array(aligned_z)
-    gwas.snpinfo['A1'] = ref['A1'].values
-    gwas.snpinfo['A2'] = ref['A2'].values
-
-    return gwas
 
 
 def check_input(args, log):
@@ -119,113 +91,86 @@ def get_common_snps(*snp_list):
 
 
 def keep_ldrs(n_ldrs, bases, inner_ldr, ldr_gwas):
+    """
+    Extracting LDRs
+    
+    """
     if bases.shape[1] < n_ldrs:
         raise ValueError('the number of bases is less than --n-ldrs')
     if inner_ldr.shape[0] < n_ldrs:
         raise ValueError('the dimension of inner product of LDR is less than --n-ldrs')
-    if ldr_gwas.z.shape[1] < n_ldrs:
+    if ldr_gwas.n_gwas < n_ldrs:
         raise ValueError('LDRs in summary statistics is less than --n-ldrs')
     bases = bases[:, :n_ldrs]
     inner_ldr = inner_ldr[:n_ldrs, :n_ldrs]
-    ldr_gwas.z = ldr_gwas.z[:, :n_ldrs]
+    ldr_gwas.n_gwas = n_ldrs
 
     return bases, inner_ldr, ldr_gwas
 
 
-def read_process_data(args, log):
-    """
-    Reading and preprocessing data
-
-    """
-    # read LD matrices
-    ld = LDmatrix(args.ld)
-    log.info(f"Read LD matrix from {args.ld}")
-    ld_inv = LDmatrix(args.ld_inv)
-    log.info(f"Read LD inverse matrix from {args.ld_inv}")
-    if ld.ldinfo.shape[0] != ld_inv.ldinfo.shape[0]:
-        raise ValueError(('the LD matrix and LD inverse matrix have different number of SNPs. '
-                          'It is highly likely that the files were misspecified or modified'))
-    if not np.equal(ld.ldinfo[['A1', 'A2']].values, ld_inv.ldinfo[['A1', 'A2']].values).all():
-        raise ValueError('LD matrix and LD inverse matrix have different alleles for some SNPs')
-    log.info(f'{ld.ldinfo.shape[0]} SNPs read from LD matrix (and its inverse).')
-
-    # read bases and inner_ldr
-    bases = np.load(args.bases)
-    log.info(f'{bases.shape[1]} bases read from {args.bases}')
-    inner_ldr = np.load(args.inner_ldr)
-    log.info(f'Read inner product of LDRs from {args.inner_ldr}')
-
-    # read LDR gwas
-    ldr_gwas = sumstats.read_sumstats(args.ldr_sumstats)
-    ldr_gwas.get_zscore()
-    log.info(f'{ldr_gwas.snpinfo.shape[0]} SNPs read from LDR summary statistics {args.ldr_sumstats}')
-
-    # keep selected LDRs
-    if args.n_ldrs is not None:
-        bases, inner_ldr, ldr_gwas = keep_ldrs(args.n_ldrs, bases, inner_ldr, ldr_gwas)
-        log.info(f'Keep the top {args.n_ldrs} LDRs.')
-    
-    # check numbers of LDRs are the same
-    if bases.shape[1] != inner_ldr.shape[0] or bases.shape[1] != ldr_gwas.z.shape[1]:
-        raise ValueError(('inconsistent dimension for bases, inner product of LDRs, '
-                          'and LDR summary statistics. '
-                          'Try to use --n-ldrs'))
-
-    # read y2 gwas
-    if args.y2_sumstats:
-        y2_gwas = sumstats.read_sumstats(args.y2_sumstats)
-        log.info((f'{y2_gwas.snpinfo.shape[0]} SNPs read from non-imaging '
-                  f'summary statistics {args.y2_sumstats}'))
-    else:
-        y2_gwas = None
-
-    # extract SNPs
-    if args.extract is not None:
-        keep_snps = ds.read_extract(args.extract)
-        log.info(f"{len(keep_snps)} SNPs in --extract.")
-    else:
-        keep_snps = None
-
-    # get common snps from gwas, LD matrices, and keep_snps
-    common_snps = get_common_snps(ldr_gwas, ld, ld_inv,
-                                  y2_gwas, keep_snps)
-    log.info((f"{len(common_snps)} SNPs are common in these files with identical alleles. "
-              "Extracting them from each file ..."))
-
-    # extract common snps in LD matrix
-    ld.extract(common_snps)
-    ld_inv.extract(common_snps)
-
-    # extract common snps in summary statistics and do alignment
-    ldr_gwas.extract_snps(ld.ldinfo['SNP'])  # TODO: speed up
-    ldr_gwas = align_alleles(ld.ldinfo, ldr_gwas)
-
-    if args.y2_sumstats:
-        y2_gwas.extract_snps(ld.ldinfo['SNP'])
-        y2_gwas = align_alleles(ld.ldinfo, y2_gwas)
-    log.info(f"Aligned genetic effects of summary statistics to the same allele.\n")
-
-    return ldr_gwas, y2_gwas, bases, inner_ldr, ld, ld_inv
-
-
-class Estimation:
-    def __init__(self, z_mat, n, ld, ld_inv, bases, inner_ldr):
+class Estimation(ABC):
+    def __init__(self, ldr_gwas, ld, ld_inv, bases, inner_ldr):
         """
-        z_mat and y2_z have been normalized 
+        An abstract class for estimating heritability and genetic correlation
+
+        Parameters:
+        ------------
+        ldr_gwas: a GWAS instance
+        ld: a LDmatrix instance
+        ld_inv: a LDmatrix instance
+        bases: a np.array of bases (N, r)
+        inner_ldr: a np.array of inner product of LDRs (r, r)
 
         """
-        self.z_mat = z_mat
-        self.n = np.array(n)
-        self.nbar = np.mean(n)
+        self.ldr_gwas = ldr_gwas
+        self.n = ldr_gwas.snpinfo['N'].values.reshape(-1, 1)
+        self.N = bases.shape[0]
+        self.nbar = np.mean(self.n)
         self.ld = ld
         self.ld_inv = ld_inv
-        self.r = z_mat.shape[1]
+        self.r = ldr_gwas.n_gwas
         self.bases = bases
         self.inner_ldr = inner_ldr
         self.block_ranges = ld.block_ranges
+        self.sigmaX_var = np.sum(np.dot(bases, inner_ldr) * bases, axis=1) / self.nbar
 
-        self.sigmaX_cov = np.dot(np.dot(bases, inner_ldr), bases.T) / self.nbar
-        self.sigmaX_var = np.diag(self.sigmaX_cov)
+    def _ldr_sumstats_reader(self, start, end, all_ldrs=True, normal=True):
+        """
+        Reading LDRs sumstats from HDF5 file and preprocessing:
+        0. selecting a subset of LDRs
+        1. selecting SNPs, reading beta, se into memory, getting z
+        2. flipping +/-
+        3. normalization (optional)
+        4. yield
+
+        Parameters:
+        ------------
+        start: start index of a LD block
+        end: end index of a LD block
+        all_ldrs: if extracting all LDR sumstats
+        normal: if doing normalization
+
+        Returns:
+        ---------
+        preprocessed z scores
+        
+        """
+        block_snp_idxs = self.ldr_gwas.snp_idxs[start: end]
+        block_change_sign = self.ldr_gwas.change_sign[start: end]
+        block_n = self.n[start: end]
+        ldr_idxs = list(range(self.ldr_gwas.n_gwas))
+        data_reader = self.ldr_gwas.data_reader(['beta', 'se'], 
+                                                ldr_idxs, 
+                                                block_snp_idxs,
+                                                all_gwas=all_ldrs)
+        
+        for z, se in data_reader:
+            z = z / se
+            z[block_change_sign] = -1 * z[block_change_sign]
+            if normal:
+                sqrt_diag_inner_ldr = np.sqrt(np.diag(self.inner_ldr))
+                z = z * sqrt_diag_inner_ldr / block_n
+            yield z
 
     def _get_heri_se(self, heri, d, n):
         """
@@ -247,44 +192,40 @@ class Estimation:
         part3 = 2 * heri * (1 - heri) / n
         res = part1 + part2 + part3
         res[np.abs(res) < 10 ** -10] = 0
-
         return np.sqrt(res)
+    
+    @staticmethod
+    def _qc(est, est_se, est_min, est_max, est_se_min, est_se_max):
+        invalid_est = ((est > est_max) | (est < est_min) | 
+                       (est_se > est_se_max) | (est_se < est_se_min))
+        est[invalid_est] = np.nan
+        est_se[invalid_est] = np.nan
+        return est, est_se
 
+    @abstractmethod
     def _block_wise_estimate(self):
-        raise NotImplementedError
+        pass
 
 
 class OneSample(Estimation):
-    def __init__(self, z_mat, n, ld, ld_inv, bases, inner_ldr, heri_only):
-        super().__init__(z_mat, n, ld, ld_inv, bases, inner_ldr)
+    def __init__(self, ldr_gwas, ld, ld_inv, bases, inner_ldr):
+        super().__init__(ldr_gwas, ld, ld_inv, bases, inner_ldr)
 
-        self.ld_block_rank = np.zeros(len(self.block_ranges))
-        self.ldr_block_gene_cov = np.zeros(
-            (len(self.ld_block_rank), self.r, self.r))
-        for i, ((begin, end), ld_block, ld_inv_block) in enumerate(zip(self.block_ranges, self.ld.data, self.ld_inv.data)):
+        self.ld_rank = 0
+        self.ldr_gene_cov = np.zeros((self.r, self.r))
+
+        for (start, end), ld_block, ld_inv_block in zip(self.block_ranges, self.ld.data, self.ld_inv.data):
             ld_block_rank, block_gene_cov = self._block_wise_estimate(
-                begin, end, ld_block, ld_inv_block
+                start, end, ld_block, ld_inv_block
             )
-            self.ld_block_rank[i] = ld_block_rank
-            self.ldr_block_gene_cov[i, :, :] = block_gene_cov
-        self.ld_rank = np.sum(self.ld_block_rank)
-        self.ldr_gene_cov = np.sum(self.ldr_block_gene_cov, axis=0)
-
-        self.gene_cov = np.dot(np.dot(self.bases, self.ldr_gene_cov), self.bases.T)
-        self.heri = np.diag(self.gene_cov) / self.sigmaX_var
-        sigmaEta_cov = self.sigmaX_cov - self.gene_cov
-
+            self.ld_rank += ld_block_rank
+            self.ldr_gene_cov += block_gene_cov
+        self.gene_var = np.sum(np.dot(self.bases, self.ldr_gene_cov) * self.bases, axis=1)
+        self.heri = self.gene_var / self.sigmaX_var
         self.heri_se = self._get_heri_se(self.heri, self.ld_rank, self.nbar)
-        if not heri_only:
-            self.gene_cor = self._get_gene_cor()
-            self.gene_cor_se = self._get_gene_cor_se(
-                self.heri, self.gene_cor, self.gene_cov,
-                sigmaEta_cov, self.ld_rank, self.nbar
-            )
-        else:
-            self.gene_cor, self.gene_cor_se = None, None
+        self.heri, self.heri_se = self._qc(self.heri, self.heri_se, 0, 1, 0, 1)
 
-    def _block_wise_estimate(self, begin, end, ld_block, ld_block_inv):
+    def _block_wise_estimate(self, start, end, ld_block, ld_block_inv):
         """
         block_ld: eigenvectors * sqrt(eigenvalues)
         block_ld_inv: eigenvectors * sqrt(eigenvalues ** -1)
@@ -292,88 +233,112 @@ class OneSample(Estimation):
         """
         block_ld_ld_inv = np.dot(ld_block.T, ld_block_inv)
         ld_block_rank = np.sum(block_ld_ld_inv ** 2)
-
-        z_mat_block_ld_inv = np.dot(self.z_mat[begin: end, :].T, ld_block_inv)
+        block_z = next(self._ldr_sumstats_reader(start, end))
+        z_mat_block_ld_inv = np.dot(block_z.T, ld_block_inv) # (r, ld_size)
         block_gene_cov = (np.dot(z_mat_block_ld_inv, z_mat_block_ld_inv.T) -
-                          ld_block_rank * self.inner_ldr / self.nbar ** 2)
+                          ld_block_rank * self.inner_ldr / self.nbar ** 2) # (r, r)
 
         return ld_block_rank, block_gene_cov
 
-    def _get_gene_cor(self):
-        gene_var = np.diag(self.gene_cov)
-        gene_cor = self.gene_cov / np.sqrt(np.outer(gene_var, gene_var))
-
-        return gene_cor
-
-    def _get_gene_cor_se(self, heri, gene_cor, gene_cov, sigmaEta_cov, d, n):
+    def get_gene_cor_se(self, out_dir):
         """
-        Estimating standard error of one-sample genetic correlation estimates 
+        Computing genetic correlation and its se by block
+        Saving to a HDF5 file
+        
+        """
+        block_size = 100
+        mean_gene_cor = 0
+        min_gene_cor = 1
+        mean_gene_cor_se = 0
+        with h5py.File(f'{out_dir}_gc.h5', 'w') as file:
+            gc = file.create_dataset('gc', shape=(self.N, self.N), dtype='float32')
+            se = file.create_dataset('se', shape=(self.N, self.N), dtype='float32')
+            for i in range(0, self.N, block_size):
+                start = i
+                end = i + block_size
+                gene_cor, gene_cor_se = self._get_gene_cor_se_block(start, end)
+                gc[start: end] = gene_cor
+                se[start: end] = gene_cor_se
+                mean_gene_cor += np.nansum(gene_cor)
+                mean_gene_cor_se += np.nansum(gene_cor_se)
+                min_gene_cor = np.min((min_gene_cor, np.nanmin(gene_cor)))
+        mean_gene_cor /= self.N**2
+        mean_gene_cor_se /= self.N**2
 
-        Parameters:
-        ------------
-        heri: an N by 1 vector of heritability estimates of images
-        gene_cor: an N by N matrix of genetic correlation estimates of images
-        gene_cov: an N by N matrix of genetic covariance estimates of images
-        sigmaEta_cov: an N by N matrix of sigmaEta estimates (the residual variance of an image)
-        d: number of SNPs, or Tr(R\Omega)  
-        n: sample size
-
-        Returns:
-        ---------
-        An N by N matrix of standard error estimates
+        return mean_gene_cor, min_gene_cor, mean_gene_cor_se
+    
+    def _get_gene_cor_se_block(self, start, end):
+        """
+        Computing genetic correlation and se for a block
 
         """
-        heri[heri <= 0] = np.nan
-        gene_cov[gene_cov == 0] = 0.01  # just to avoid division by zero error
-
-        N = len(heri)
-        inv_heri = np.repeat(1 / heri - 1, N).reshape(N, N)
+        gene_cov = np.dot(np.dot(self.bases[start: end], self.ldr_gene_cov), self.bases.T)
+        gene_cov[gene_cov == 0] = 0.01
+        gene_cor = gene_cov / np.sqrt(np.outer(self.gene_var[start: end], self.gene_var))
         gene_cor2 = gene_cor ** 2
         part1 = 1 - gene_cor2
-        part2 = sigmaEta_cov / gene_cov
-        part3 = inv_heri + inv_heri.T
 
-        res = ((4 / n + d / n**2) * part1**2 +
-               (1 / n + d / n**2) * part1 * (part3 - 2 * gene_cor2 * part2) +
-               d / n**2 / 2 * gene_cor2 * (inv_heri - part2)**2 +
-               d / n**2 / 2 * gene_cor2 * (inv_heri.T - part2)**2 +
-               d / n**2 * (gene_cor2**2 * part2**2 + inv_heri * inv_heri.T) -
-               d / n**2 * gene_cor2 * part2 * part3)
-        res[np.abs(res) < 10 ** -10] = 0
+        part2 = np.dot(np.dot(self.bases[start: end], self.inner_ldr), self.bases.T) / self.nbar / gene_cov
+        part2 -= 1
+        del gene_cov
 
-        return np.sqrt(res)
+        inv_heri1 = np.repeat(1 / self.heri[start: end] - 1, self.N).reshape(-1, self.N)
+        inv_heri2 = np.repeat(1 / self.heri - 1, gene_cor.shape[0]).reshape(self.N, -1).T
+        part3 = inv_heri1 + inv_heri2
+        temp1 = inv_heri1 - part2
+        temp2 = inv_heri2 - part2
+        temp3 = inv_heri1 * inv_heri2
+        del inv_heri1, inv_heri2
+
+        gene_cor_se = np.zeros((gene_cor.shape[0], self.N))
+        n = self.nbar
+        d = self.ld_rank
+        gene_cor_se += (4 / n + d / n**2) * part1 * part1
+        gene_cor_se += (1 / n + d / n**2) * part1 * part3
+        gene_cor_se -= (1 / n + d / n**2) * part1 * 2 * gene_cor2 * part2
+        gene_cor_se += d / n**2 / 2 * gene_cor2 * temp1 * temp1
+        gene_cor_se += d / n**2 / 2 * gene_cor2 * temp2 * temp2
+        gene_cor_se += d / n**2 * gene_cor2 * gene_cor2 * part2 * part2
+        gene_cor_se += d / n**2 * temp3
+        gene_cor_se -= d / n**2 * gene_cor2 * part2 * part3
+        
+        gene_cor_se[np.abs(gene_cor_se) < 10 ** -10] = 0
+        gene_cor, gene_cor_se = self._qc(gene_cor, gene_cor_se, -1, 1, 0, 1)
+
+        return gene_cor, np.sqrt(gene_cor_se)
 
 
 class TwoSample(Estimation):
-    def __init__(self, z_mat, n, ld, ld_inv, bases, inner_ldr,
-                 y2_z, n2, overlap=False):
-        super().__init__(z_mat, n, ld, ld_inv, bases, inner_ldr)
-        self.y2_z = y2_z
-        self.n2 = np.array(n2)
-        self.n2bar = np.mean(n2)
+    def __init__(self, ldr_gwas, ld, ld_inv, bases, inner_ldr,
+                 y2_gwas, overlap=False):
+        super().__init__(ldr_gwas, ld, ld_inv, bases, inner_ldr)
+        self.y2_gwas = y2_gwas
+        self.n2 = y2_gwas.snpinfo['N'].values.reshape(-1, 1)
+        self.n2bar = np.mean(self.n2)
 
         y2_block_gene_cov = np.zeros(len(self.block_ranges))
         ldr_y2_block_gene_cov_part1 = np.zeros((len(self.block_ranges), self.r))
         self.ld_block_rank = np.zeros(len(self.block_ranges))
         self.ldr_block_gene_cov = np.zeros((len(self.ld_block_rank), self.r, self.r))
-        for i, ((begin, end), ld_block, ld_inv_block) in enumerate(zip(self.block_ranges, self.ld.data, self.ld_inv.data)):
+
+        for i, ((start, end), ld_block, ld_inv_block) in enumerate(zip(self.block_ranges, self.ld.data, self.ld_inv.data)):
             ld_block_rank, block_gene_var_y2, block_gene_cov, block_gene_cov_y2 = self._block_wise_estimate(
-                begin, end, ld_block, ld_inv_block)
+                start, end, ld_block, ld_inv_block)
             self.ld_block_rank[i] = ld_block_rank
+            self.ldr_block_gene_cov[i, :, :] = block_gene_cov
             y2_block_gene_cov[i] = block_gene_var_y2
             ldr_y2_block_gene_cov_part1[i, :] = block_gene_cov_y2
-            self.ldr_block_gene_cov[i, :, :] = block_gene_cov
-        self.ld_rank = np.sum(self.ld_block_rank)
-        self.ldr_gene_cov = np.sum(self.ldr_block_gene_cov, axis=0)
 
         # since the sum stats have been normalized
+        self.ld_rank = np.sum(self.ld_block_rank)
+        self.ldr_gene_cov = np.sum(self.ldr_block_gene_cov, axis=0)
         self.y2_heri = np.atleast_1d(np.sum(y2_block_gene_cov))
-
         ldr_y2_gene_cov_part1 = np.sum(ldr_y2_block_gene_cov_part1, axis=0)
-
+        
         self.heri = (np.sum(np.dot(self.bases, self.ldr_gene_cov)
                      * self.bases, axis=1) / self.sigmaX_var)
         self.heri_se = self._get_heri_se(self.heri, self.ld_rank, self.nbar)
+        self.heri, self.heri_se = self._heri_qc(self.heri, self.heri_se)
 
         if not overlap:
             self.gene_cor_y2 = np.squeeze(self._get_gene_cor_y2(ldr_y2_gene_cov_part1,
@@ -399,9 +364,10 @@ class TwoSample(Estimation):
 
             # compute left-one-block-out cross-trait LDSC intercept
             self.ldr_heri = np.diag(self.ldr_gene_cov) / np.diag(self.inner_ldr) * self.nbar
-            z_mat_raw = self.z_mat / np.sqrt(np.diagonal(inner_ldr)) * self.n.reshape(-1, 1)
-            y2_z_raw = self.y2_z * np.sqrt(self.n2).reshape(-1, 1)
-            ldsc_intercept = LDSC(z_mat_raw, y2_z_raw, ldscore, self.ldr_heri, self.y2_heri,
+            ldr_sumstats_reader = self._ldr_sumstats_reader(0, self.ldr_gwas.n_snps, 
+                                                            all_ldrs=False, normal=False)
+            y2_sumstats_reader = self._y2_sumstats_reader(0, self.y2_gwas.n_snps, normal=False)
+            ldsc_intercept = LDSC(ldr_sumstats_reader, y2_sumstats_reader, ldscore, self.ldr_heri, self.y2_heri,
                                   self.n, self.n2, self.ld_rank, self.block_ranges,
                                   merged_blocks)
 
@@ -431,8 +397,47 @@ class TwoSample(Estimation):
                                                                     n_merged_blocks)
 
         self.y2_heri_se = self._get_heri_se(self.y2_heri, self.ld_rank, self.n2bar)
+        self.gene_cor_y2, self.gene_cor_y2_se = self._qc(self.gene_cor_y2, self.gene_cor_y2_se, 
+                                                         -1, 1, 0, 1)
+        self.y2_heri, self.y2_heri_se = self._qc(self.y2_heri, self.y2_heri_se, 
+                                                 0, 1, 0, 1)
 
-    def _block_wise_estimate(self, begin, end, ld_block, ld_block_inv):
+    def _y2_sumstats_reader(self, start, end, normal=True):
+        """
+        Reading LDRs summstats from HDF5 file and preprocessing:
+        1. selecting SNPs, reading z
+        2. flipping +/-
+        3. normalization
+        4. yield
+
+        Parameters:
+        ------------
+        start: start index of a LD block
+        end: end index of a LD block
+        normal: if do normalization
+
+        Returns:
+        ---------
+        preprocessed z scores
+        
+        """
+        block_snp_idxs = self.y2_gwas.snp_idxs[start: end]
+        block_change_sign = self.y2_gwas.change_sign[start: end]
+        block_n = self.n2[start: end]
+        y2_idxs = list(range(self.y2_gwas.n_gwas))
+        data_reader = self.y2_gwas.data_reader(['z'],
+                                               y2_idxs, 
+                                               block_snp_idxs,
+                                               all_gwas=True)
+        
+        for z in data_reader:
+            z = z[0]
+            z[block_change_sign] = -1 * z[block_change_sign]
+            if normal:
+                z = z / np.sqrt(block_n)
+            yield z
+
+    def _block_wise_estimate(self, start, end, ld_block, ld_block_inv):
         """
         ld_block: eigenvectors * sqrt(eigenvalues)
         ld_block_inv: eigenvectors * sqrt(eigenvalues ** -1)
@@ -441,8 +446,10 @@ class TwoSample(Estimation):
         ld_block_ld_inv = np.dot(ld_block.T, ld_block_inv)
         ld_block_rank = np.sum(ld_block_ld_inv ** 2)
 
-        z_mat_ld_block_inv = np.dot(self.z_mat[begin: end, :].T, ld_block_inv)
-        y2_ld_block_inv = np.dot(self.y2_z[begin: end].T, ld_block_inv)
+        block_z = next(self._ldr_sumstats_reader(start, end))
+        z_mat_ld_block_inv = np.dot(block_z.T, ld_block_inv)
+        block_y2z = next(self._y2_sumstats_reader(start, end))
+        y2_ld_block_inv = np.dot(block_y2z.T, ld_block_inv)
 
         block_gene_var_y2 = np.dot(y2_ld_block_inv, y2_ld_block_inv.T) - ld_block_rank / self.n2bar
         block_gene_cov_y2 = np.squeeze(np.dot(z_mat_ld_block_inv, y2_ld_block_inv.T))
@@ -522,55 +529,30 @@ class TwoSample(Estimation):
         """
         gene_cor_y2sq = gene_cor_y2 ** 2
         gene_cor_y2sq1 = 1 - gene_cor_y2sq
-        part1 = gene_cor_y2sq / (2 * heri ** 2) * d / n1 ** 2
-        part2 = gene_cor_y2sq / (2 * heri_y2 ** 2) * d / n2 ** 2
-        part3 = 1 / (heri * heri_y2) * d / (n1 * n2)
-        part4 = gene_cor_y2sq1 / (heri * n1)
-        part5 = gene_cor_y2sq1 / (heri_y2 * n2)
-        var = part1 + part2 + part3 + part4 + part5
+
+        var = np.zeros(self.N)
+        var += gene_cor_y2sq / (2 * heri * heri) * d / n1 ** 2
+        var += gene_cor_y2sq / (2 * heri_y2 * heri_y2) * d / n2 ** 2
+        var += 1 / (heri * heri_y2) * d / (n1 * n2)
+        var += gene_cor_y2sq1 / (heri * n1)
+        var += gene_cor_y2sq1 / (heri_y2 * n2)
 
         return np.sqrt(var)
 
 
 def format_heri(heri, heri_se, log):
-    invalid_heri = (heri > 1) | (heri < 0) | (heri_se > 1) | (heri_se < 0)
-    heri[invalid_heri] = np.nan
-    heri_se[invalid_heri] = np.nan
     log.info('Removed out-of-bound results (if any)\n')
-
     chisq = (heri / heri_se) ** 2
     pv = chi2.sf(chisq, 1)
     data = {'INDEX': range(1, len(heri) + 1), 'H2': heri, 'SE': heri_se,
             'CHISQ': chisq, 'P': pv}
     output = pd.DataFrame(data)
+
     return output
 
 
-def format_gene_cor(gene_cor, gene_cor_se):
-    gene_cor_tril = gene_cor[np.tril_indices(gene_cor.shape[0], k=-1)]
-    gene_cor_se_tril = gene_cor_se[np.tril_indices(gene_cor_se.shape[0], k=-1)]
-    invalid_gene_cor = ((gene_cor_tril > 1) |
-                        (gene_cor_tril < -1) |
-                        (gene_cor_se_tril > 1) |
-                        (gene_cor_se_tril < 0))
-    gene_cor_tril[invalid_gene_cor] = np.nan
-    gene_cor_se_tril[invalid_gene_cor] = np.nan
-
-    return gene_cor_tril, gene_cor_se_tril
-
-
 def format_gene_cor_y2(heri, heri_se, gene_cor, gene_cor_se, log):
-    invalid_heri = (heri > 1) | (heri < 0) | (heri_se > 1) | (heri_se < 0)
-    heri[invalid_heri] = np.nan
-    heri_se[invalid_heri] = np.nan
-    invalid_gene_cor = ((gene_cor > 1) |
-                        (gene_cor < -1) |
-                        (gene_cor_se > 1) |
-                        (gene_cor_se < 0))
-    gene_cor[invalid_gene_cor] = np.nan
-    gene_cor_se[invalid_gene_cor] = np.nan
     log.info('Removed out-of-bound results (if any)\n')
-
     heri_chisq = (heri / heri_se) ** 2
     heri_pv = chi2.sf(heri_chisq, 1)
     gene_cor_chisq = (gene_cor / gene_cor_se) ** 2
@@ -581,6 +563,7 @@ def format_gene_cor_y2(heri, heri_se, gene_cor, gene_cor_se, log):
             'GC': gene_cor, 'GC_SE': gene_cor_se,
             'GC_CHISQ': gene_cor_chisq, 'GC_P': gene_cor_pv}
     output = pd.DataFrame(data)
+    
     return output
 
 
@@ -621,65 +604,126 @@ def print_results_two(heri_gc, output, overlap):
 def print_results_heri(heri_output):
     msg = 'Heritability of the image\n'
     msg += '-------------------------\n'
-    msg += (f"Mean h^2: {round(np.nanmean(heri_output['H2']), 4)} "
+    msg += (f"Mean heritability: {round(np.nanmean(heri_output['H2']), 4)} "
             f"({round(np.nanmean(heri_output['SE']), 4)})\n")
-    msg += f"Median h^2: {round(np.nanmedian(heri_output['H2']), 4)}\n"
-    msg += f"Max h^2: {round(np.nanmax(heri_output['H2']), 4)}\n"
-    msg += f"Min h^2: {round(np.nanmin(heri_output['H2']), 4)}\n"
+    msg += f"Median heritability: {round(np.nanmedian(heri_output['H2']), 4)}\n"
+    msg += f"Max heritability: {round(np.nanmax(heri_output['H2']), 4)}\n"
+    msg += f"Min heritability: {round(np.nanmin(heri_output['H2']), 4)}\n"
 
     return msg
 
 
-def print_results_gc(gene_cor, gene_cor_se):
+def print_results_gc(mean_gene_cor, min_gene_cor, mean_gene_cor_se):
     msg = '\n'
     msg += 'Genetic correlation of the image\n'
     msg += '--------------------------------\n'
-    msg += (f"Mean genetic correlation: {round(np.nanmean(gene_cor), 4)} "
-            f"({round(np.nanmean(gene_cor_se), 4)})\n")
-    msg += f"Median genetic correlation: {round(np.nanmedian(gene_cor), 4)}\n"
-    msg += f"Min genetic correlation: {round(np.nanmin(gene_cor), 4)}\n"
+    msg += (f"Mean genetic correlation: {round(mean_gene_cor, 4)} "
+            f"({round(mean_gene_cor_se, 4)})\n")
+    # msg += f"Median genetic correlation: {round(np.nanmedian(gene_cor), 4)}\n"
+    msg += f"Min genetic correlation: {round(min_gene_cor, 4)}\n"
 
     return msg
 
 
 def run(args, log):
     check_input(args, log)
-    ldr_gwas, y2_gwas, bases, inner_ldr, ld, ld_inv = read_process_data(args, log)
-    log.info('Computing heritability and/or genetic correlation ...')
+    
+    # read LD matrices
+    ld = LDmatrix(args.ld)
+    log.info(f"Read LD matrix from {args.ld}")
+    ld_inv = LDmatrix(args.ld_inv)
+    log.info(f"Read LD inverse matrix from {args.ld_inv}")
 
-    # normalize summary statistics of LDR
-    z_mat = (ldr_gwas.z * np.sqrt(np.diagonal(inner_ldr)) /
-             np.array(ldr_gwas.snpinfo['N']).reshape(-1, 1))
+    if ld.ldinfo.shape[0] != ld_inv.ldinfo.shape[0]:
+        raise ValueError(('the LD matrix and LD inverse matrix have different number of SNPs. '
+                          'It is highly likely that the files were misspecified or modified'))
+    if not np.equal(ld.ldinfo[['A1', 'A2']].values, ld_inv.ldinfo[['A1', 'A2']].values).all():
+        raise ValueError('LD matrix and LD inverse matrix have different alleles for some SNPs')
+    log.info(f'{ld.ldinfo.shape[0]} SNPs read from LD matrix (and its inverse).')
 
-    if not args.y2_sumstats:
-        heri_gc = OneSample(z_mat, ldr_gwas.snpinfo['N'], ld,
-                            ld_inv, bases, inner_ldr,
-                            args.heri_only)
-        heri_output = format_heri(heri_gc.heri, heri_gc.heri_se, log)
-        msg = print_results_heri(heri_output)
-        log.info(f'{msg}')
-        heri_output.to_csv(f"{args.out}_heri.txt",
-                           sep='\t', index=None,
-                           float_format='%.5e', na_rep='NA')
-        log.info(f'Save the heritability results to {args.out}_heri.txt')
+    # read bases and inner_ldr
+    bases = np.load(args.bases)
+    log.info(f'{bases.shape[1]} bases read from {args.bases}')
+    inner_ldr = np.load(args.inner_ldr)
+    log.info(f'Read inner product of LDRs from {args.inner_ldr}')
 
-        if not args.heri_only:
-            gene_cor_tril, gene_cor_se_tril = format_gene_cor(heri_gc.gene_cor,
-                                                              heri_gc.gene_cor_se)
-            msg = print_results_gc(heri_gc.gene_cor, heri_gc.gene_cor_se)
+    # read LDR gwas
+    try:
+        ldr_gwas = sumstats.read_sumstats(args.ldr_sumstats)
+        log.info(f'{ldr_gwas.n_snps} SNPs read from LDR summary statistics {args.ldr_sumstats}')
+
+        # keep selected LDRs
+        if args.n_ldrs is not None:
+            bases, inner_ldr, ldr_gwas = keep_ldrs(args.n_ldrs, bases, inner_ldr, ldr_gwas)
+            log.info(f'Keep the top {args.n_ldrs} LDRs.')
+        
+        # check numbers of LDRs are the same
+        if bases.shape[1] != inner_ldr.shape[0] or bases.shape[1] != ldr_gwas.n_gwas:
+            raise ValueError(('inconsistent dimension for bases, inner product of LDRs, '
+                            'and LDR summary statistics. '
+                            'Try to use --n-ldrs'))
+
+        # read y2 gwas
+        if args.y2_sumstats:
+            y2_gwas = sumstats.read_sumstats(args.y2_sumstats)
+            log.info(f'{y2_gwas.n_snps} SNPs read from non-imaging summary statistics {args.y2_sumstats}')
+        else:
+            y2_gwas = None
+
+        # extract SNPs
+        if args.extract is not None:
+            keep_snps = ds.read_extract(args.extract)
+            log.info(f"{len(keep_snps)} SNPs in --extract.")
+        else:
+            keep_snps = None
+
+        # get common snps from gwas, LD matrices, and keep_snps
+        common_snps = get_common_snps(ldr_gwas, ld, ld_inv, y2_gwas, keep_snps) # slow
+        log.info((f"{len(common_snps)} SNPs are common in these files with identical alleles. "
+                "Extracting them from each file ..."))
+
+        # extract common snps in LD matrix
+        ld.extract(common_snps)
+        ld_inv.extract(common_snps)
+
+        # extract common snps in summary statistics and do alignment
+        ldr_gwas.extract_snps(ld.ldinfo['SNP'])  # extract snp id
+        ldr_gwas.align_alleles(ld.ldinfo) # get +/-
+
+        if args.y2_sumstats:
+            y2_gwas.extract_snps(ld.ldinfo['SNP'])
+            y2_gwas.align_alleles(ld.ldinfo)
+        log.info(f"Aligned genetic effects of summary statistics to the same allele.\n")
+
+        log.info('Computing heritability and/or genetic correlation ...')
+        if not args.y2_sumstats:
+            heri_gc = OneSample(ldr_gwas, ld, ld_inv, bases, inner_ldr)
+            heri_output = format_heri(heri_gc.heri, heri_gc.heri_se, log)
+            msg = print_results_heri(heri_output)
             log.info(f'{msg}')
-            np.savez_compressed(f'{args.out}_gc', gc=gene_cor_tril, se=gene_cor_se_tril)
-            log.info(f'Save the genetic correlation results to {args.out}_gc.npz')
-    else:
-        y2_z = y2_gwas.z / np.sqrt(np.array(y2_gwas.snpinfo['N'])).reshape(-1, 1)
-        heri_gc = TwoSample(z_mat, ldr_gwas.snpinfo['N'], ld, ld_inv, bases, inner_ldr,
-                            y2_z, y2_gwas.snpinfo['N'], args.overlap)
-        gene_cor_y2_output = format_gene_cor_y2(heri_gc.heri, heri_gc.heri_se,
-                                                heri_gc.gene_cor_y2,
-                                                heri_gc.gene_cor_y2_se, log)
-        msg = print_results_two(heri_gc, gene_cor_y2_output, args.overlap)
-        log.info(f'{msg}')
-        gene_cor_y2_output.to_csv(f"{args.out}_gc.txt", sep='\t',
-                                  index=None, float_format='%.5e',
-                                  na_rep='NA')
-        log.info(f'Save the genetic correlation results to {args.out}_gc.txt')
+            heri_output.to_csv(f"{args.out}_heri.txt", 
+                               sep='\t', index=None,
+                               float_format='%.5e', na_rep='NA')
+            log.info(f'Save the heritability results to {args.out}_heri.txt')
+
+            if not args.heri_only:
+                mean_gene_cor, min_gene_cor, mean_gene_cor_se = heri_gc.get_gene_cor_se(args.out)
+                msg = print_results_gc(mean_gene_cor, min_gene_cor, mean_gene_cor_se)
+                log.info(f'{msg}')
+                log.info(f'Save the genetic correlation results to {args.out}_gc.h5')
+        else:
+            heri_gc = TwoSample(ldr_gwas, ld, ld_inv, bases, inner_ldr, y2_gwas, args.overlap)
+            gene_cor_y2_output = format_gene_cor_y2(heri_gc.heri, heri_gc.heri_se,
+                                                    heri_gc.gene_cor_y2,
+                                                    heri_gc.gene_cor_y2_se, log)
+            msg = print_results_two(heri_gc, gene_cor_y2_output, args.overlap)
+            log.info(f'{msg}')
+            gene_cor_y2_output.to_csv(f"{args.out}_gc.txt", sep='\t',
+                                      index=None, float_format='%.5e',
+                                      na_rep='NA')
+            log.info(f'Save the genetic correlation results to {args.out}_gc.txt')
+    finally:
+        ldr_gwas.close()
+        if args.y2_sumstats:
+            y2_gwas.close()
+

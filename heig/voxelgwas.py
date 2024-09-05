@@ -100,6 +100,10 @@ class VGWAS:
 
 
 def voxel_reader(n_snps, voxel_list):
+    """
+    Doing voxel GWAS in batch, each block less than 1 GB
+    
+    """
     n_voxels = len(voxel_list)
     memory_use = n_snps * n_voxels * np.dtype(np.float32).itemsize / (1024 ** 3)
     if memory_use <= 1:
@@ -123,8 +127,6 @@ def check_input(args, log):
     # optional arguments
     if args.n_ldrs is not None and args.n_ldrs <= 0:
         raise ValueError('--n-ldrs should be greater than 0')
-    if args.voxel is not None and args.voxel <= 0:
-        raise ValueError('--voxel should be greater than 0 (one-based index)')
     if args.sig_thresh is not None and (args.sig_thresh <= 0 or args.sig_thresh >= 1):
         raise ValueError('--sig-thresh should be greater than 0 and less than 1')
     if args.range is None and args.voxel is None and args.sig_thresh is None and args.extract is None:
@@ -159,18 +161,30 @@ def check_input(args, log):
                               'is not allowed'))
     else:
         start_chr, start_pos, end_chr, end_pos = None, None, None, None
+    
+    if args.voxel is not None:
+        try:
+            args.voxel = int(args.voxel)
+            voxel_list = np.array([args.voxel - 1])
+        except ValueError:
+            if os.path.exists(args.voxel):
+                voxel_list = ds.read_voxel(args.voxel)
+            else:
+                raise FileNotFoundError(f"--voxel does not exist")
+    else:
+        voxel_list = None
 
     if args.extract is not None:
         keep_snps = ds.read_extract(args.extract)
     else:
         keep_snps = None
 
-    return start_chr, start_pos, end_pos, keep_snps
+    return start_chr, start_pos, end_pos, voxel_list, keep_snps
 
 
 def run(args, log):
     # checking input
-    target_chr, start_pos, end_pos, keep_snps = check_input(args, log)
+    target_chr, start_pos, end_pos, voxel_list, keep_snps = check_input(args, log)
 
     # reading data
     inner_ldr = np.load(args.inner_ldr)
@@ -197,15 +211,13 @@ def run(args, log):
 
         # getting the outpath and SNP list
         outpath = args.out
-        if args.voxel is not None:
-            if args.voxel <= bases.shape[0]:  # one-based index
-                voxel_list = [args.voxel - 1]
-                outpath += f"_voxel{args.voxel}"
-                log.info(f'Keep the voxel {args.voxel}.')
+        if voxel_list is not None:
+            if np.max(voxel_list) + 1 <= bases.shape[0] and np.min(voxel_list) >= 0:
+                log.info(f'{len(voxel_list)} voxels included.')
             else:
                 raise ValueError('--voxel index (one-based) out of range')
         else:
-            voxel_list = list(range(bases.shape[0]))
+            voxel_list = np.arange(bases.shape[0])
 
         if target_chr:
             snp_idxs = ((ldr_gwas.snpinfo['POS'] > start_pos) & (ldr_gwas.snpinfo['POS'] < end_pos) &
@@ -269,4 +281,4 @@ def run(args, log):
         log.info(f"Save the output to {outpath}")
 
     finally:
-        ldr_gwas.file.close()
+        ldr_gwas.close()
