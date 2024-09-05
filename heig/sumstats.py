@@ -189,6 +189,8 @@ class GWAS:
     def data_reader(self, data_type_list, gwas_idxs, snps_idxs, all_gwas=False):
         """
         Reading summary statistics in chunks, each chunk is ~5 GB
+        Two strategies: column first for reading all (a few) sumstats for a few LDRs
+        row first for reading a block of sumstats for all LDRs
 
         Parameters:
         ------------
@@ -209,25 +211,14 @@ class GWAS:
         else:
             batch_size = int(self.n_gwas / memory_use * 5)
 
-        # always use boolean to extract data
-        # snp_idxs_bool = np.zeros(self.n_snps, dtype=bool)
-        # snp_idxs_bool[snps_idxs] = True
-        # print('using boolean')
         for i in range(0, self.n_gwas, batch_size):
             gwas_idxs_chuck = gwas_idxs[i: i+batch_size]
             gwas_idxs_bool = np.zeros(self.n_gwas, dtype=bool)
             gwas_idxs_bool[gwas_idxs_chuck] = True
-            # yield [data[snp_idxs_bool][:, gwas_idxs_bool] for data in data_list]
-            yield [data[:, gwas_idxs_bool][snps_idxs] for data in data_list]
-
-    def get_zscore(self):
-        """
-        Computing z score from beta and se, and removing beta and se
-
-        """
-        self.z = self.beta / self.se
-        self.beta = None
-        self.se = None
+            if all_gwas:
+                yield [data[snps_idxs][:, gwas_idxs_bool] for data in data_list]
+            else:
+                yield [data[:, gwas_idxs_bool][snps_idxs] for data in data_list]
 
     def extract_snps(self, keep_snps):
         """
@@ -243,7 +234,6 @@ class GWAS:
         self.snpinfo['id'] = self.snpinfo.index  # keep the index in df
         self.snpinfo = keep_snps.merge(self.snpinfo, on='SNP')
         self.snp_idxs = self.snpinfo['id'].values
-        # self.n_snps = len(self.snp_idxs)
         del self.snpinfo['id']
 
     def align_alleles(self, ref):
@@ -317,16 +307,14 @@ class ProcessGWAS(ABC):
     def process(self):
         pass
 
-    def _read_gwas(self, gwas_file):
+    def _read_gwas(self, gwas_file, compression, delimiter):
         """
         Reading a GWAS file
         
         """
-        openfunc, compression = utils.check_compression(gwas_file)
-        self._check_header(openfunc, compression, gwas_file)
-        gwas_data = pd.read_csv(gwas_file, sep='\s+', compression=compression,
-                                usecols=list(self.cols_map2.keys()), na_values=[-9, 'NONE', '.'],
-                                dtype={'A1': 'category', 'A2': 'category'})
+        gwas_data = pd.read_csv(gwas_file, sep=delimiter, compression=compression,
+                                usecols=list(self.cols_map2.keys()), na_values=['NONE', '.'],
+                                dtype={'A1': 'category', 'A2': 'category'}, engine='pyarrow')
         gwas_data = gwas_data.rename(self.cols_map2, axis=1)
         gwas_data['A1'] = gwas_data['A1'].str.upper().astype('category')
         gwas_data['A2'] = gwas_data['A2'].str.upper().astype('category')
@@ -402,22 +390,34 @@ class ProcessGWAS(ABC):
             raise ValueError('no SNP remaining. Check if misspecified columns')
         return n_snps
     
-    def _check_header(self, openfunc, compression, dir):
+    def _check_header(self, gwas_file):
         """
         Checking if all required columns exist; 
         checking if all provided columns exist.
 
         Parameters:
         ------------
-        openfunc: function to open the file
+        gwas_file: directory to a gwas file
+
+        Returns:
+        ---------
         compression: compression mode
-        dir: directory to gwas file
+        delimiter: delimiter of gwas files
 
         """
-        with openfunc(dir, 'r') as file:
-            header = file.readline().split()
+        openfunc, compression = utils.check_compression(gwas_file)
+
+        with openfunc(gwas_file, 'r') as file:
+            header = file.readline()
         if compression is not None:
-            header = [str(x, 'UTF-8') for x in header]
+            header = str(header, 'UTF-8')
+
+        # detecting tab or space
+        if header.count('\t') > header.count(' '):
+            delimiter = '\t'
+        else:
+            delimiter = ' '
+        header = header.split()
         
         for col in self.required_cols:
             if self.cols_map[col] not in header:
@@ -426,6 +426,8 @@ class ProcessGWAS(ABC):
         for col, _ in self.cols_map2.items():
             if col not in header:
                 raise ValueError(f'{col} (case sensitive) cannot be found in {dir}')
+            
+        return compression, delimiter
 
     def _check_median(self, data, effect, null_value):
         """
@@ -472,8 +474,9 @@ class GWASLDR(ProcessGWAS):
         self.logger.info((f'Reading and processing {self.n_gwas_files} LDR GWAS summary statistics files. '
                           'Only the first GWAS file will be QCed...'))
         
+        compression, delimiter = self._check_header(self.gwas_files[0])
         for i, gwas_file in tqdm(enumerate(self.gwas_files), desc=f'Processing {self.n_gwas_files} LDR GWAS files'):
-            gwas_data = self._read_gwas(gwas_file)
+            gwas_data = self._read_gwas(gwas_file, compression, delimiter)
 
             if i == 0:
                 if self.cols_map['N'] is None:
@@ -522,7 +525,8 @@ class GWASY2(ProcessGWAS):
         self.logger.info(f'Reading and processing the non-imaging GWAS summary statistics file ...\n')
         
         gwas_file = self.gwas_files[0]
-        gwas_data = self._read_gwas(self.gwas_files[0])
+        compression, delimiter = self._check_header(gwas_file)
+        gwas_data = self._read_gwas(gwas_file, compression, delimiter)
 
         if self.cols_map['N'] is None:
             gwas_data['N'] = self.cols_map['n']

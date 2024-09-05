@@ -1,7 +1,5 @@
-import os
 import gzip
 import bz2
-import pandas as pd
 import logging
 from functools import reduce
 

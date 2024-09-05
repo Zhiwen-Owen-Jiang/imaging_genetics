@@ -134,7 +134,7 @@ class Estimation(ABC):
         self.block_ranges = ld.block_ranges
         self.sigmaX_var = np.sum(np.dot(bases, inner_ldr) * bases, axis=1) / self.nbar
 
-    def _ldr_sumstats_reader(self, start, end, all_ldrs=True, normal=True, all_snps=False):
+    def _ldr_sumstats_reader(self, start, end, all_ldrs=True, normal=True):
         """
         Reading LDRs sumstats from HDF5 file and preprocessing:
         0. selecting a subset of LDRs
@@ -149,7 +149,6 @@ class Estimation(ABC):
         end: end index of a LD block
         all_ldrs: if extracting all LDR sumstats
         normal: if doing normalization
-        all_snps: if reading all snps from the entire file
 
         Returns:
         ---------
@@ -157,27 +156,17 @@ class Estimation(ABC):
         
         """
         ldr_idxs = list(range(self.ldr_gwas.n_gwas))
-        if all_snps:
-            block_change_sign = self.ldr_gwas.change_sign
-            block_n = self.n
-            data_reader = self.ldr_gwas.data_reader(['beta', 'se'], 
-                                                    ldr_idxs, 
-                                                    np.ones(self.ldr_gwas.n_snps, dtype=bool),
-                                                    all_gwas=all_ldrs)
-        else:
-            block_snp_idxs = self.ldr_gwas.snp_idxs[start: end]
-            block_change_sign = self.ldr_gwas.change_sign[start: end]
-            block_n = self.n[start: end]
-            data_reader = self.ldr_gwas.data_reader(['beta', 'se'], 
-                                                    ldr_idxs, 
-                                                    block_snp_idxs,
-                                                    all_gwas=all_ldrs)
+        block_snp_idxs = self.ldr_gwas.snp_idxs[start: end]
+        block_change_sign = self.ldr_gwas.change_sign[start: end]
+        block_n = self.n[start: end]
+        data_reader = self.ldr_gwas.data_reader(['beta', 'se'], 
+                                                ldr_idxs, 
+                                                block_snp_idxs,
+                                                all_gwas=all_ldrs)
             
         sqrt_diag_inner_ldr = np.sqrt(np.diag(self.inner_ldr))
         for z, se in data_reader:
             z = z / se
-            if all_snps:
-                z = z[self.ldr_gwas.snp_idxs]
             z[block_change_sign] = -1 * z[block_change_sign]
             if normal:
                 z = z * sqrt_diag_inner_ldr / block_n
@@ -376,8 +365,8 @@ class TwoSample(Estimation):
             # compute left-one-block-out cross-trait LDSC intercept
             self.ldr_heri = np.diag(self.ldr_gene_cov) / np.diag(self.inner_ldr) * self.nbar
             ldr_sumstats_reader = self._ldr_sumstats_reader(0, self.ldr_gwas.n_snps, 
-                                                            all_ldrs=False, normal=False, all_snps=True)
-            y2_sumstats_reader = self._y2_sumstats_reader(0, self.y2_gwas.n_snps, normal=False, all_snps=True)
+                                                            all_ldrs=False, normal=False)
+            y2_sumstats_reader = self._y2_sumstats_reader(0, self.y2_gwas.n_snps, normal=False)
             ldsc_intercept = LDSC(ldr_sumstats_reader, y2_sumstats_reader, ldscore, self.ldr_heri, self.y2_heri,
                                   self.n, self.n2, self.ld_rank, self.block_ranges,
                                   merged_blocks)
@@ -413,7 +402,7 @@ class TwoSample(Estimation):
         self.y2_heri, self.y2_heri_se = self._qc(self.y2_heri, self.y2_heri_se, 
                                                  0, 1, 0, 1)
 
-    def _y2_sumstats_reader(self, start, end, normal=True, all_snps=False):
+    def _y2_sumstats_reader(self, start, end, normal=True):
         """
         Reading LDRs summstats from HDF5 file and preprocessing:
         1. selecting SNPs, reading z
@@ -426,7 +415,6 @@ class TwoSample(Estimation):
         start: start index of a LD block
         end: end index of a LD block
         normal: if do normalization
-        all_snps: if reading all snps from the entire file
 
         Returns:
         ---------
@@ -434,26 +422,16 @@ class TwoSample(Estimation):
         
         """
         y2_idxs = list(range(self.y2_gwas.n_gwas))
-        if all_snps:
-            block_change_sign = self.y2_gwas.change_sign
-            block_n = self.n2
-            data_reader = self.y2_gwas.data_reader(['z'],
-                                               y2_idxs, 
-                                               np.ones(self.y2_gwas.n_snps, dtype=bool),
-                                               all_gwas=True)
-        else:
-            block_snp_idxs = self.y2_gwas.snp_idxs[start: end]
-            block_change_sign = self.y2_gwas.change_sign[start: end]
-            block_n = self.n2[start: end]
-            data_reader = self.y2_gwas.data_reader(['z'],
-                                                y2_idxs, 
-                                                block_snp_idxs,
-                                                all_gwas=True)
+        block_snp_idxs = self.y2_gwas.snp_idxs[start: end]
+        block_change_sign = self.y2_gwas.change_sign[start: end]
+        block_n = self.n2[start: end]
+        data_reader = self.y2_gwas.data_reader(['z'],
+                                            y2_idxs, 
+                                            block_snp_idxs,
+                                            all_gwas=False)
         
         for z in data_reader:
             z = z[0]
-            if all_snps:
-                z = z[self.y2_gwas.snp_idxs]
             z[block_change_sign] = -1 * z[block_change_sign]
             if normal:
                 z = z / np.sqrt(block_n)
