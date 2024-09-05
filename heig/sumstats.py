@@ -208,10 +208,17 @@ class GWAS:
             batch_size = self.n_gwas
         else:
             batch_size = int(self.n_gwas / memory_use * 5)
-        
+
+        # always use boolean to extract data
+        # snp_idxs_bool = np.zeros(self.n_snps, dtype=bool)
+        # snp_idxs_bool[snps_idxs] = True
+        # print('using boolean')
         for i in range(0, self.n_gwas, batch_size):
             gwas_idxs_chuck = gwas_idxs[i: i+batch_size]
-            yield [data[snps_idxs][:, gwas_idxs_chuck] for data in data_list]
+            gwas_idxs_bool = np.zeros(self.n_gwas, dtype=bool)
+            gwas_idxs_bool[gwas_idxs_chuck] = True
+            # yield [data[snp_idxs_bool][:, gwas_idxs_bool] for data in data_list]
+            yield [data[:, gwas_idxs_bool][snps_idxs] for data in data_list]
 
     def get_zscore(self):
         """
@@ -236,7 +243,7 @@ class GWAS:
         self.snpinfo['id'] = self.snpinfo.index  # keep the index in df
         self.snpinfo = keep_snps.merge(self.snpinfo, on='SNP')
         self.snp_idxs = self.snpinfo['id'].values
-        self.n_snps = len(self.snp_idxs)
+        # self.n_snps = len(self.snp_idxs)
         del self.snpinfo['id']
 
     def align_alleles(self, ref):
@@ -514,8 +521,8 @@ class GWASY2(ProcessGWAS):
         """
         self.logger.info(f'Reading and processing the non-imaging GWAS summary statistics file ...\n')
         
-        gwas_file = self._gwas_files[0]
-        gwas_data = self.read_gwas(self.gwas_files[0])
+        gwas_file = self.gwas_files[0]
+        gwas_data = self._read_gwas(self.gwas_files[0])
 
         if self.cols_map['N'] is None:
             gwas_data['N'] = self.cols_map['n']
@@ -536,7 +543,7 @@ class GWASY2(ProcessGWAS):
 
         self.logger.info(f'Pruning SNPs for {gwas_file} ...')
         gwas_data = self._prune_snps(gwas_data)
-        z = gwas_data['Z'].to_numpy().reshape(-1, 1)
+        z = gwas_data['Z'].to_numpy()
         snpinfo = gwas_data[['SNP', 'A1', 'A2', 'N']].reset_index(drop=True)
 
         self._create_dataset(z.shape[0])

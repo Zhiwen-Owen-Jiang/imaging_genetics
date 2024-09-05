@@ -109,7 +109,7 @@ def voxel_reader(n_snps, voxel_list):
     if memory_use <= 1:
         batch_size = n_voxels
     else:
-        batch_size = int(n_voxels / memory_use)
+        batch_size = int(n_voxels / memory_use * 1)
 
     for i in range(0, n_voxels, batch_size):
         yield voxel_list[i: i+batch_size]

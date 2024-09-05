@@ -11,11 +11,13 @@ class LDSC:
                  ld_rank, block_ranges, merged_blocks):
         n_blocks = len(merged_blocks)
         r = len(ldr_heri)
+        n1 = np.squeeze(n1)
+        n2 = np.squeeze(n2)
         n = np.sqrt(n1 * n2)
         self.lobo_ldsc = np.zeros((n_blocks, r))
         self.total_ldsc = np.zeros(r)
 
-        y2_z_ldsc = next(y2_sumstats_reader)
+        y2_z_ldsc = np.squeeze(next(y2_sumstats_reader))
         i = 0
         for ldr_z_batch in ldr_sumstats_reader:
             for j in range(ldr_z_batch.shape[1]):
@@ -66,8 +68,7 @@ class LDSC:
         lobo_ldsc = []
         for block in merged_blocks:
             begin, end = self._block_range(block, block_ranges)
-            xwx_i, xwy_i = self._wls(
-                y[begin: end], X[begin: end], weights[begin: end])
+            xwx_i, xwy_i = self._wls(y[begin: end], X[begin: end], weights[begin: end])
             coef = np.dot(np.linalg.inv(xwx_total - xwx_i), xwy_total - xwy_i)
             lobo_ldsc.append(coef[0])
         lobo_ldsc = np.array(lobo_ldsc)
