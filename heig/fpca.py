@@ -4,6 +4,7 @@ import h5py
 import numpy as np
 import pandas as pd
 import concurrent.futures
+import scipy.sparse as sp
 from tqdm import tqdm
 from functools import partial
 from numpy.linalg import inv
@@ -11,10 +12,6 @@ from scipy.sparse import csc_matrix, csr_matrix, dok_matrix, hstack
 from sklearn.decomposition import IncrementalPCA
 import heig.input.dataset as ds
 
-"""
-TODO: parallel
-
-"""
 
 
 class KernelSmooth:
@@ -53,7 +50,7 @@ class KernelSmooth:
     def smoother(self):
         raise NotImplementedError
 
-    def gcv(self, bw_list, threads, log):
+    def gcv(self, bw_list, threads, temp_path, log):
         """
         Generalized cross-validation for selecting the optimal bandwidth
 
@@ -61,26 +58,31 @@ class KernelSmooth:
         ------------
         bw_list: a array of candidate bandwidths 
         threads: number of threads
+        temp_path: temporay directory to save a sparse smoothing matrix
         log: a logger 
 
         Returns:
         ---------
-        bw_opt: the optimal bandwidth
+        sparse_sm_weight: the sparse smoothing matrix
 
         """
         score = np.zeros(len(bw_list))
+        min_score = np.Inf
 
         for cii, bw in enumerate(bw_list):
             log.info(f"Doing generalized cross-validation (GCV) for bandwidth {np.round(bw, 3)} ...")
             sparse_sm_weight = self.smoother(bw, threads)
             if sparse_sm_weight is not None:
                 mean_sm_weight_diag = np.sum(sparse_sm_weight.diagonal()) / self.N
-                diff = [np.sum((images_ - images_ @ sparse_sm_weight.T) ** 2) for images_ in image_reader(self.images, self.id_idxs)]
-                mean_diff = np.sum(diff) / self.n
+                mean_diff = self._calculate_diff_parallel(sparse_sm_weight, threads)
                 score[cii] = mean_diff / (1 - mean_sm_weight_diag + 10**-10) ** 2
+
                 if score[cii] == 0:
                     score[cii] = np.nan
                     log.info(f'This bandwidth is invalid.')
+                if score[cii] < min_score:
+                    min_score = score[cii]
+                    self._save_sparse_sm_weight(sparse_sm_weight, temp_path)
                 log.info(f"The GCV score for bandwidth {np.round(bw, 3)} is {round(score[cii], 3)}.")
             else:
                 score[cii] = np.Inf
@@ -93,7 +95,33 @@ class KernelSmooth:
         min_mse = score[which_min]
         log.info(f"The optimal bandwidth is {np.round(bw_opt, 3)} with GCV score {round(min_mse, 3)}.")
 
-        return bw_opt
+        sparse_sm_weight = self._load_sparse_sm_weight(temp_path)
+
+        return sparse_sm_weight
+    
+    @staticmethod
+    def _calculate_diff(images_, sparse_sm_weight):
+        return np.sum((images_ - images_ @ sparse_sm_weight.T) ** 2)
+    
+    def _calculate_diff_parallel(self, sparse_sm_weight, threads):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+            futures = [executor.submit(self._calculate_diff, images_, sparse_sm_weight) 
+                   for images_ in image_reader(self.images, self.id_idxs)]
+            diff = [future.result() for future in futures]
+        mean_diff = np.sum(diff) / self.n
+
+        return mean_diff
+    
+    @staticmethod
+    def _save_sparse_sm_weight(sparse_sm_weight, temp_path):
+        sparse_sm_weight = sparse_sm_weight.tocoo()
+        sp.save_npz(f'{temp_path}.npz', sparse_sm_weight)
+
+    @staticmethod
+    def _load_sparse_sm_weight(temp_path):
+        sparse_sm_weight = sp.load_npz(f'{temp_path}.npz')
+        sparse_sm_weight = sparse_sm_weight.todok()
+        return sparse_sm_weight
 
     def bw_cand(self):
         """
@@ -201,7 +229,7 @@ def image_reader(images, id_idxs):
         yield images[id_idx_chuck]
 
 
-def do_kernel_smoothing(raw_image_dir, sm_image_dir, keep_idvs, bw_opt, threads, log):
+def do_kernel_smoothing(raw_image_dir, sm_image_dir, keep_idvs, bw_opt, threads, temp_path, log):
     """
     A wrapper function for doing kernel smoothing.
 
@@ -212,6 +240,7 @@ def do_kernel_smoothing(raw_image_dir, sm_image_dir, keep_idvs, bw_opt, threads,
     keep_idvs: pd.MultiIndex of subjects to keep
     bw_opt (1, ): a scalar of optimal bandwidth
     threads: number of threads
+    temp_path: temporay directory to save a sparse smoothing matrix
     log: a logger
 
     Returns:
@@ -239,11 +268,11 @@ def do_kernel_smoothing(raw_image_dir, sm_image_dir, keep_idvs, bw_opt, threads,
         if bw_opt is None:
             bw_list = ks.bw_cand()
             log.info(f"Selecting the optimal bandwidth from\n{np.round(bw_list, 3)}.")
-            bw_opt = ks.gcv(bw_list, threads, log)
+            sparse_sm_weight = ks.gcv(bw_list, threads, temp_path, log)
         else:
             bw_opt = np.repeat(bw_opt, coord.shape[1])
-        log.info(f"Doing kernel smoothing using the optimal bandwidth.")
-        sparse_sm_weight = ks.smoother(bw_opt, threads)
+            log.info(f"Doing kernel smoothing using the optimal bandwidth.")
+            sparse_sm_weight = ks.smoother(bw_opt, threads)
 
         n_voxels = images.shape[1]
         n_subjects = len(id_idxs)
@@ -343,9 +372,9 @@ def do_fpca(sm_image_dir, subject_wise_mean, args, log):
         n_subjects, n_voxels = sm_images.shape
 
         # setup parameters
-        log.info(f'Doing functional PCA ...')
+        log.info(f'\nDoing functional PCA ...')
         max_n_pc = np.min((n_subjects, n_voxels))
-        fpca = fPCA(n_subjects, max_n_pc, args.all, args.n_ldrs)
+        fpca = fPCA(n_subjects, max_n_pc, args.all_pc, args.n_ldrs)
 
         # incremental PCA
         max_avail_n_sub = fpca.n_batches * fpca.batch_size
@@ -399,10 +428,10 @@ def print_prop_ldr(values, log):
     keys_str = "  ".join(f"{str(key):<{max_len}}" for key in prop_ldrs.keys())
     values_str = "  ".join(f"{str(value):<{max_len}}" for value in prop_ldrs.values())
 
-    log.info('The number of LDRs for preserving varying proportion of image variance:')
+    log.info('The number of LDRs for preserving varying proportions of image variance:')
     log.info(keys_str)
     log.info(values_str)
-    log.info(('Note: they were estimated based on computed eigenvalues, might be downward biased. '
+    log.info(('Note: the number of LDRs might be downward biased if only top components were computed. '
               'Try to construct more LDRs if computationally affordable in downstream analyses.'))
     
     prop_ldrs_df = pd.DataFrame.from_dict(prop_ldrs, orient='index')
@@ -414,24 +443,32 @@ def print_prop_ldr(values, log):
 def check_input(args, log):
     if args.image is None:
         raise ValueError('--image is required')
-    if args.all:
+    if args.all_pc:
         log.info(('WARNING: computing all principal components might be very time '
                   'and memory consuming when images are of high resolution.'))
     if args.n_ldrs is not None and args.n_ldrs <= 0:
         raise ValueError('--n-ldrs should be greater than 0')
-    if args.all and args.n_ldrs is not None:
-        log.info('--all is ignored as --n-ldrs specified.')
-        args.all = False
+    if args.all_pc and args.n_ldrs is not None:
+        log.info('--all-pc is ignored as --n-ldrs specified.')
+        args.all_pc = False
     if args.bw_opt is not None and args.bw_opt <= 0:
         raise ValueError('--bw-opt should be positive')
 
     if not os.path.exists(args.image):
         raise FileNotFoundError(f"{args.image} does not exist")
+    
+    temp_path = os.path.join(os.path.dirname(args.out), 'temp_sparse_sm_weight')
+    i = 0
+    while os.path.exists(temp_path + str(i)):
+        i += 1
+    temp_path += str(i)
+
+    return temp_path
 
 
 def run(args, log):
     # check input
-    check_input(args, log)
+    temp_path = check_input(args, log)
 
     # keep subjects
     if args.keep is not None:
@@ -440,22 +477,29 @@ def run(args, log):
     else:
         keep_idvs = None
 
-    # kernel smoothing
-    sm_image_dir = f'{args.out}_sm_images.h5'
-    subject_wise_mean = do_kernel_smoothing(args.image, sm_image_dir, keep_idvs,
-                                            args.bw_opt, args.threads, log)
-    log.info(f'Save smoothed images to {sm_image_dir}\n')
+    try:
+        # kernel smoothing
+        sm_image_dir = f'{args.out}_sm_images.h5'
+        subject_wise_mean = do_kernel_smoothing(args.image, sm_image_dir, keep_idvs,
+                                                args.bw_opt, args.threads, temp_path, log)
+        # log.info(f'Save smoothed images to {sm_image_dir}\n')
 
-    # fPCA
-    values, bases, eff_num, n_top = do_fpca(sm_image_dir, subject_wise_mean, args, log)
-    prop_ldrs_df = print_prop_ldr(values, log)
+        # fPCA
+        values, bases, eff_num, n_top = do_fpca(sm_image_dir, subject_wise_mean, args, log)
+        prop_ldrs_df = print_prop_ldr(values, log)
 
-    np.save(f"{args.out}_bases_top{n_top}.npy", bases)
-    np.save(f"{args.out}_eigenvalues_top{n_top}.npy", values)
-    prop_ldrs_df.to_csv(f"{args.out}_ldrs_prop_var.txt", sep='\t')
-    log.info((f"The effective number of independent voxels (vertices) is {round(eff_num, 3)}, "
-              f"which can be used in the Bonferroni p-value threshold (e.g., 0.05/{round(eff_num, 3)}) "
-              "across all voxels (vertices).\n"))
-    log.info(f"Save the top {n_top} bases to {args.out}_bases_top{n_top}.npy")
-    log.info(f"Save the top {n_top} eigenvalues to {args.out}_eigenvalues_top{n_top}.npy")
-    log.info(f"Save the number of LDRs table to {args.out}_ldrs_prop_var.txt")
+        np.save(f"{args.out}_bases_top{n_top}.npy", bases)
+        np.save(f"{args.out}_eigenvalues_top{n_top}.npy", values)
+        prop_ldrs_df.to_csv(f"{args.out}_ldrs_prop_var.txt", sep='\t')
+        log.info((f"The effective number of independent voxels (vertices) is {round(eff_num, 3)}, "
+                f"which can be used in the Bonferroni p-value threshold (e.g., 0.05/{round(eff_num, 3)}) "
+                "across all voxels (vertices).\n"))
+        log.info(f"Save the top {n_top} bases to {args.out}_bases_top{n_top}.npy")
+        log.info(f"Save the top {n_top} eigenvalues to {args.out}_eigenvalues_top{n_top}.npy")
+        log.info(f"Save the number of LDRs table to {args.out}_ldrs_prop_var.txt")
+
+    finally:
+        if os.path.exists(f'{temp_path}.npz'):
+            os.remove(f'{temp_path}.npz')
+        if os.path.exists(sm_image_dir):
+            os.remove(sm_image_dir)

@@ -218,7 +218,7 @@ image_parser.add_argument('--coord-dir',
                                 'a FreeSurfer surface mesh file (.pial) for FreeSurfer morphometry data.'))
 
 # arguments for fpca.py
-fpca_parser.add_argument('--all', action='store_true',
+fpca_parser.add_argument('--all-pc', action='store_true',
                          help=('Flag for generating all principal components which is min(n_subs, n_voxels), '
                                'which may take longer time and very memory consuming.'))
 fpca_parser.add_argument('--bw-opt', type=float,
@@ -322,7 +322,7 @@ def check_accepted_args(module, args, log):
                     'bases', 'inner_ldr', 'extract', },
         'read_image': {'out', 'read_image', 'keep', 'image_txt', 'coord_txt', 
                        'image_dir', 'image_suffix','coord_dir', 'threads'},
-        'fpca': {'out', 'fpca', 'image', 'all', 'n_ldrs', 'keep', 'bw_opt', 'threads'},
+        'fpca': {'out', 'fpca', 'image', 'all_pc', 'n_ldrs', 'keep', 'bw_opt', 'threads'},
         'make_ldr': {'out', 'make_ldr', 'image', 'bases', 'n_ldrs', 'covar', 'cat_covar_list', 'keep'},
         'ld_matrix': {'out', 'ld_matrix', 'partition', 'ld_regu', 'bfile', 'keep',
                       'extract', 'maf_min'},
@@ -391,6 +391,7 @@ def main(args, log):
             raise ValueError('--threads should be greater than 0')
     else:
         args.threads = 1
+    log.info(f'Using {args.threads} thread(s) in analysis.')
     if args.keep is not None:
         args.keep = split_files(args.keep)
     if args.extract is not None:

@@ -647,8 +647,8 @@ def run(args, log):
     inner_ldr = np.load(args.inner_ldr)
     log.info(f'Read inner product of LDRs from {args.inner_ldr}')
 
-    # read LDR gwas
     try:
+        # read LDR gwas
         ldr_gwas = sumstats.read_sumstats(args.ldr_sumstats)
         log.info(f'{ldr_gwas.n_snps} SNPs read from LDR summary statistics {args.ldr_sumstats}')
 
