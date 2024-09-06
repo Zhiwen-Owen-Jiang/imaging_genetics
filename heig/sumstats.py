@@ -11,11 +11,6 @@ from heig import utils
 from functools import partial
 import heig.input.dataset as ds
 
-"""
-TODO: 
-add a parallel option for preprocessing LDR GWAS summary statistics
-
-"""
 
 
 def check_input(args, log):
@@ -572,6 +567,9 @@ class GWASLDR(ProcessGWAS):
                     future.result()
                 except Exception as exc:
                     self.logger.info(f"Generated an exception: {exc}.")
+                    
+        if os.path.exists(f'{self.out_dir}.sumstats.lock'):
+            os.remove(f'{self.out_dir}.sumstats.lock')
 
 
 class GWASY2(ProcessGWAS):

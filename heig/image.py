@@ -1,17 +1,18 @@
 import os
 import logging
 import h5py
+import concurrent.futures
 from abc import ABC, abstractmethod
+from filelock import FileLock
 import numpy as np
 import pandas as pd
 import nibabel as nib
-from tqdm import tqdm
 import heig.input.dataset as ds
 
 
 class ImageReader(ABC):
     """
-    An abstract class for reading images.
+    An abstract class for reading images
     
     """
     def __init__(self, img_files, ids, out_dir):
@@ -38,18 +39,39 @@ class ImageReader(ABC):
         self.logger.info((f'{self.n_images} subjects and {self.n_voxels} voxels (vertices) '
                           'in the imaging data.'))
 
-    def read_save_image(self):
+    def read_save_image(self, threads):
         """
-        Reading and saving images one by one
+        Reading and saving images in parallel
         
         """
-        with h5py.File(self.out_dir, 'r+') as h5f:
-            images = h5f['images']
-            for i, img_file in enumerate(tqdm(self.img_files, desc=f'Loading {self.n_images} images')):
-                image = self._read_image(img_file)
-                if len(image) != self.n_voxels:
-                    raise ValueError(f'{img_file} is of resolution {len(image)} but the coordinate is of resolution {self.n_voxels}')
-                images[i] = image
+        self.logger.info('Reading images ...')
+        with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as executor:
+            futures = [executor.submit(self._read_save_image, idx, img_file) 
+                       for idx, img_file in enumerate(self.img_files)]
+            concurrent.futures.wait(futures)
+
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    future.result()
+                except Exception as exc:
+                    self.logger.info(f"Generated an exception: {exc}.")
+                    break
+
+        if os.path.exists(f'{self.out_dir}.lock'):
+            os.remove(f'{self.out_dir}.lock')
+    
+    def _read_save_image(self, idx, img_file):
+        """
+        Reading and writing a single image
+        
+        """
+        image = self._read_image(img_file)
+        if len(image) != self.n_voxels:
+            raise ValueError(f'{img_file} is of resolution {len(image)} but the coordinate is of resolution {self.n_voxels}')
+        lock_file = f'{self.out_dir}.lock'
+        with FileLock(lock_file):
+            with h5py.File(self.out_dir, 'r+') as h5f:
+                h5f['images'][idx] = image
 
     @abstractmethod
     def _get_coord(self, coord_img_file):
@@ -78,8 +100,7 @@ class NIFTIReader(ImageReader):
             data = data[tuple(self.coord.T)]
             return data
         except:
-            raise ValueError(('cannot read the image, did you provide FreeSurfer images '
-                            'but forget to provide a Freesurfer surface mesh file?'))
+            raise ValueError('cannot read the image, did you provide a wrong NIFTI image?')
 
 
 class CIFTIReader(ImageReader):
@@ -101,8 +122,7 @@ class CIFTIReader(ImageReader):
             data = img.get_fdata()[0]
             return data
         except:
-            raise ValueError(('cannot read the image, did you provide FreeSurfer images '
-                            'but forget to provide a Freesurfer surface mesh file?'))
+            raise ValueError('cannot read the image, did you provide a wrong CIFTI image?')
 
 
 class FreeSurferReader(ImageReader):
@@ -119,8 +139,12 @@ class FreeSurferReader(ImageReader):
         return coord
 
     def _read_image(self, img_file):
-        data = nib.freesurfer.read_morph_data(img_file)
-        return data
+        try:
+            data = nib.freesurfer.read_morph_data(img_file)
+            return data
+        except:
+            raise ValueError(('cannot read the image, did you provide a wrong '
+                              'FreeSurfer morphometry data file?'))
 
 
 def get_image_list(img_dirs, suffixes, log, keep_idvs=None):
@@ -199,6 +223,8 @@ def check_input(args):
     
     ## process arguments
     if args.image_dir is not None and args.image_suffix is not None:
+        if args.coord_dir is None:
+            raise ValueError('--coord-dir is required')
         args.image_dir = args.image_dir.split(',')
         args.image_suffix = args.image_suffix.split(',')
         if len(args.image_dir) != len(args.image_suffix):
@@ -208,6 +234,12 @@ def check_input(args):
                 raise FileNotFoundError(f"{image_dir} does not exist")
     if args.coord_dir is not None and not os.path.exists(args.coord_dir):
         raise FileNotFoundError(f"{args.coord_dir} does not exist")
+    
+    if args.threads is not None:
+        if args.threads <= 0:
+            raise ValueError('--threads should be greater than 0')
+    else:
+        args.threads = 1
 
 
 def run(args, log):
@@ -250,6 +282,6 @@ def run(args, log):
         else:
             img_reader = FreeSurferReader(img_files, ids, out_dir)
         img_reader.create_dataset(args.coord_dir)
-        img_reader.read_save_image()   
+        img_reader.read_save_image(args.threads)   
 
     log.info(f'Save the images to {out_dir}')
