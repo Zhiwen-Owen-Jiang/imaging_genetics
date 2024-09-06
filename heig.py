@@ -168,6 +168,8 @@ common_parser.add_argument('--partition',
                                  'and the third column being the end position.'
                                  'Each row contains only one LD block. '
                                  'Supported modules: --ld-matrix, --relatedness.'))
+common_parser.add_argument('--threads', type=int,
+                           help='number of threads.')
 
 # arguments for herigc.py
 herigc_parser.add_argument('--ld-inv',
@@ -325,7 +327,7 @@ def check_accepted_args(module, args, log):
                      'chr_col', 'pos_col', 'snp_col', 'a1_col',
                      'a2_col', 'effect_col', 'se_col', 'z_col',
                      'p_col', 'maf_col', 'maf_min', 'info_col',
-                     'info_min'},
+                     'info_min', 'threads'},
         'voxel_gwas': {'out', 'voxel_gwas', 'sig_thresh', 'voxel', 'range',
                        'extract', 'ldr_sumstats', 'n_ldrs',
                        'inner_ldr', 'bases'},

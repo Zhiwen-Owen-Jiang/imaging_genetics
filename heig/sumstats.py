@@ -1,12 +1,14 @@
 import os
 import h5py
 import logging
+import concurrent.futures
 import numpy as np
 import pandas as pd
 from abc import ABC, abstractmethod
-from tqdm import tqdm
+from filelock import FileLock
 from scipy.stats import chi2
 from heig import utils
+from functools import partial
 import heig.input.dataset as ds
 
 """
@@ -66,9 +68,13 @@ def check_input(args, log):
     elif args.info_col and args.info_min is None:
         log.info('Set minimum INFO as 0.9 by default.')
         args.info_min = 0.9
-
     if args.n is not None and args.n <= 0:
         raise ValueError('--n should be greater than 0')
+    if args.threads is not None:
+        if args.threads <= 0:
+            raise ValueError('--threads should be greater than 0')
+    else:
+        args.threads = 1
 
     # processing some arguments
     if args.ldr_gwas is not None:
@@ -290,6 +296,7 @@ class ProcessGWAS(ABC):
         self.out_dir = out_dir
         self.maf_min = maf_min
         self.info_min = info_min
+        self.compression, self.delimiter = self._check_header(gwas_files[0])
         self.logger = logging.getLogger(__name__)
    
     @abstractmethod
@@ -307,12 +314,12 @@ class ProcessGWAS(ABC):
     def process(self):
         pass
 
-    def _read_gwas(self, gwas_file, compression, delimiter):
+    def _read_gwas(self, gwas_file):
         """
-        Reading a GWAS file
+        Reading a full GWAS file
         
         """
-        gwas_data = pd.read_csv(gwas_file, sep=delimiter, compression=compression,
+        gwas_data = pd.read_csv(gwas_file, sep=self.delimiter, compression=self.compression,
                                 usecols=list(self.cols_map2.keys()), na_values=['NONE', '.'],
                                 dtype={'A1': 'category', 'A2': 'category'}, engine='pyarrow')
         gwas_data = gwas_data.rename(self.cols_map2, axis=1)
@@ -375,7 +382,7 @@ class ProcessGWAS(ABC):
             self.logger.info(f"Removed {n_snps - gwas.shape[0]} SNPs with INFO < {self.info_min}.")
             n_snps = self._check_remaining_snps(gwas)
 
-        self.logger.info(f"{n_snps} SNPs remaining after pruning.\n")
+        self.logger.info(f"{n_snps} SNPs remaining after pruning.")
 
         return gwas
 
@@ -462,44 +469,109 @@ class GWASLDR(ProcessGWAS):
             file.attrs['n_gwas'] = self.n_gwas_files
 
     def _save_sumstats(self, index, beta, se):
-        with h5py.File(f'{self.out_dir}.sumstats', 'r+') as file:
-            file['beta'][:, index] = beta
-            file['se'][:, index] = se
-    
-    def process(self):
         """
-        Preprocessing LDR GWAS summary statistics. BETA and SE are required columns. 
+        Saving sumstats and ensuring only one process is writing
+
+        """
+        lock_file = f'{self.out_dir}.sumstats.lock'
+        with FileLock(lock_file):
+            with h5py.File(f'{self.out_dir}.sumstats', 'r+') as file:
+                file['beta'][:, index] = beta
+                file['se'][:, index] = se
+    
+    def process(self, threads):
+        """
+        Processing LDR GWAS summary statistics. BETA and SE are required columns. 
 
         """
         self.logger.info((f'Reading and processing {self.n_gwas_files} LDR GWAS summary statistics files. '
-                          'Only the first GWAS file will be QCed...'))
-        
-        compression, delimiter = self._check_header(self.gwas_files[0])
-        for i, gwas_file in tqdm(enumerate(self.gwas_files), desc=f'Processing {self.n_gwas_files} LDR GWAS files'):
-            gwas_data = self._read_gwas(gwas_file, compression, delimiter)
-
-            if i == 0:
-                if self.cols_map['N'] is None:
-                    gwas_data['N'] = self.cols_map['n']
-                self._check_median(gwas_data['EFFECT'],'EFFECT', self.cols_map['null_value'])
-                orig_snps_list = gwas_data[['CHR', 'POS', 'SNP', 'A1', 'A2', 'N']]
-                valid_snp_idxs = np.ones(gwas_data.shape[0], dtype=bool)
-
-                self.logger.info(f'Pruning SNPs for the first GWAS file ...')
-                gwas_data = self._prune_snps(gwas_data)
-                self._create_dataset(gwas_data.shape[0])
-                final_snps_list = gwas_data['SNP']
-                valid_snp_idxs = valid_snp_idxs & orig_snps_list['SNP'].isin(final_snps_list).values
-                is_valid_snp = valid_snp_idxs == 1
-                snpinfo = orig_snps_list.loc[is_valid_snp].reset_index(drop=True)
-            else:
-                gwas_data = gwas_data.loc[is_valid_snp]
-
-            if self.cols_map['null_value'] == 1:
-                gwas_data['EFFECT'] = np.log(gwas_data['EFFECT'])
-
-            self._save_sumstats(i, beta=np.array(gwas_data['EFFECT']), se=np.array(gwas_data['SE']))
+                          'Only the first GWAS file will be QCed ...'))
+        is_valid_snp, snpinfo = self._qc()
+        self.logger.info('Reading and processing remaining GWAS files ...')
+        self._read_in_parallel(is_valid_snp, threads)
         self._save_snpinfo(snpinfo)
+
+    def _qc(self):
+        """
+        Quality control using the first GWAS file
+
+        Returns:
+        ---------
+        is_valid_snp: boolean indices of valid SNPs
+        snpinfo: SNP metadata
+        
+        """
+        gwas_data = self._read_gwas(self.gwas_files[0])
+        if self.cols_map['N'] is None:
+            gwas_data['N'] = self.cols_map['n']
+        self._check_median(gwas_data['EFFECT'],'EFFECT', self.cols_map['null_value'])
+        orig_snps_list = gwas_data[['CHR', 'POS', 'SNP', 'A1', 'A2', 'N']]
+        valid_snp_idxs = np.ones(gwas_data.shape[0], dtype=bool)
+
+        self.logger.info(f'Pruning SNPs for the first GWAS file ...')
+        gwas_data = self._prune_snps(gwas_data)
+        self._create_dataset(gwas_data.shape[0])
+        final_snps_list = gwas_data['SNP']
+        valid_snp_idxs = valid_snp_idxs & orig_snps_list['SNP'].isin(final_snps_list).values
+        is_valid_snp = valid_snp_idxs == 1
+        snpinfo = orig_snps_list.loc[is_valid_snp].reset_index(drop=True)
+
+        if self.cols_map['null_value'] == 1:
+            gwas_data['EFFECT'] = np.log(gwas_data['EFFECT'])
+        self._save_sumstats(0, beta=np.array(gwas_data['EFFECT']), se=np.array(gwas_data['SE']))
+
+        return is_valid_snp, snpinfo
+    
+    def _read_gwas_effct(self, gwas_file):
+        """
+        Reading effect and se from a GWAS file
+        
+        """
+        gwas_data = pd.read_csv(gwas_file, sep=self.delimiter, compression=self.compression,
+                                usecols=[self.cols_map['EFFECT'], self.cols_map['SE']], 
+                                na_values=['NONE', '.'], engine='pyarrow')
+        gwas_data = gwas_data.rename(self.cols_map2, axis=1)
+
+        return gwas_data
+
+    def _read_save(self, is_valid_snp, i, gwas_file):
+        """
+        Reading, processing, and saving a single LDR GWAS file
+
+        Parameters:
+        ------------
+        is_valid_snp: boolean indices of valid SNPs
+        i: index of the current file
+        gwas_file: directory to a GWAS file
+        
+        """
+        gwas_data = self._read_gwas_effct(gwas_file)
+        gwas_data = gwas_data.loc[is_valid_snp]
+        if self.cols_map['null_value'] == 1:
+            gwas_data['EFFECT'] = np.log(gwas_data['EFFECT'])
+        self._save_sumstats(i, beta=np.array(gwas_data['EFFECT']), se=np.array(gwas_data['SE']))
+
+    def _read_in_parallel(self, is_valid_snp, threads):
+        """
+        Reading muliple LDR GWAS files in parallel
+
+        Parameters:
+        ------------
+        is_valid_snp: boolean indices of valid SNPs
+        threads: number of threads to use
+        
+        """
+        partial_function = partial(self._read_save, is_valid_snp)
+        idxs = range(1, len(self.gwas_files))
+        with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as executor:
+            futures = [executor.submit(partial_function, idx, self.gwas_files[idx]) for idx in idxs]
+            concurrent.futures.wait(futures)
+            
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    future.result()
+                except Exception as exc:
+                    self.logger.info(f"Generated an exception: {exc}.")
 
 
 class GWASY2(ProcessGWAS):
@@ -517,16 +589,15 @@ class GWASY2(ProcessGWAS):
         with h5py.File(f'{self.out_dir}.sumstats', 'r+') as file:
             file['z'][:, index] = z
 
-    def process(self):
+    def process(self, threads=None):
         """
         Preprocessing non-imaging GWAS summary statistics.
 
         """
-        self.logger.info(f'Reading and processing the non-imaging GWAS summary statistics file ...\n')
+        self.logger.info(f'Reading and processing the non-imaging GWAS summary statistics file ...')
         
         gwas_file = self.gwas_files[0]
-        compression, delimiter = self._check_header(gwas_file)
-        gwas_data = self._read_gwas(gwas_file, compression, delimiter)
+        gwas_data = self._read_gwas(gwas_file)
 
         if self.cols_map['N'] is None:
             gwas_data['N'] = self.cols_map['n']
@@ -565,6 +636,6 @@ def run(args, log):
     elif args.y2_gwas is not None:
         sumstats = GWASY2(args.y2_gwas, cols_map, cols_map2, args.out,
                           args.maf_min, args.info_min)
-    sumstats.process()
+    sumstats.process(args.threads)
 
     log.info(f'Save the processed summary statistics to {args.out}.sumstats and {args.out}.snpinfo')
