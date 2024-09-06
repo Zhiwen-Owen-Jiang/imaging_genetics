@@ -10,6 +10,7 @@ import nibabel as nib
 import heig.input.dataset as ds
 
 
+
 class ImageReader(ABC):
     """
     An abstract class for reading images
@@ -45,7 +46,7 @@ class ImageReader(ABC):
         
         """
         self.logger.info('Reading images ...')
-        with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
             futures = [executor.submit(self._read_save_image, idx, img_file) 
                        for idx, img_file in enumerate(self.img_files)]
             concurrent.futures.wait(futures)
@@ -235,12 +236,6 @@ def check_input(args):
     if args.coord_dir is not None and not os.path.exists(args.coord_dir):
         raise FileNotFoundError(f"{args.coord_dir} does not exist")
     
-    if args.threads is not None:
-        if args.threads <= 0:
-            raise ValueError('--threads should be greater than 0')
-    else:
-        args.threads = 1
-
 
 def run(args, log):
     # check input

@@ -65,11 +65,6 @@ def check_input(args, log):
         args.info_min = 0.9
     if args.n is not None and args.n <= 0:
         raise ValueError('--n should be greater than 0')
-    if args.threads is not None:
-        if args.threads <= 0:
-            raise ValueError('--threads should be greater than 0')
-    else:
-        args.threads = 1
 
     # processing some arguments
     if args.ldr_gwas is not None:
@@ -558,7 +553,7 @@ class GWASLDR(ProcessGWAS):
         """
         partial_function = partial(self._read_save, is_valid_snp)
         idxs = range(1, len(self.gwas_files))
-        with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
             futures = [executor.submit(partial_function, idx, self.gwas_files[idx]) for idx in idxs]
             concurrent.futures.wait(futures)
             
@@ -567,7 +562,7 @@ class GWASLDR(ProcessGWAS):
                     future.result()
                 except Exception as exc:
                     self.logger.info(f"Generated an exception: {exc}.")
-                    
+
         if os.path.exists(f'{self.out_dir}.sumstats.lock'):
             os.remove(f'{self.out_dir}.sumstats.lock')
 

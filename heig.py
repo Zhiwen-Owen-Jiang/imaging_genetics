@@ -8,8 +8,8 @@ import heig.input.dataset as ds
 from heig.utils import GetLogger, sec_to_str
 
 
-os.environ['NUMEXPR_MAX_THREADS'] = '8'
-numexpr.set_num_threads(int(os.environ['NUMEXPR_MAX_THREADS']))
+# os.environ['NUMEXPR_MAX_THREADS'] = '8'
+# numexpr.set_num_threads(int(os.environ['NUMEXPR_MAX_THREADS']))
 
 
 VERSION = '1.1.0'
@@ -172,7 +172,7 @@ common_parser.add_argument('--partition',
                                  'Supported modules: --ld-matrix, --relatedness.'))
 common_parser.add_argument('--threads', type=int,
                            help=('number of threads. '
-                                 'Supported modules: --read-image, --sumstats, --voxelgwas.'))
+                                 'Supported modules: --read-image, --sumstats, --fpca.'))
 
 # arguments for herigc.py
 herigc_parser.add_argument('--ld-inv',
@@ -322,7 +322,7 @@ def check_accepted_args(module, args, log):
                     'bases', 'inner_ldr', 'extract', },
         'read_image': {'out', 'read_image', 'keep', 'image_txt', 'coord_txt', 
                        'image_dir', 'image_suffix','coord_dir', 'threads'},
-        'fpca': {'out', 'fpca', 'image', 'all', 'n_ldrs', 'keep', 'bw_opt'},
+        'fpca': {'out', 'fpca', 'image', 'all', 'n_ldrs', 'keep', 'bw_opt', 'threads'},
         'make_ldr': {'out', 'make_ldr', 'image', 'bases', 'n_ldrs', 'covar', 'cat_covar_list', 'keep'},
         'ld_matrix': {'out', 'ld_matrix', 'partition', 'ld_regu', 'bfile', 'keep',
                       'extract', 'maf_min'},
@@ -386,6 +386,11 @@ def main(args, log):
                           '--heri-gc, --read-image, --fpca, --make-ldr, --ld-matrix, --sumstats, '
                           '--voxel-gwas, --gwas, --annot-vcf, --wgs-null, --wgs-coding, '
                           '--wgs-sliding-window, --relatedness'))
+    if args.threads is not None:
+        if args.threads <= 0:
+            raise ValueError('--threads should be greater than 0')
+    else:
+        args.threads = 1
     if args.keep is not None:
         args.keep = split_files(args.keep)
     if args.extract is not None:

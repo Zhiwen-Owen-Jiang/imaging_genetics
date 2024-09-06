@@ -3,7 +3,9 @@ import logging
 import h5py
 import numpy as np
 import pandas as pd
+import concurrent.futures
 from tqdm import tqdm
+from functools import partial
 from numpy.linalg import inv
 from scipy.sparse import csc_matrix, csr_matrix, dok_matrix, hstack
 from sklearn.decomposition import IncrementalPCA
@@ -51,13 +53,14 @@ class KernelSmooth:
     def smoother(self):
         raise NotImplementedError
 
-    def gcv(self, bw_list, log):
+    def gcv(self, bw_list, threads, log):
         """
         Generalized cross-validation for selecting the optimal bandwidth
 
         Parameters:
         ------------
         bw_list: a array of candidate bandwidths 
+        threads: number of threads
         log: a logger 
 
         Returns:
@@ -69,7 +72,7 @@ class KernelSmooth:
 
         for cii, bw in enumerate(bw_list):
             log.info(f"Doing generalized cross-validation (GCV) for bandwidth {np.round(bw, 3)} ...")
-            sparse_sm_weight = self.smoother(bw)
+            sparse_sm_weight = self.smoother(bw, threads)
             if sparse_sm_weight is not None:
                 mean_sm_weight_diag = np.sum(sparse_sm_weight.diagonal()) / self.N
                 diff = [np.sum((images_ - images_ @ sparse_sm_weight.T) ** 2) for images_ in image_reader(self.images, self.id_idxs)]
@@ -103,7 +106,7 @@ class KernelSmooth:
         """
         bw_raw = self.N ** (-1 / (4 + self.d))
         # weights = [0.2, 0.5, 1, 2, 5, 10]
-        weights = [1, 1.5, 2, 2.5, 3, 5, 10]
+        weights = [0.8, 1, 1.5, 2, 2.5, 3]
         bw_list = np.zeros((len(weights), self.d))
 
         for i, weight in enumerate(weights):
@@ -117,13 +120,14 @@ class LocalLinear(KernelSmooth):
         super().__init__(images, coord, id_idxs)
         self.logger = logging.getLogger(__name__)
 
-    def smoother(self, bw):
+    def smoother(self, bw, threads):
         """
-        Local linear smoother. 
+        Local linear smoother
 
         Parameters:
         ------------
         bw (dim, 1): bandwidth for dim dimension
+        threads: number of threads
 
         Returns:
         ---------
@@ -131,19 +135,16 @@ class LocalLinear(KernelSmooth):
 
         """
         sparse_sm_weight = dok_matrix((self.N, self.N), dtype=np.float32)
-        for lii in range(self.N):
-            t_mat0 = self.coord - self.coord[lii]  # N * d
-            t_mat = np.hstack((np.ones(self.N).reshape(-1, 1), t_mat0))
-            dis = t_mat0 / bw
-            close_points = (dis < 4) & (dis > -4)  # keep only nearby voxels
-            k_mat = csr_matrix((self._gau_kernel(dis[close_points]), np.where(close_points)),
-                               (self.N, self.d))
-            k_mat = csc_matrix(np.prod((k_mat / bw).toarray(), axis=1)).T  # can be faster, update for scipy 1.11
-            k_mat_sparse = hstack([k_mat] * (self.d + 1))
-            kx = k_mat_sparse.multiply(t_mat).T  # (d+1) * N
-            sm_weight = inv(kx @ t_mat + np.eye(self.d + 1) * 0.000001)[0, :] @ kx  # N * 1
-            large_weight_idxs = np.where(np.abs(sm_weight) > 1 / self.N)
-            sparse_sm_weight[lii,large_weight_idxs] = sm_weight[large_weight_idxs]
+
+        partial_function = partial(self._sm_weight, bw)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+            futures = {executor.submit(partial_function, idx): idx for idx in range(self.N)}
+            
+            for future in concurrent.futures.as_completed(futures):
+                idx = futures[future]
+                sm_weight, large_weight_idxs = future.result()
+                sparse_sm_weight[idx, large_weight_idxs] = sm_weight
+
         nonzero_weights = np.sum(sparse_sm_weight != 0, axis=0)
         if np.mean(nonzero_weights) > self.N // 10:
             self.logger.info((f"On average, the non-zero weight for each voxel "
@@ -152,6 +153,25 @@ class LocalLinear(KernelSmooth):
             return None
         
         return sparse_sm_weight
+    
+    def _sm_weight(self, bw, idx):
+        """
+        Computing smoothing weight for a voxel
+        
+        """
+        t_mat0 = self.coord - self.coord[idx]  # N * d
+        t_mat = np.hstack((np.ones(self.N).reshape(-1, 1), t_mat0))
+        dis = t_mat0 / bw
+        close_points = (dis < 4) & (dis > -4)  # keep only nearby voxels
+        k_mat = csr_matrix((self._gau_kernel(dis[close_points]), np.where(close_points)),
+                            (self.N, self.d))
+        k_mat = csc_matrix(np.prod((k_mat / bw).toarray(), axis=1)).T  # can be faster, update for scipy 1.11
+        k_mat_sparse = hstack([k_mat] * (self.d + 1))
+        kx = k_mat_sparse.multiply(t_mat).T  # (d+1) * N
+        sm_weight = inv(kx @ t_mat + np.eye(self.d + 1) * 0.000001)[0, :] @ kx  # N * 1
+        large_weight_idxs = np.where(np.abs(sm_weight) > 1 / self.N)
+
+        return sm_weight[large_weight_idxs], large_weight_idxs
 
 
 def image_reader(images, id_idxs):
@@ -181,7 +201,7 @@ def image_reader(images, id_idxs):
         yield images[id_idx_chuck]
 
 
-def do_kernel_smoothing(raw_image_dir, sm_image_dir, keep_idvs, bw_opt, log):
+def do_kernel_smoothing(raw_image_dir, sm_image_dir, keep_idvs, bw_opt, threads, log):
     """
     A wrapper function for doing kernel smoothing.
 
@@ -191,6 +211,7 @@ def do_kernel_smoothing(raw_image_dir, sm_image_dir, keep_idvs, bw_opt, log):
     sm_image_dir: directory to HDF5 file of smoothed images
     keep_idvs: pd.MultiIndex of subjects to keep
     bw_opt (1, ): a scalar of optimal bandwidth
+    threads: number of threads
     log: a logger
 
     Returns:
@@ -218,11 +239,11 @@ def do_kernel_smoothing(raw_image_dir, sm_image_dir, keep_idvs, bw_opt, log):
         if bw_opt is None:
             bw_list = ks.bw_cand()
             log.info(f"Selecting the optimal bandwidth from\n{np.round(bw_list, 3)}.")
-            bw_opt = ks.gcv(bw_list, log)
+            bw_opt = ks.gcv(bw_list, threads, log)
         else:
             bw_opt = np.repeat(bw_opt, coord.shape[1])
         log.info(f"Doing kernel smoothing using the optimal bandwidth.")
-        sparse_sm_weight = ks.smoother(bw_opt)
+        sparse_sm_weight = ks.smoother(bw_opt, threads)
 
         n_voxels = images.shape[1]
         n_subjects = len(id_idxs)
@@ -422,7 +443,7 @@ def run(args, log):
     # kernel smoothing
     sm_image_dir = f'{args.out}_sm_images.h5'
     subject_wise_mean = do_kernel_smoothing(args.image, sm_image_dir, keep_idvs,
-                                            args.bw_opt,  log)
+                                            args.bw_opt, args.threads, log)
     log.info(f'Save smoothed images to {sm_image_dir}\n')
 
     # fPCA
