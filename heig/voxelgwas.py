@@ -44,7 +44,8 @@ class VGWAS:
         data_reader = self.ldr_gwas.data_reader(['beta', 'se'], self.ldr_idxs, self.snp_idxs)
         for ldr_beta_batch, ldr_se_batch in data_reader:
             batch_size = ldr_beta_batch.shape[1]
-            ztz_inv += np.sum((self.n * ldr_se_batch ** 2 + ldr_beta_batch ** 2) / diag_inner_ldr[i: i+batch_size], axis=1)
+            ztz_inv += np.sum((self.n * ldr_se_batch * ldr_se_batch + ldr_beta_batch * ldr_beta_batch) \
+                               / diag_inner_ldr[i: i+batch_size], axis=1)
             i += batch_size
         ztz_inv /= n_ldrs
         ztz_inv = ztz_inv.reshape(-1, 1)
@@ -93,8 +94,7 @@ class VGWAS:
         """
         base = np.atleast_2d(self.bases[voxel_idxs]) # (q, r)
         part1 = np.sum(np.dot(base, self.inner_ldr) * base, axis=1) # (q, )
-        # part2 = (voxel_beta ** 2) # (d, q)
-        voxel_se = np.sqrt(part1 * self.ztz_inv / self.n - voxel_beta ** 2 / self.n)
+        voxel_se = np.sqrt(part1 * self.ztz_inv / self.n - voxel_beta * voxel_beta / self.n)
 
         return voxel_se
 
@@ -161,30 +161,18 @@ def check_input(args, log):
                               'is not allowed'))
     else:
         start_chr, start_pos, end_chr, end_pos = None, None, None, None
-    
-    if args.voxel is not None:
-        try:
-            args.voxel = int(args.voxel)
-            voxel_list = np.array([args.voxel - 1])
-        except ValueError:
-            if os.path.exists(args.voxel):
-                voxel_list = ds.read_voxel(args.voxel)
-            else:
-                raise FileNotFoundError(f"--voxel does not exist")
-    else:
-        voxel_list = None
 
     if args.extract is not None:
         keep_snps = ds.read_extract(args.extract)
     else:
         keep_snps = None
 
-    return start_chr, start_pos, end_pos, voxel_list, keep_snps
+    return start_chr, start_pos, end_pos, keep_snps
 
 
 def run(args, log):
     # checking input
-    target_chr, start_pos, end_pos, voxel_list, keep_snps = check_input(args, log)
+    target_chr, start_pos, end_pos, keep_snps = check_input(args, log)
 
     # reading data
     inner_ldr = np.load(args.inner_ldr)
@@ -211,13 +199,13 @@ def run(args, log):
 
         # getting the outpath and SNP list
         outpath = args.out
-        if voxel_list is not None:
-            if np.max(voxel_list) + 1 <= bases.shape[0] and np.min(voxel_list) >= 0:
-                log.info(f'{len(voxel_list)} voxels included.')
+        if args.voxel is not None:
+            if np.max(args.voxel) + 1 <= bases.shape[0] and np.min(args.voxel) >= 0:
+                log.info(f'{len(args.voxel)} voxels included.')
             else:
                 raise ValueError('--voxel index (one-based) out of range')
         else:
-            voxel_list = np.arange(bases.shape[0])
+            args.voxel = np.arange(bases.shape[0])
 
         if target_chr:
             snp_idxs = ((ldr_gwas.snpinfo['POS'] > start_pos) & (ldr_gwas.snpinfo['POS'] < end_pos) &
@@ -249,11 +237,11 @@ def run(args, log):
         log.info(f"Recovering voxel-level GWAS results ...")
         vgwas = VGWAS(bases, inner_ldr, ldr_gwas, snp_idxs, ldr_n)
         is_first_write = True
-        for voxel_idxs in tqdm(voxel_reader(np.sum(snp_idxs), voxel_list), desc=f"Doing GWAS for {len(voxel_list)} voxels"):
+        for voxel_idxs in tqdm(voxel_reader(np.sum(snp_idxs), args.voxel), desc=f"Doing GWAS for {len(args.voxel)} voxels"):
             voxel_beta = vgwas.recover_beta(voxel_idxs)
             voxel_se = vgwas.recover_se(voxel_idxs, voxel_beta)
             voxel_z = voxel_beta / voxel_se
-            all_sig_idxs = voxel_z ** 2 >= thresh_chisq
+            all_sig_idxs = voxel_z * voxel_z >= thresh_chisq
             all_sig_idxs_voxel = all_sig_idxs.any(axis=0)
 
             for i, voxel_idx in enumerate(voxel_idxs):

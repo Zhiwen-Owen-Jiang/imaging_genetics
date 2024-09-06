@@ -325,18 +325,6 @@ def check_input(args, log):
                             f'while ending with position is {end_pos} '
                             'is not allowed'))
 
-    if args.voxel is not None:
-        try:
-            args.voxel = int(args.voxel)
-            voxel_list = np.array([args.voxel - 1])
-        except ValueError:
-            if os.path.exists(args.voxel):
-                voxel_list = ds.read_voxel(args.voxel)
-            else:
-                raise FileNotFoundError(f"--voxel does not exist")
-    else:
-        voxel_list = None
-
     temp_path = os.path.join(os.path.dirname(args.out), 'temp')
     i = 0
     while os.path.exists(temp_path + str(i)):
@@ -349,12 +337,12 @@ def check_input(args, log):
         geno_ref = 'GRCh37'
     log.info(f'Set {geno_ref} as the reference genome.')
 
-    return start_chr, start_pos, end_pos, voxel_list, variant_category, temp_path, geno_ref
+    return start_chr, start_pos, end_pos, variant_category, temp_path, geno_ref
 
 
 def run(args, log):
     # checking if input is valid
-    chr, start, end, voxel_list, variant_category, temp_path, geno_ref = check_input(args, log)
+    chr, start, end, variant_category, temp_path, geno_ref = check_input(args, log)
 
     # reading data for unrelated subjects
     log.info(f'Read null model from {args.null_model}')
@@ -365,14 +353,14 @@ def run(args, log):
         bases = file['bases'][:]
     
     # subset voxels
-    if voxel_list is not None:
-        if np.max(voxel_list) + 1 <= bases.shape[0] and np.min(voxel_list) >= 0:
-            log.info(f'{len(voxel_list)} voxels included.')
+    if args.voxel is not None:
+        if np.max(args.voxel) + 1 <= bases.shape[0] and np.min(args.voxel) >= 0:
+            log.info(f'{len(args.voxel)} voxels included.')
         else:
             raise ValueError('--voxel index (one-based) out of range')
     else:
-        voxel_list = np.arange(bases.shape[0])
-    bases = bases[voxel_list]
+        args.voxel = np.arange(bases.shape[0])
+    bases = bases[args.voxel]
 
     # keep selected LDRs
     if args.n_ldrs is not None:

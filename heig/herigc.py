@@ -232,7 +232,7 @@ class OneSample(Estimation):
 
         """
         block_ld_ld_inv = np.dot(ld_block.T, ld_block_inv)
-        ld_block_rank = np.sum(block_ld_ld_inv ** 2)
+        ld_block_rank = np.sum(block_ld_ld_inv * block_ld_ld_inv)
         block_z = next(self._ldr_sumstats_reader(start, end))
         z_mat_block_ld_inv = np.dot(block_z.T, ld_block_inv) # (r, ld_size)
         block_gene_cov = (np.dot(z_mat_block_ld_inv, z_mat_block_ld_inv.T) -
@@ -275,7 +275,7 @@ class OneSample(Estimation):
         gene_cov = np.dot(np.dot(self.bases[start: end], self.ldr_gene_cov), self.bases.T)
         gene_cov[gene_cov == 0] = 0.01
         gene_cor = gene_cov / np.sqrt(np.outer(self.gene_var[start: end], self.gene_var))
-        gene_cor2 = gene_cor ** 2
+        gene_cor2 = gene_cor * gene_cor
         part1 = 1 - gene_cor2
 
         part2 = np.dot(np.dot(self.bases[start: end], self.inner_ldr), self.bases.T) / self.nbar / gene_cov
@@ -444,7 +444,7 @@ class TwoSample(Estimation):
 
         """
         ld_block_ld_inv = np.dot(ld_block.T, ld_block_inv)
-        ld_block_rank = np.sum(ld_block_ld_inv ** 2)
+        ld_block_rank = np.sum(ld_block_ld_inv * ld_block_ld_inv)
 
         block_z = next(self._ldr_sumstats_reader(start, end))
         z_mat_ld_block_inv = np.dot(block_z.T, ld_block_inv)
@@ -527,7 +527,7 @@ class TwoSample(Estimation):
         This estimator assumes no sample overlap
 
         """
-        gene_cor_y2sq = gene_cor_y2 ** 2
+        gene_cor_y2sq = gene_cor_y2 * gene_cor_y2
         gene_cor_y2sq1 = 1 - gene_cor_y2sq
 
         var = np.zeros(self.N)

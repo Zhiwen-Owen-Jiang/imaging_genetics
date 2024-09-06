@@ -3,6 +3,8 @@ import time
 import argparse
 import traceback
 import numexpr
+import numpy as np
+import heig.input.dataset as ds
 from heig.utils import GetLogger, sec_to_str
 
 
@@ -331,7 +333,7 @@ def check_accepted_args(module, args, log):
                      'info_min', 'threads'},
         'voxel_gwas': {'out', 'voxel_gwas', 'sig_thresh', 'voxel', 'range',
                        'extract', 'ldr_sumstats', 'n_ldrs',
-                       'inner_ldr', 'bases', 'threads'},
+                       'inner_ldr', 'bases'},
         'gwas': {'out', 'gwas', 'ldrs', 'n_ldrs', 'grch37', 'threads', 'geno_mt',
                  'covar', 'cat_covar_list', 'bfile', 'not_save_genotype_data'},
         'annot_vcf': {'annot_vcf', 'out', 'grch37', 'vcf', 'favor_db', 'keep', 'extract'},
@@ -388,6 +390,14 @@ def main(args, log):
         args.keep = split_files(args.keep)
     if args.extract is not None:
         args.extract = split_files(args.extract)
+    if args.voxel is not None:
+        try:
+            args.voxel = np.array([int(args.voxel) - 1])
+        except ValueError:
+            if os.path.exists(args.voxel):
+                args.voxel = ds.read_voxel(args.voxel)
+            else:
+                raise FileNotFoundError(f"--voxel does not exist")
 
     if args.heri_gc:
         check_accepted_args('heri_gc', args, log)
