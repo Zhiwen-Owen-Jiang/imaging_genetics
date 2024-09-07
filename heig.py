@@ -173,7 +173,7 @@ common_parser.add_argument('--partition',
 common_parser.add_argument('--threads', type=int,
                            help=('number of threads. '
                                  'Supported modules: --read-image, --sumstats, --fpca, '
-                                 '--voxel-gwas, --heri-gc'))
+                                 '--voxel-gwas, --heri-gc, --make-ldr'))
 
 # arguments for herigc.py
 herigc_parser.add_argument('--ld-inv',
@@ -324,7 +324,8 @@ def check_accepted_args(module, args, log):
         'read_image': {'out', 'read_image', 'keep', 'image_txt', 'coord_txt', 
                        'image_dir', 'image_suffix','coord_dir', 'threads'},
         'fpca': {'out', 'fpca', 'image', 'all_pc', 'n_ldrs', 'keep', 'bw_opt', 'threads'},
-        'make_ldr': {'out', 'make_ldr', 'image', 'bases', 'n_ldrs', 'covar', 'cat_covar_list', 'keep'},
+        'make_ldr': {'out', 'make_ldr', 'image', 'bases', 'n_ldrs', 'covar', 'cat_covar_list', 
+                     'keep', 'threads'},
         'ld_matrix': {'out', 'ld_matrix', 'partition', 'ld_regu', 'bfile', 'keep',
                       'extract', 'maf_min'},
         'sumstats': {'out', 'sumstats', 'ldr_gwas', 'y2_gwas', 'n', 'n_col',

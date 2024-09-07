@@ -1,10 +1,12 @@
 import os
 import h5py
+import concurrent.futures
 import numpy as np
 import pandas as pd
 import heig.input.dataset as ds
 from collections import defaultdict
 from heig.fpca import image_reader
+
 
 
 def projection_ldr(ldr, covar):
@@ -41,14 +43,45 @@ def image_recovery_quality(images, ldrs, bases):
 
     Parameters:
     ------------
-    images: a reference to a dataset in HDF5 file
-    ldrs: constructed LDRs
-    bases: corresponding bases
+    images: a np.array of normalized raw images (n, N)
+    ldrs: a np.array of constructed LDRs (n, r)
+    bases: a np.array of corresponding bases (r, N)
+
+    Returns:
+    ---------
+    corr: a np.array of correlation coefficients between raw and reconstructed images
     
     """
-    rec_images = np.dot(ldrs, bases.T)
-    corr = [np.corrcoef([rec_images[i], images[i]])[1,0] for i in range(images.shape[0])]
+    rec_images = np.dot(bases, ldrs.T)
+    rec_images = (rec_images - np.mean(rec_images, axis=0)) / np.std(rec_images, axis=0)
+    corr = np.mean(images * rec_images, axis=0)
+
     return corr
+
+
+def construct_ldr_batch(images_, start_idx, end_idx, bases, alt_n_ldrs_list, rec_corr, ldrs):
+    """
+    Construting LDRs in batch
+
+    Parameters:
+    ------------
+    images_: a np.array of raw images (n1, N)
+    start_idx: start index
+    end_idx: end index
+    bases: a np.array of bases (N, r)
+    alt_n_ldrs_list: a list of alternative number of LDRs
+    rec_corr: a dict of reconstruction correlation
+    ldrs: a np.array of LDRs (n1, r)
+    
+    """
+    ldrs_ = np.dot(images_, bases)
+    ldrs[start_idx:end_idx] = ldrs_
+    images_ = images_.T
+    images_ = (images_ - np.mean(images_, axis=0)) / np.std(images_, axis=0)
+
+    for alt_n_ldrs in alt_n_ldrs_list:
+        image_rec_corr = image_recovery_quality(images_, ldrs_[:, :alt_n_ldrs], bases[:, :alt_n_ldrs])
+        rec_corr[alt_n_ldrs][start_idx:end_idx] = image_rec_corr
 
 
 def print_alt_corr(rec_corr, log):
@@ -136,21 +169,28 @@ def run(args, log):
         ldrs = np.zeros((len(id_idxs), n_ldrs))
         
         start_idx, end_idx = 0, 0
-        rec_corr = defaultdict(list)
+        rec_corr = defaultdict(lambda: np.zeros(len(id_idxs)))
         alt_n_ldrs_list = [int(n_ldrs * prop) for prop in (0.6, 0.7, 0.8, 0.9, 1)]
+
         log.info(f'Constructing {n_ldrs} LDRs ...')
-        for images_ in image_reader(images, id_idxs):
-            start_idx = end_idx
-            end_idx += images_.shape[0]
-            ldrs_ = np.dot(images_, bases)
-            ldrs[start_idx: end_idx] = ldrs_
-            for alt_n_ldrs in alt_n_ldrs_list:
-                image_rec_corr = image_recovery_quality(images_, ldrs_[:, :alt_n_ldrs], bases[:, :alt_n_ldrs])
-                rec_corr[alt_n_ldrs].extend(image_rec_corr)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as executor:
+            futures = []
+            for images_ in image_reader(images, id_idxs):
+                start_idx = end_idx
+                end_idx += images_.shape[0]
+
+                futures.append(executor.submit(
+                construct_ldr_batch, images_, start_idx, end_idx, bases, 
+                alt_n_ldrs_list, rec_corr, ldrs
+            ))
+                
+            for future in concurrent.futures.as_completed(futures):
+                future.result() 
 
         for alt_n_ldrs, corr in rec_corr.items():
             rec_corr[alt_n_ldrs] = round(np.mean(corr), 2)
         print_alt_corr(rec_corr, log)
+
 
     # process covar
     covar.keep(common_idxs)
