@@ -172,7 +172,8 @@ common_parser.add_argument('--partition',
                                  'Supported modules: --ld-matrix, --relatedness.'))
 common_parser.add_argument('--threads', type=int,
                            help=('number of threads. '
-                                 'Supported modules: --read-image, --sumstats, --fpca.'))
+                                 'Supported modules: --read-image, --sumstats, --fpca, '
+                                 '--voxel-gwas, --heri-gc'))
 
 # arguments for herigc.py
 herigc_parser.add_argument('--ld-inv',
@@ -333,7 +334,7 @@ def check_accepted_args(module, args, log):
                      'info_min', 'threads'},
         'voxel_gwas': {'out', 'voxel_gwas', 'sig_thresh', 'voxel', 'range',
                        'extract', 'ldr_sumstats', 'n_ldrs',
-                       'ldr_cov', 'bases'},
+                       'ldr_cov', 'bases', 'threads'},
         'gwas': {'out', 'gwas', 'ldrs', 'n_ldrs', 'grch37', 'threads', 'geno_mt',
                  'covar', 'cat_covar_list', 'bfile', 'not_save_genotype_data'},
         'annot_vcf': {'annot_vcf', 'out', 'grch37', 'vcf', 'favor_db', 'keep', 'extract'},

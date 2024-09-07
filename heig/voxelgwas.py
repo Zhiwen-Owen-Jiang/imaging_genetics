@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import concurrent.futures
 from scipy.stats import chi2
 from tqdm import tqdm
 from heig import sumstats
@@ -8,7 +9,7 @@ import heig.input.dataset as ds
 
 
 class VGWAS:
-    def __init__(self, bases, ldr_cov, ldr_gwas, snp_idxs, n):
+    def __init__(self, bases, ldr_cov, ldr_gwas, snp_idxs, n, threads):
         """
         Parameters:
         ------------
@@ -17,6 +18,7 @@ class VGWAS:
         ldr_gwas: a GWAS instance
         snp_idxs: numerical indices of SNPs to extract (d, )
         n: sample sizes of SNPs (d, 1)
+        threads: number of threads
         
         """
         self.bases = bases
@@ -25,11 +27,15 @@ class VGWAS:
         self.ldr_idxs = list(range(ldr_gwas.n_gwas))
         self.snp_idxs = snp_idxs
         self.n = n
-        self.ztz_inv = self._compute_ztz_inv() # (d, 1)
+        self.ztz_inv = self._compute_ztz_inv(threads) # (d, 1)
 
-    def _compute_ztz_inv(self):
+    def _compute_ztz_inv(self, threads):
         """
         Computing (Z'Z)^{-1} from summary statistics
+
+        Parameters:
+        ------------
+        threads: number of threads
 
         Returns:
         ---------
@@ -40,19 +46,38 @@ class VGWAS:
         ztz_inv = np.zeros(np.sum(self.snp_idxs))
         n_ldrs = self.bases.shape[1]
 
+        futures = []
         i = 0
         data_reader = self.ldr_gwas.data_reader(['beta', 'z'], self.ldr_idxs, self.snp_idxs)
-        for ldr_beta_batch, ldr_z_batch in data_reader:
-            ldr_se_batch = ldr_beta_batch / ldr_z_batch
-            batch_size = ldr_beta_batch.shape[1]
-            ztz_inv += np.sum((ldr_se_batch * ldr_se_batch) / ldr_var[i: i+batch_size], axis=1)
-            i += batch_size
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+            for ldr_beta_batch, ldr_z_batch in data_reader:
+                futures.append(executor.submit(self._compute_ztz_inv_batch, ldr_beta_batch, ldr_z_batch, ldr_var, i))
+                batch_size = ldr_beta_batch.shape[1]
+                i += batch_size
+
+            for future in concurrent.futures.as_completed(futures):
+                ztz_inv += future.result()
+
         ztz_inv /= n_ldrs
         ztz_inv = ztz_inv.reshape(-1, 1)
         
         return ztz_inv
     
-    def recover_beta(self, voxel_idxs):
+    def _compute_ztz_inv_batch(self, ldr_beta_batch, ldr_z_batch, ldr_var, i):
+        """
+        Computing (Z'Z)^{-1} from summary statistics in batch
+        
+        """
+        ldr_se_batch = ldr_beta_batch / ldr_z_batch
+        batch_size = ldr_beta_batch.shape[1]
+        ztz_inv_batch = np.sum(
+            (ldr_se_batch * ldr_se_batch + ldr_beta_batch * ldr_beta_batch / self.n) / ldr_var[i: i+batch_size], 
+            axis=1
+        )
+        return ztz_inv_batch
+    
+    def recover_beta(self, voxel_idxs, threads):
         """
         Recovering voxel beta
 
@@ -70,13 +95,26 @@ class VGWAS:
         base = self.bases[voxel_idxs] # (q, r)
 
         i = 0
-        for ldr_beta_batch in data_reader:
-            ldr_beta_batch = ldr_beta_batch[0]
-            batch_size = ldr_beta_batch.shape[1]
-            voxel_beta += np.dot(ldr_beta_batch, base[:, i: i+batch_size].T)
-            i += batch_size
+        futures = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+            for ldr_beta_batch in data_reader:
+                futures.append(executor.submit(self._recover_beta_batch, ldr_beta_batch[0], base, i))
+                batch_size = ldr_beta_batch[0].shape[1]
+                i += batch_size
+
+            for future in concurrent.futures.as_completed(futures):
+                voxel_beta += future.result()
 
         return voxel_beta
+    
+    def _recover_beta_batch(self, ldr_beta_batch, base, i):
+        """
+        Computing voxel beta in batch
+        
+        """
+        batch_size = ldr_beta_batch.shape[1]
+        voxel_beta_batch = np.dot(ldr_beta_batch, base[:, i: i+batch_size].T)
+        return voxel_beta_batch
     
     def recover_se(self, voxel_idxs, voxel_beta):
         """
@@ -94,25 +132,103 @@ class VGWAS:
         """
         base = np.atleast_2d(self.bases[voxel_idxs]) # (q, r)
         part1 = np.sum(np.dot(base, self.ldr_cov) * base, axis=1) # (q, )
-        voxel_se = np.sqrt(part1 * self.ztz_inv / self.n - voxel_beta * voxel_beta / self.n)
+        voxel_se = np.sqrt(part1 * self.ztz_inv - voxel_beta * voxel_beta / self.n) # slow
 
         return voxel_se
 
 
 def voxel_reader(n_snps, voxel_list):
     """
-    Doing voxel GWAS in batch, each block less than 1 GB
+    Doing voxel GWAS in batch, each block less than 0.5 GB
     
     """
     n_voxels = len(voxel_list)
     memory_use = n_snps * n_voxels * np.dtype(np.float32).itemsize / (1024 ** 3)
-    if memory_use <= 1:
+    if memory_use <= 0.5:
         batch_size = n_voxels
     else:
-        batch_size = int(n_voxels / memory_use * 1)
+        batch_size = int(n_voxels / memory_use * 0.5)
 
     for i in range(0, n_voxels, batch_size):
         yield voxel_list[i: i+batch_size]
+
+
+def write_header(snp_info, outpath):
+    """
+    Writing output header
+
+    """
+    output_header = snp_info.head(0).copy()
+    output_header.insert(0, 'INDEX', None)
+    output_header['BETA'] = None
+    output_header['SE'] = None
+    output_header['Z'] = None
+    output_header['P'] = None
+    output_header = output_header.to_csv(sep='\t', header=True, index=None)
+    with open(outpath, 'w') as file:
+        file.write(output_header)
+
+
+def _process_voxels_batch(i, voxel_idx, all_sig_idxs, snp_info, 
+                  voxel_beta, voxel_se, voxel_z, all_sig_idxs_voxel
+    ):
+    """
+    Processing each voxel
+    
+    """
+    if all_sig_idxs_voxel[i]:
+        sig_idxs = all_sig_idxs[:, i]
+        sig_snps = snp_info.loc[sig_idxs].copy()
+        sig_snps['BETA'] = voxel_beta[sig_idxs, i]
+        sig_snps['SE'] = voxel_se[sig_idxs, i]
+        sig_snps['Z'] = voxel_z[sig_idxs, i]
+        sig_snps['P'] = chi2.sf(sig_snps['Z'] ** 2, 1)
+        sig_snps.insert(0, 'INDEX', [voxel_idx+1] * np.sum(sig_idxs))
+        sig_snps_output = sig_snps.to_csv(sep='\t', header=False, na_rep='NA', index=None, float_format='%.5e')
+        return i, sig_snps_output
+    return i, None
+
+
+def process_voxels(
+        voxel_idxs, all_sig_idxs, snp_info, voxel_beta, 
+        voxel_se, voxel_z, all_sig_idxs_voxel, outpath, threads
+    ):
+    """
+    Processing voxels in parallel
+
+    Parameters:
+    ------------
+    voxel_idxs: a list of voxel idxs (q)
+    all_sig_idxs: a np.array of boolean significant indices (d, q)
+    snp_info: a pd.DataFrame of all SNPs (d, x)
+    voxel_beta: a np.array of voxel beta (d, q)
+    voxel_se: a np.array of voxel se (d, q)
+    voxel_z: a np.array of voxel z-score (d, q)
+    all_sig_idxs_voxel: a np.array of boolean indices of any significant SNPs (q, )
+    outpath: a directory of output
+    threads: number of threads
+    
+    """
+    results_dict = {}
+    future_to_idx = {}
+    next_write_i = 0
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+        for i, voxel_idx in enumerate(voxel_idxs):
+            result = executor.submit(
+                _process_voxels_batch, i, voxel_idx, all_sig_idxs, snp_info, 
+                voxel_beta, voxel_se, voxel_z, all_sig_idxs_voxel
+            )
+            future_to_idx[result] = i
+        
+        for future in concurrent.futures.as_completed(future_to_idx):
+            i, sig_snps_output = future.result()
+            results_dict[i] = sig_snps_output
+            while next_write_i in results_dict:
+                if results_dict[next_write_i] is not None:
+                    with open(outpath, 'a') as file:
+                        file.write(results_dict.pop(next_write_i))
+                next_write_i += 1
 
 
 def check_input(args, log):
@@ -235,36 +351,20 @@ def run(args, log):
 
         # doing analysis
         log.info(f"Recovering voxel-level GWAS results ...")
-        vgwas = VGWAS(bases, ldr_cov, ldr_gwas, snp_idxs, ldr_n)
-        is_first_write = True
-        for voxel_idxs in tqdm(voxel_reader(np.sum(snp_idxs), args.voxel), desc=f"Doing GWAS for {len(args.voxel)} voxels"):
-            voxel_beta = vgwas.recover_beta(voxel_idxs)
+        write_header(snp_info, outpath)
+        vgwas = VGWAS(bases, ldr_cov, ldr_gwas, snp_idxs, ldr_n, args.threads)
+        
+        for voxel_idxs in tqdm(voxel_reader(np.sum(snp_idxs), args.voxel), desc=f"Doing GWAS for {len(args.voxel)} voxels in batch"):
+            voxel_beta = vgwas.recover_beta(voxel_idxs, args.threads)
             voxel_se = vgwas.recover_se(voxel_idxs, voxel_beta)
             voxel_z = voxel_beta / voxel_se
             all_sig_idxs = voxel_z * voxel_z >= thresh_chisq
             all_sig_idxs_voxel = all_sig_idxs.any(axis=0)
 
-            for i, voxel_idx in enumerate(voxel_idxs):
-                if all_sig_idxs_voxel[i]:
-                    sig_idxs = all_sig_idxs[:, i]
-                    sig_snps = snp_info.loc[sig_idxs].copy()
-                    sig_snps['BETA'] = voxel_beta[sig_idxs, i]
-                    sig_snps['SE'] = voxel_se[sig_idxs, i]
-                    sig_snps['Z'] = voxel_z[sig_idxs, i]
-                    sig_snps['P'] = chi2.sf(sig_snps['Z'] ** 2, 1)
-                    sig_snps.insert(0, 'INDEX', [voxel_idx+1] * np.sum(sig_idxs))
-
-                    if is_first_write:
-                        sig_snps_output = sig_snps.to_csv(sep='\t', header=True, na_rep='NA', index=None,
-                                                        float_format='%.5e')
-                        is_first_write = False
-                        with open(outpath, 'w') as file:
-                            file.write(sig_snps_output)
-                    else:
-                        sig_snps_output = sig_snps.to_csv(sep='\t', header=False, na_rep='NA', index=None,
-                                                        float_format='%.5e')
-                        with open(outpath, 'a') as file:
-                            file.write(sig_snps_output)
+            process_voxels(
+                voxel_idxs, all_sig_idxs, snp_info, voxel_beta, 
+                voxel_se, voxel_z, all_sig_idxs_voxel, outpath, args.threads
+            )
 
         log.info(f"Save the output to {outpath}")
 

@@ -184,7 +184,7 @@ class GWAS:
 
     def data_reader(self, data_type_list, gwas_idxs, snps_idxs, all_gwas=False):
         """
-        Reading summary statistics in chunks, each chunk is ~5 GB
+        Reading summary statistics in chunks, each chunk is ~1 GB
         Two strategies: column first for reading all (a few) sumstats for a few LDRs
         row first for reading a block of sumstats for all LDRs
 
@@ -202,10 +202,10 @@ class GWAS:
         """
         data_list = [getattr(self, data_type) for data_type in data_type_list] 
         memory_use = self.n_snps * self.n_gwas * np.dtype(np.float32).itemsize / (1024 ** 3)
-        if memory_use <= 5 or all_gwas:
+        if memory_use <= 1 or all_gwas:
             batch_size = self.n_gwas
         else:
-            batch_size = int(self.n_gwas / memory_use * 5)
+            batch_size = int(self.n_gwas / memory_use * 1)
 
         for i in range(0, self.n_gwas, batch_size):
             gwas_idxs_chuck = gwas_idxs[i: i+batch_size]
