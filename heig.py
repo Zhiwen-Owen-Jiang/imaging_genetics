@@ -99,8 +99,8 @@ common_parser.add_argument('--ldr-sumstats',
 common_parser.add_argument('--bases',
                            help=('Directory to functional bases. Supported modules: '
                                  '--make-ldr, --heri-gc, --voxel-gwas, --wgs-null.'))
-common_parser.add_argument('--inner-ldr',
-                           help=('Directory to inner product of LDRs. '
+common_parser.add_argument('--ldr-cov',
+                           help=('Directory to variance-covariance marix of LDRs. '
                                  'Supported modules: --heri-gc, --voxel-gwas.'))
 common_parser.add_argument('--keep',
                            help=('Individual file(s). Multiple files are separated by comma. '
@@ -319,7 +319,7 @@ def check_accepted_args(module, args, log):
     accepted_args = {
         'heri_gc': {'out', 'heri_gc', 'ld_inv', 'ld', 'y2_sumstats',
                     'overlap', 'heri_only', 'n_ldrs', 'ldr_sumstats',
-                    'bases', 'inner_ldr', 'extract', 'threads'},
+                    'bases', 'ldr_cov', 'extract', 'threads'},
         'read_image': {'out', 'read_image', 'keep', 'image_txt', 'coord_txt', 
                        'image_dir', 'image_suffix','coord_dir', 'threads'},
         'fpca': {'out', 'fpca', 'image', 'all_pc', 'n_ldrs', 'keep', 'bw_opt', 'threads'},
@@ -333,7 +333,7 @@ def check_accepted_args(module, args, log):
                      'info_min', 'threads'},
         'voxel_gwas': {'out', 'voxel_gwas', 'sig_thresh', 'voxel', 'range',
                        'extract', 'ldr_sumstats', 'n_ldrs',
-                       'inner_ldr', 'bases'},
+                       'ldr_cov', 'bases'},
         'gwas': {'out', 'gwas', 'ldrs', 'n_ldrs', 'grch37', 'threads', 'geno_mt',
                  'covar', 'cat_covar_list', 'bfile', 'not_save_genotype_data'},
         'annot_vcf': {'annot_vcf', 'out', 'grch37', 'vcf', 'favor_db', 'keep', 'extract'},

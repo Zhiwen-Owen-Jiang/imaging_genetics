@@ -9,28 +9,30 @@ from heig.fpca import image_reader
 
 def projection_ldr(ldr, covar):
     """
-    Computing S'(I - M)S = S'S - S'X(X'X)^{-1}X'S,
+    Computing S'(I - M)S/n = S'S - S'X(X'X)^{-1}X'S/n,
     where I is the identity matrix, 
     M = X(X'X)^{-1}X' is the project matrix for X,
     S is the LDR matrix.
 
     Parameters:
     ------------
-    ldr (N, r): low-dimension representaion of imaging data
+    ldr (n, r): low-dimension representaion of imaging data
     covar (n, p): covariates, including the intercept
 
     Returns:
     ---------
-    Projected inner product of LDR
+    ldr_cov: variance-covariance matrix of LDRs
 
     """
+    n = ldr.shape[0]
     inner_ldr = np.dot(ldr.T, ldr)
     inner_covar = np.dot(covar.T, covar)
     inner_covar_inv = np.linalg.inv(inner_covar)
     ldr_covar = np.dot(ldr.T, covar)
     part2 = np.dot(np.dot(ldr_covar, inner_covar_inv), ldr_covar.T)
-    
-    return inner_ldr - part2
+    ldr_cov = (inner_ldr - part2) / n
+
+    return ldr_cov
 
 
 def image_recovery_quality(images, ldrs, bases):
@@ -143,7 +145,8 @@ def run(args, log):
             ldrs_ = np.dot(images_, bases)
             ldrs[start_idx: end_idx] = ldrs_
             for alt_n_ldrs in alt_n_ldrs_list:
-                rec_corr[alt_n_ldrs].extend(image_recovery_quality(images_, ldrs_[:, :alt_n_ldrs], bases[:, :alt_n_ldrs]))
+                image_rec_corr = image_recovery_quality(images_, ldrs_[:, :alt_n_ldrs], bases[:, :alt_n_ldrs])
+                rec_corr[alt_n_ldrs].extend(image_rec_corr)
 
         for alt_n_ldrs, corr in rec_corr.items():
             rec_corr[alt_n_ldrs] = round(np.mean(corr), 2)
@@ -155,13 +158,14 @@ def run(args, log):
     log.info(f"{covar.data.shape[1]} fixed effects in the covariates (including the intercept).")
 
     # var-cov matrix of projected LDRs
-    proj_inner_ldr = projection_ldr(ldrs, np.array(covar.data))
-    log.info(f"Removed covariate effects from LDRs and computed inner product.\n")
+    ldr_cov = projection_ldr(ldrs, np.array(covar.data))
+    log.info(f"Removed covariate effects from LDRs and variance-covariance matrix.\n")
 
     # save the output
     ldr_df = pd.DataFrame(ldrs, index=ids[ids_])
     ldr_df.to_csv(f"{args.out}_ldr_top{n_ldrs}.txt", sep='\t')
-    np.save(f"{args.out}_proj_innerldr_top{n_ldrs}.npy", proj_inner_ldr)
+    np.save(f"{args.out}_ldr_cov_top{n_ldrs}.npy", ldr_cov)
 
     log.info(f"Save the raw LDRs to {args.out}_ldr_top{n_ldrs}.txt")
-    log.info(f"Save the projected inner product of LDRs to {args.out}_proj_innerldr_top{n_ldrs}.npy")
+    log.info((f"Save the variance-covariance matrix of covariate-effect-removed LDRs "
+              f"to {args.out}_ldr_cov_top{n_ldrs}.npy"))

@@ -18,8 +18,8 @@ def check_input(args, log):
         raise ValueError('--ldr-sumstats is required')
     if args.bases is None:
         raise ValueError('--bases is required')
-    if args.inner_ldr is None:
-        raise ValueError('--inner-ldr is required')
+    if args.ldr_cov is None:
+        raise ValueError('--ldr-cov is required')
     if args.ld_inv is None:
         raise ValueError('--ld-inv is required')
     if args.ld is None:
@@ -32,8 +32,8 @@ def check_input(args, log):
             f"{args.ldr_sumstats}.sumstats does not exist")
     if not os.path.exists(args.bases):
         raise FileNotFoundError(f"{args.bases} does not exist")
-    if not os.path.exists(args.inner_ldr):
-        raise FileNotFoundError(f"{args.inner_ldr} does not exist")
+    if not os.path.exists(args.ldr_cov):
+        raise FileNotFoundError(f"{args.ldr_cov} does not exist")
     if args.overlap and not args.y2_sumstats:
         log.info('WARNING: ignore --overlap as --y2-sumstats is not specified.')
     if args.y2_sumstats is not None:
@@ -91,26 +91,26 @@ def get_common_snps(*snp_list):
     return common_snps['SNP']
 
 
-def keep_ldrs(n_ldrs, bases, inner_ldr, ldr_gwas):
+def keep_ldrs(n_ldrs, bases, ldr_cov, ldr_gwas):
     """
     Extracting LDRs
     
     """
     if bases.shape[1] < n_ldrs:
         raise ValueError('the number of bases is less than --n-ldrs')
-    if inner_ldr.shape[0] < n_ldrs:
-        raise ValueError('the dimension of inner product of LDR is less than --n-ldrs')
+    if ldr_cov.shape[0] < n_ldrs:
+        raise ValueError('the dimension of variance-covariance matrix of LDR is less than --n-ldrs')
     if ldr_gwas.n_gwas < n_ldrs:
         raise ValueError('LDRs in summary statistics is less than --n-ldrs')
     bases = bases[:, :n_ldrs]
-    inner_ldr = inner_ldr[:n_ldrs, :n_ldrs]
+    ldr_cov = ldr_cov[:n_ldrs, :n_ldrs]
     ldr_gwas.n_gwas = n_ldrs
 
-    return bases, inner_ldr, ldr_gwas
+    return bases, ldr_cov, ldr_gwas
 
 
 class Estimation(ABC):
-    def __init__(self, ldr_gwas, ld, ld_inv, bases, inner_ldr):
+    def __init__(self, ldr_gwas, ld, ld_inv, bases, ldr_cov):
         """
         An abstract class for estimating heritability and genetic correlation
 
@@ -120,7 +120,7 @@ class Estimation(ABC):
         ld: a LDmatrix instance
         ld_inv: a LDmatrix instance
         bases: a np.array of bases (N, r)
-        inner_ldr: a np.array of inner product of LDRs (r, r)
+        ldr_cov: a np.array of variance-covariance matrix of LDRs (r, r)
 
         """
         self.ldr_gwas = ldr_gwas
@@ -131,9 +131,9 @@ class Estimation(ABC):
         self.ld_inv = ld_inv
         self.r = ldr_gwas.n_gwas
         self.bases = bases
-        self.inner_ldr = inner_ldr
+        self.ldr_cov = ldr_cov
         self.block_ranges = ld.block_ranges
-        self.sigmaX_var = np.sum(np.dot(bases, inner_ldr) * bases, axis=1) / self.nbar
+        self.sigmaX_var = np.sum(np.dot(bases, ldr_cov) * bases, axis=1)
 
     def _ldr_sumstats_reader(self, start, end, all_ldrs=True, normal=True):
         """
@@ -165,12 +165,12 @@ class Estimation(ABC):
                                                 block_snp_idxs,
                                                 all_gwas=all_ldrs)
             
-        sqrt_diag_inner_ldr = np.sqrt(np.diag(self.inner_ldr))
+        ldr_se = np.sqrt(np.diag(self.ldr_cov))
         for z in data_reader:
             z = z[0]
             z[block_change_sign] = -1 * z[block_change_sign]
             if normal:
-                z = z * sqrt_diag_inner_ldr / block_n
+                z = z * ldr_se / np.sqrt(block_n)
             yield z
 
     def _get_heri_se(self, heri, d, n):
@@ -209,8 +209,8 @@ class Estimation(ABC):
 
 
 class OneSample(Estimation):
-    def __init__(self, ldr_gwas, ld, ld_inv, bases, inner_ldr, threads):
-        super().__init__(ldr_gwas, ld, ld_inv, bases, inner_ldr)
+    def __init__(self, ldr_gwas, ld, ld_inv, bases, ldr_cov, threads):
+        super().__init__(ldr_gwas, ld, ld_inv, bases, ldr_cov)
 
         # self.ld_rank = 0
         # self.ldr_gene_cov = np.zeros((self.r, self.r))
@@ -253,7 +253,7 @@ class OneSample(Estimation):
         block_z = next(self._ldr_sumstats_reader(start, end))
         z_mat_block_ld_inv = np.dot(block_z.T, ld_inv_block) # (r, ld_size)
         block_gene_cov = (np.dot(z_mat_block_ld_inv, z_mat_block_ld_inv.T) -
-                          ld_block_rank * self.inner_ldr / self.nbar ** 2) # (r, r)
+                          ld_block_rank * self.ldr_cov / self.nbar) # (r, r)
 
         return ld_block_rank, block_gene_cov
 
@@ -295,7 +295,7 @@ class OneSample(Estimation):
         gene_cor2 = gene_cor * gene_cor
         part1 = 1 - gene_cor2
 
-        part2 = np.dot(np.dot(self.bases[start: end], self.inner_ldr), self.bases.T) / self.nbar / gene_cov
+        part2 = np.dot(np.dot(self.bases[start: end], self.ldr_cov), self.bases.T) / gene_cov
         part2 -= 1
         del gene_cov
 
@@ -326,9 +326,9 @@ class OneSample(Estimation):
 
 
 class TwoSample(Estimation):
-    def __init__(self, ldr_gwas, ld, ld_inv, bases, inner_ldr,
+    def __init__(self, ldr_gwas, ld, ld_inv, bases, ldr_cov,
                  y2_gwas, threads, overlap=False):
-        super().__init__(ldr_gwas, ld, ld_inv, bases, inner_ldr)
+        super().__init__(ldr_gwas, ld, ld_inv, bases, ldr_cov)
         self.y2_gwas = y2_gwas
         self.n2 = y2_gwas.snpinfo['N'].values.reshape(-1, 1)
         self.n2bar = np.mean(self.n2)
@@ -384,7 +384,7 @@ class TwoSample(Estimation):
             image_lobo_heri = temp / self.sigmaX_var
 
             # compute left-one-block-out cross-trait LDSC intercept
-            self.ldr_heri = np.diag(self.ldr_gene_cov) / np.diag(self.inner_ldr) * self.nbar
+            self.ldr_heri = np.diag(self.ldr_gene_cov) / np.diag(self.ldr_cov)
             ldr_sumstats_reader = self._ldr_sumstats_reader(0, self.ldr_gwas.n_snps, 
                                                             all_ldrs=False, normal=False)
             y2_sumstats_reader = self._y2_sumstats_reader(0, self.y2_gwas.n_snps, normal=False)
@@ -496,13 +496,13 @@ class TwoSample(Estimation):
         block_gene_var_y2 = np.dot(y2_ld_block_inv, y2_ld_block_inv.T) - ld_block_rank / self.n2bar
         block_gene_cov_y2 = np.squeeze(np.dot(z_mat_ld_block_inv, y2_ld_block_inv.T))
         block_gene_cov = (np.dot(z_mat_ld_block_inv, z_mat_ld_block_inv.T) -
-                          ld_block_rank * self.inner_ldr / self.nbar ** 2)
+                          ld_block_rank * self.ldr_cov / self.nbar)
 
         return ld_block_rank, block_gene_var_y2, block_gene_cov, block_gene_cov_y2
 
     def _get_gene_cor_ldsc(self, part1, ld_rank, ldsc, heri1, heri2):
         ldr_gene_cov = (part1 - ld_rank.reshape(-1, 1) * ldsc *
-                        np.sqrt(np.diagonal(self.inner_ldr)) / self.nbar / np.sqrt(self.n2bar))
+                        np.sqrt(np.diagonal(self.ldr_cov)) / np.sqrt(self.nbar) / np.sqrt(self.n2bar))
         gene_cor = self._get_gene_cor_y2(ldr_gene_cov.T, heri1, heri2)
 
         return gene_cor
@@ -683,11 +683,11 @@ def run(args, log):
         raise ValueError('LD matrix and LD inverse matrix have different alleles for some SNPs')
     log.info(f'{ld.ldinfo.shape[0]} SNPs read from LD matrix (and its inverse).')
 
-    # read bases and inner_ldr
+    # read bases and ldr_cov
     bases = np.load(args.bases)
     log.info(f'{bases.shape[1]} bases read from {args.bases}')
-    inner_ldr = np.load(args.inner_ldr)
-    log.info(f'Read inner product of LDRs from {args.inner_ldr}')
+    ldr_cov = np.load(args.ldr_cov)
+    log.info(f'Read variance-covariance matrix of LDRs from {args.ldr_cov}')
 
     try:
         # read LDR gwas
@@ -696,12 +696,12 @@ def run(args, log):
 
         # keep selected LDRs
         if args.n_ldrs is not None:
-            bases, inner_ldr, ldr_gwas = keep_ldrs(args.n_ldrs, bases, inner_ldr, ldr_gwas)
+            bases, ldr_cov, ldr_gwas = keep_ldrs(args.n_ldrs, bases, ldr_cov, ldr_gwas)
             log.info(f'Keep the top {args.n_ldrs} LDRs.')
         
         # check numbers of LDRs are the same
-        if bases.shape[1] != inner_ldr.shape[0] or bases.shape[1] != ldr_gwas.n_gwas:
-            raise ValueError(('inconsistent dimension for bases, inner product of LDRs, '
+        if bases.shape[1] != ldr_cov.shape[0] or bases.shape[1] != ldr_gwas.n_gwas:
+            raise ValueError(('inconsistent dimension for bases, variance-covariance matrix of LDRs, '
                             'and LDR summary statistics. '
                             'Try to use --n-ldrs'))
 
@@ -739,7 +739,7 @@ def run(args, log):
 
         log.info('Computing heritability and/or genetic correlation ...')
         if not args.y2_sumstats:
-            heri_gc = OneSample(ldr_gwas, ld, ld_inv, bases, inner_ldr, args.threads)
+            heri_gc = OneSample(ldr_gwas, ld, ld_inv, bases, ldr_cov, args.threads)
             heri_output = format_heri(heri_gc.heri, heri_gc.heri_se, log)
             msg = print_results_heri(heri_output)
             log.info(f'{msg}')
@@ -754,7 +754,7 @@ def run(args, log):
                 log.info(f'{msg}')
                 log.info(f'Save the genetic correlation results to {args.out}_gc.h5')
         else:
-            heri_gc = TwoSample(ldr_gwas, ld, ld_inv, bases, inner_ldr, y2_gwas, args.threads, args.overlap)
+            heri_gc = TwoSample(ldr_gwas, ld, ld_inv, bases, ldr_cov, y2_gwas, args.threads, args.overlap)
             gene_cor_y2_output = format_gene_cor_y2(heri_gc.heri, heri_gc.heri_se,
                                                     heri_gc.gene_cor_y2,
                                                     heri_gc.gene_cor_y2_se, log)

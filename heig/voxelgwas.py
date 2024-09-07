@@ -8,19 +8,19 @@ import heig.input.dataset as ds
 
 
 class VGWAS:
-    def __init__(self, bases, inner_ldr, ldr_gwas, snp_idxs, n):
+    def __init__(self, bases, ldr_cov, ldr_gwas, snp_idxs, n):
         """
         Parameters:
         ------------
         bases: a np.array of bases (N, r)
-        inner_ldr: a np.array of inner product of LDRs (r, r)
+        ldr_cov: a np.array of variance-covariance matrix of LDRs (r, r)
         ldr_gwas: a GWAS instance
         snp_idxs: numerical indices of SNPs to extract (d, )
         n: sample sizes of SNPs (d, 1)
         
         """
         self.bases = bases
-        self.inner_ldr = inner_ldr
+        self.ldr_cov = ldr_cov
         self.ldr_gwas = ldr_gwas
         self.ldr_idxs = list(range(ldr_gwas.n_gwas))
         self.snp_idxs = snp_idxs
@@ -36,7 +36,7 @@ class VGWAS:
         ztz_inv: a np.array of (Z'Z)^{-1} (d, 1)
         
         """
-        diag_inner_ldr = np.diag(self.inner_ldr)
+        ldr_var = np.diag(self.ldr_cov)
         ztz_inv = np.zeros(np.sum(self.snp_idxs))
         n_ldrs = self.bases.shape[1]
 
@@ -45,8 +45,7 @@ class VGWAS:
         for ldr_beta_batch, ldr_z_batch in data_reader:
             ldr_se_batch = ldr_beta_batch / ldr_z_batch
             batch_size = ldr_beta_batch.shape[1]
-            ztz_inv += np.sum((self.n * ldr_se_batch * ldr_se_batch + ldr_beta_batch * ldr_beta_batch) \
-                               / diag_inner_ldr[i: i+batch_size], axis=1)
+            ztz_inv += np.sum((ldr_se_batch * ldr_se_batch) / ldr_var[i: i+batch_size], axis=1)
             i += batch_size
         ztz_inv /= n_ldrs
         ztz_inv = ztz_inv.reshape(-1, 1)
@@ -94,7 +93,7 @@ class VGWAS:
 
         """
         base = np.atleast_2d(self.bases[voxel_idxs]) # (q, r)
-        part1 = np.sum(np.dot(base, self.inner_ldr) * base, axis=1) # (q, )
+        part1 = np.sum(np.dot(base, self.ldr_cov) * base, axis=1) # (q, )
         voxel_se = np.sqrt(part1 * self.ztz_inv / self.n - voxel_beta * voxel_beta / self.n)
 
         return voxel_se
@@ -122,8 +121,8 @@ def check_input(args, log):
         raise ValueError('--ldr-sumstats is required')
     if args.bases is None:
         raise ValueError('--bases is required')
-    if args.inner_ldr is None:
-        raise ValueError('--inner-ldr is required')
+    if args.ldr_cov is None:
+        raise ValueError('--ldr-cov is required')
 
     # optional arguments
     if args.n_ldrs is not None and args.n_ldrs <= 0:
@@ -141,8 +140,8 @@ def check_input(args, log):
         raise FileNotFoundError(f"{args.ldr_sumstats}.sumstats does not exist")
     if not os.path.exists(args.bases):
         raise FileNotFoundError(f"{args.bases} does not exist")
-    if not os.path.exists(args.inner_ldr):
-        raise FileNotFoundError(f"{args.inner_ldr} does not exist")
+    if not os.path.exists(args.ldr_cov):
+        raise FileNotFoundError(f"{args.ldr_cov} does not exist")
 
     # process some arguments
     if args.range is not None:
@@ -176,8 +175,8 @@ def run(args, log):
     target_chr, start_pos, end_pos, keep_snps = check_input(args, log)
 
     # reading data
-    inner_ldr = np.load(args.inner_ldr)
-    log.info(f'Read inner product of LDRs from {args.inner_ldr}')
+    ldr_cov = np.load(args.ldr_cov)
+    log.info(f'Read variance-covariance matrix of LDRs from {args.ldr_cov}')
     bases = np.load(args.bases)
     log.info(f'{bases.shape[1]} bases read from {args.bases}')
 
@@ -187,15 +186,15 @@ def run(args, log):
 
         # LDR subsetting
         if args.n_ldrs:
-            if args.n_ldrs > ldr_gwas.n_gwas or args.n_ldrs > bases.shape[1] or args.n_ldrs > inner_ldr.shape[0]:
+            if args.n_ldrs > ldr_gwas.n_gwas or args.n_ldrs > bases.shape[1] or args.n_ldrs > ldr_cov.shape[0]:
                 log.info('WARNING: --n-ldrs is greater than the maximum #LDRs. Use all LDRs.')
             else:
                 ldr_gwas.n_gwas = args.n_ldrs
                 bases = bases[:, :args.n_ldrs]
-                inner_ldr = inner_ldr[:args.n_ldrs, :args.n_ldrs]
+                ldr_cov = ldr_cov[:args.n_ldrs, :args.n_ldrs]
 
-        if bases.shape[1] != ldr_gwas.n_gwas or bases.shape[1] != inner_ldr.shape[0]:
-            raise ValueError('dimension mismatch for --bases, --inner-ldr, and --ldr-sumstats. Try to use --n-ldrs')
+        if bases.shape[1] != ldr_gwas.n_gwas or bases.shape[1] != ldr_cov.shape[0]:
+            raise ValueError('dimension mismatch for --bases, --ldr-cov, and --ldr-sumstats. Try to use --n-ldrs')
         log.info(f'Keep the top {bases.shape[1]} components.\n')
 
         # getting the outpath and SNP list
@@ -236,7 +235,7 @@ def run(args, log):
 
         # doing analysis
         log.info(f"Recovering voxel-level GWAS results ...")
-        vgwas = VGWAS(bases, inner_ldr, ldr_gwas, snp_idxs, ldr_n)
+        vgwas = VGWAS(bases, ldr_cov, ldr_gwas, snp_idxs, ldr_n)
         is_first_write = True
         for voxel_idxs in tqdm(voxel_reader(np.sum(snp_idxs), args.voxel), desc=f"Doing GWAS for {len(args.voxel)} voxels"):
             voxel_beta = vgwas.recover_beta(voxel_idxs)
