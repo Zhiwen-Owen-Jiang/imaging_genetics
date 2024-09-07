@@ -3,6 +3,7 @@ import os
 import re
 import pickle
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import numpy as np
 from heig import utils
@@ -368,3 +369,35 @@ def parse_input(arg):
         return files
     else:
         return [arg]
+    
+
+class ReadCsvParallel:
+    def __init__(self, filename, threads):
+        self.filename = filename
+        self.threads = threads
+        self.chunksize = 100000
+    
+    @staticmethod
+    def _identity(chunk):
+        return chunk
+    
+    def read_csv_parallel(self, processing_chunk=None, **kwargs):
+        """
+        Reading a CSV file in parallel and applies a processing function to each chunk.
+        
+        """
+        if processing_chunk is None:
+            processing_chunk = self._identity
+
+        processed_chunks = []
+        with ThreadPoolExecutor(max_workers=self.threads) as executor:
+            futures = []
+            
+            for chunk in pd.read_csv(self.filename, chunksize=self.chunksize, **kwargs):
+                futures.append(executor.submit(processing_chunk, chunk))
+
+            for future in futures:
+                processed_chunks.append(future.result())
+
+        return pd.concat(processed_chunks, ignore_index=True)
+        

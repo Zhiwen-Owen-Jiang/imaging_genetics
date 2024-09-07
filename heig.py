@@ -319,7 +319,7 @@ def check_accepted_args(module, args, log):
     accepted_args = {
         'heri_gc': {'out', 'heri_gc', 'ld_inv', 'ld', 'y2_sumstats',
                     'overlap', 'heri_only', 'n_ldrs', 'ldr_sumstats',
-                    'bases', 'inner_ldr', 'extract', },
+                    'bases', 'inner_ldr', 'extract', 'threads'},
         'read_image': {'out', 'read_image', 'keep', 'image_txt', 'coord_txt', 
                        'image_dir', 'image_suffix','coord_dir', 'threads'},
         'fpca': {'out', 'fpca', 'image', 'all_pc', 'n_ldrs', 'keep', 'bw_opt', 'threads'},
@@ -362,7 +362,7 @@ def check_accepted_args(module, args, log):
     if len(ignored_args) > 0:
         ignored_args = [f"--{arg.replace('_', '-')}" for arg in ignored_args]
         ignored_args_str = ', '.join(ignored_args)
-        log.info(f"WARNING: {ignored_args_str} are ignored by --{module.replace('_', '-')}")
+        log.info(f"WARNING: {ignored_args_str} are ignored by --{module.replace('_', '-')}.")
 
     return ignored_args
 

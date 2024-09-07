@@ -2,6 +2,7 @@ import os
 import h5py
 import numpy as np
 import pandas as pd
+import concurrent.futures
 from abc import ABC, abstractmethod
 from scipy.stats import chi2
 from heig import sumstats
@@ -84,7 +85,7 @@ def get_common_snps(*snp_list):
         raise ValueError('no common SNPs exist')
 
     matched_alleles_set = common_snps[[col for col in common_snps.columns
-                                       if col.startswith('A')]].apply(lambda x: len(set(x)) == 2, axis=1)
+                                       if col.startswith('A')]].apply(lambda x: len(set(x)) == 2, axis=1) # slow
     common_snps = common_snps.loc[matched_alleles_set]
 
     return common_snps['SNP']
@@ -159,14 +160,14 @@ class Estimation(ABC):
         block_snp_idxs = self.ldr_gwas.snp_idxs[start: end]
         block_change_sign = self.ldr_gwas.change_sign[start: end]
         block_n = self.n[start: end]
-        data_reader = self.ldr_gwas.data_reader(['beta', 'se'], 
+        data_reader = self.ldr_gwas.data_reader(['z'], 
                                                 ldr_idxs, 
                                                 block_snp_idxs,
                                                 all_gwas=all_ldrs)
             
         sqrt_diag_inner_ldr = np.sqrt(np.diag(self.inner_ldr))
-        for z, se in data_reader:
-            z = z / se
+        for z in data_reader:
+            z = z[0]
             z[block_change_sign] = -1 * z[block_change_sign]
             if normal:
                 z = z * sqrt_diag_inner_ldr / block_n
@@ -208,33 +209,49 @@ class Estimation(ABC):
 
 
 class OneSample(Estimation):
-    def __init__(self, ldr_gwas, ld, ld_inv, bases, inner_ldr):
+    def __init__(self, ldr_gwas, ld, ld_inv, bases, inner_ldr, threads):
         super().__init__(ldr_gwas, ld, ld_inv, bases, inner_ldr)
 
-        self.ld_rank = 0
-        self.ldr_gene_cov = np.zeros((self.r, self.r))
+        # self.ld_rank = 0
+        # self.ldr_gene_cov = np.zeros((self.r, self.r))
+        # for (start, end), ld_block, ld_inv_block in zip(self.block_ranges, self.ld.data, self.ld_inv.data):
+        #    ld_block_rank, block_gene_cov = self._block_wise_estimate(
+        #        start, end, ld_block, ld_inv_block
+        #    )
+        #    self.ld_rank += ld_block_rank
+        #    self.ldr_gene_cov += block_gene_cov
 
-        for (start, end), ld_block, ld_inv_block in zip(self.block_ranges, self.ld.data, self.ld_inv.data):
-            ld_block_rank, block_gene_cov = self._block_wise_estimate(
-                start, end, ld_block, ld_inv_block
-            )
-            self.ld_rank += ld_block_rank
-            self.ldr_gene_cov += block_gene_cov
+        self.ld_rank, self.ldr_gene_cov = self._block_wise_estimate_parallel(threads)
+
         self.gene_var = np.sum(np.dot(self.bases, self.ldr_gene_cov) * self.bases, axis=1)
         self.heri = self.gene_var / self.sigmaX_var
         self.heri_se = self._get_heri_se(self.heri, self.ld_rank, self.nbar)
         self.heri, self.heri_se = self._qc(self.heri, self.heri_se, 0, 1, 0, 1)
 
-    def _block_wise_estimate(self, start, end, ld_block, ld_block_inv):
+    def _block_wise_estimate_parallel(self, threads):
+        ld_rank = 0
+        ldr_gene_cov = np.zeros((self.r, self.r))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+            futures = [executor.submit(self._block_wise_estimate, start, end, ld_block, ld_inv_block) 
+                       for (start, end), ld_block, ld_inv_block in zip(self.block_ranges, self.ld.data, self.ld_inv.data)]
+
+            for future in concurrent.futures.as_completed(futures):
+                ld_block_rank, block_gene_cov = future.result()
+                ld_rank += ld_block_rank
+                ldr_gene_cov += block_gene_cov
+
+        return ld_rank, ldr_gene_cov
+
+    def _block_wise_estimate(self, start, end, ld_block, ld_inv_block):
         """
         block_ld: eigenvectors * sqrt(eigenvalues)
         block_ld_inv: eigenvectors * sqrt(eigenvalues ** -1)
 
         """
-        block_ld_ld_inv = np.dot(ld_block.T, ld_block_inv)
+        block_ld_ld_inv = np.dot(ld_block.T, ld_inv_block)
         ld_block_rank = np.sum(block_ld_ld_inv * block_ld_ld_inv)
         block_z = next(self._ldr_sumstats_reader(start, end))
-        z_mat_block_ld_inv = np.dot(block_z.T, ld_block_inv) # (r, ld_size)
+        z_mat_block_ld_inv = np.dot(block_z.T, ld_inv_block) # (r, ld_size)
         block_gene_cov = (np.dot(z_mat_block_ld_inv, z_mat_block_ld_inv.T) -
                           ld_block_rank * self.inner_ldr / self.nbar ** 2) # (r, r)
 
@@ -310,24 +327,28 @@ class OneSample(Estimation):
 
 class TwoSample(Estimation):
     def __init__(self, ldr_gwas, ld, ld_inv, bases, inner_ldr,
-                 y2_gwas, overlap=False):
+                 y2_gwas, threads, overlap=False):
         super().__init__(ldr_gwas, ld, ld_inv, bases, inner_ldr)
         self.y2_gwas = y2_gwas
         self.n2 = y2_gwas.snpinfo['N'].values.reshape(-1, 1)
         self.n2bar = np.mean(self.n2)
 
-        y2_block_gene_cov = np.zeros(len(self.block_ranges))
-        ldr_y2_block_gene_cov_part1 = np.zeros((len(self.block_ranges), self.r))
-        self.ld_block_rank = np.zeros(len(self.block_ranges))
-        self.ldr_block_gene_cov = np.zeros((len(self.ld_block_rank), self.r, self.r))
+        # n_blocks = len(self.block_ranges)
+        # y2_block_gene_cov = np.zeros(n_blocks)
+        # ldr_y2_block_gene_cov_part1 = np.zeros((n_blocks, self.r))
+        # self.ld_block_rank = np.zeros(n_blocks)
+        # self.ldr_block_gene_cov = np.zeros((n_blocks, self.r, self.r))
 
-        for i, ((start, end), ld_block, ld_inv_block) in enumerate(zip(self.block_ranges, self.ld.data, self.ld_inv.data)):
-            ld_block_rank, block_gene_var_y2, block_gene_cov, block_gene_cov_y2 = self._block_wise_estimate(
-                start, end, ld_block, ld_inv_block)
-            self.ld_block_rank[i] = ld_block_rank
-            self.ldr_block_gene_cov[i, :, :] = block_gene_cov
-            y2_block_gene_cov[i] = block_gene_var_y2
-            ldr_y2_block_gene_cov_part1[i, :] = block_gene_cov_y2
+        # for i, ((start, end), ld_block, ld_inv_block) in enumerate(zip(self.block_ranges, self.ld.data, self.ld_inv.data)):
+        #     ld_block_rank, block_gene_var_y2, block_gene_cov, block_gene_cov_y2 = self._block_wise_estimate(
+        #         start, end, ld_block, ld_inv_block)
+        #     self.ld_block_rank[i] = ld_block_rank
+        #     self.ldr_block_gene_cov[i, :, :] = block_gene_cov
+        #     y2_block_gene_cov[i] = block_gene_var_y2
+        #     ldr_y2_block_gene_cov_part1[i, :] = block_gene_cov_y2
+
+        (self.ld_block_rank, self.ldr_block_gene_cov, 
+         y2_block_gene_cov, ldr_y2_block_gene_cov_part1) = self._block_wise_estimate_parallel(threads)
 
         # since the sum stats have been normalized
         self.ld_rank = np.sum(self.ld_block_rank)
@@ -436,6 +457,27 @@ class TwoSample(Estimation):
             if normal:
                 z = z / np.sqrt(block_n)
             yield z
+
+    def _block_wise_estimate_parallel(self, threads):
+        n_blocks = len(self.block_ranges)
+        y2_block_gene_cov = np.zeros(n_blocks)
+        ldr_y2_block_gene_cov_part1 = np.zeros((n_blocks, self.r))
+        ld_block_rank = np.zeros(n_blocks)
+        ldr_block_gene_cov = np.zeros((n_blocks, self.r, self.r))
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+            futures = {executor.submit(self._block_wise_estimate, start, end, ld_block, ld_inv_block): i
+                       for i, ((start, end), ld_block, ld_inv_block) in enumerate(zip(self.block_ranges, self.ld.data, self.ld_inv.data))}
+        
+            for future in concurrent.futures.as_completed(futures):
+                i = futures[future]
+                ld_block_rank_, block_gene_var_y2, block_gene_cov, block_gene_cov_y2 = future.result()
+                ld_block_rank[i] = ld_block_rank_
+                ldr_block_gene_cov[i, :, :] = block_gene_cov
+                y2_block_gene_cov[i] = block_gene_var_y2
+                ldr_y2_block_gene_cov_part1[i, :] = block_gene_cov_y2
+
+        return ld_block_rank, ldr_block_gene_cov, y2_block_gene_cov, ldr_y2_block_gene_cov_part1
 
     def _block_wise_estimate(self, start, end, ld_block, ld_block_inv):
         """
@@ -678,16 +720,16 @@ def run(args, log):
             keep_snps = None
 
         # get common snps from gwas, LD matrices, and keep_snps
-        common_snps = get_common_snps(ldr_gwas, ld, ld_inv, y2_gwas, keep_snps) # slow
+        common_snps = get_common_snps(ld, ld_inv, ldr_gwas, y2_gwas, keep_snps) # very slow
         log.info((f"{len(common_snps)} SNPs are common in these files with identical alleles. "
                 "Extracting them from each file ..."))
 
         # extract common snps in LD matrix
-        ld.extract(common_snps)
+        ld.extract(common_snps) # slow
         ld_inv.extract(common_snps)
 
         # extract common snps in summary statistics and do alignment
-        ldr_gwas.extract_snps(ld.ldinfo['SNP'])  # extract snp id
+        ldr_gwas.extract_snps(ld.ldinfo['SNP'])  # extract snp id, slow
         ldr_gwas.align_alleles(ld.ldinfo) # get +/-
 
         if args.y2_sumstats:
@@ -697,7 +739,7 @@ def run(args, log):
 
         log.info('Computing heritability and/or genetic correlation ...')
         if not args.y2_sumstats:
-            heri_gc = OneSample(ldr_gwas, ld, ld_inv, bases, inner_ldr)
+            heri_gc = OneSample(ldr_gwas, ld, ld_inv, bases, inner_ldr, args.threads)
             heri_output = format_heri(heri_gc.heri, heri_gc.heri_se, log)
             msg = print_results_heri(heri_output)
             log.info(f'{msg}')
@@ -712,7 +754,7 @@ def run(args, log):
                 log.info(f'{msg}')
                 log.info(f'Save the genetic correlation results to {args.out}_gc.h5')
         else:
-            heri_gc = TwoSample(ldr_gwas, ld, ld_inv, bases, inner_ldr, y2_gwas, args.overlap)
+            heri_gc = TwoSample(ldr_gwas, ld, ld_inv, bases, inner_ldr, y2_gwas, args.threads, args.overlap)
             gene_cor_y2_output = format_gene_cor_y2(heri_gc.heri, heri_gc.heri_se,
                                                     heri_gc.gene_cor_y2,
                                                     heri_gc.gene_cor_y2_se, log)

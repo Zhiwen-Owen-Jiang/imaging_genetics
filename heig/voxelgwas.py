@@ -41,8 +41,9 @@ class VGWAS:
         n_ldrs = self.bases.shape[1]
 
         i = 0
-        data_reader = self.ldr_gwas.data_reader(['beta', 'se'], self.ldr_idxs, self.snp_idxs)
-        for ldr_beta_batch, ldr_se_batch in data_reader:
+        data_reader = self.ldr_gwas.data_reader(['beta', 'z'], self.ldr_idxs, self.snp_idxs)
+        for ldr_beta_batch, ldr_z_batch in data_reader:
+            ldr_se_batch = ldr_beta_batch / ldr_z_batch
             batch_size = ldr_beta_batch.shape[1]
             ztz_inv += np.sum((self.n * ldr_se_batch * ldr_se_batch + ldr_beta_batch * ldr_beta_batch) \
                                / diag_inner_ldr[i: i+batch_size], axis=1)

@@ -1,5 +1,6 @@
 import os
-import pickle
+import h5py
+# import pickle
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
@@ -19,7 +20,7 @@ class LDmatrix:
 
         """
         ld_prefix_list = ds.parse_input(ld_prefix)
-        self.ldinfo = self._merge_ldinfo(ld_prefix_list)
+        self.ldinfo = self._merge_ldinfo(ld_prefix_list) # slow
         self.data = self._read_as_generator(ld_prefix_list)
         self.block_sizes, self.block_ranges = self._get_block_info(self.ldinfo)
 
@@ -38,7 +39,7 @@ class LDmatrix:
         """
         ldinfo = pd.read_csv(f"{prefix}.ldinfo", sep='\s+', header=None,
                              names=['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2', 'MAF',
-                                    'block_idx', 'block_idx2', 'ldscore'])
+                                    'block_idx', 'block_idx2', 'ldscore']) # slow
         if not ldinfo.groupby('CHR')['POS'].apply(lambda x: x.is_monotonic_increasing).all():
             raise ValueError(f'the SNPs in each chromosome are not sorted')
         if ldinfo.groupby('CHR')['POS'].apply(lambda x: x.duplicated()).any():
@@ -82,10 +83,13 @@ class LDmatrix:
         """
         for prefix in prefix_list:
             file_path = f"{prefix}.ldmatrix"
-            with open(file_path, 'rb') as file:
-                data = pickle.load(file)
-                for item in data:
-                    yield item
+            # with open(file_path, 'rb') as file:
+            #     data = pickle.load(file)
+            #     for item in data:
+            #         yield item
+            with h5py.File(file_path, 'r') as file:
+                for i in range(file.attrs['n_blocks']):
+                    yield file[f'block_{i}'][:]
 
     def _get_block_info(self, ldinfo):
         """
@@ -277,8 +281,12 @@ class LDmatrixBED(LDmatrix):
         else:
             prefix = f"{out}_ld_inv_regu{int(regu*100)}"
 
-        with open(f"{prefix}.ldmatrix", 'wb') as file:
-            pickle.dump(self.data, file)
+        # with open(f"{prefix}.ldmatrix", 'wb') as file:
+        #     pickle.dump(self.data, file)
+        with h5py.File(f"{prefix}.ldmatrix", 'w') as file:
+            file.attrs['n_blocks'] = len(self.data)
+            for i, block in enumerate(self.data):
+                file.create_dataset(f'block_{i}', data=block)
         # self.ldinfo['MAF'] = self.ldinfo['MAF'].astype(np.float64)
         self.ldinfo.to_csv(f"{prefix}.ldinfo", sep='\t', index=None,
                            header=None, float_format='%.4f')

@@ -151,7 +151,7 @@ def read_sumstats(prefix):
         raise FileNotFoundError(f"either .sumstats or .snpinfo file does not exist")
     
     file = h5py.File(sumstats_dir, 'r')
-    snpinfo = pd.read_csv(snpinfo_dir, sep='\s+')
+    snpinfo = pd.read_csv(snpinfo_dir, sep='\s+') # slow
 
     if snpinfo.shape[0] != file.attrs['n_snps']:
         raise ValueError(("summary statistics and the meta data contain different number of SNPs, "
@@ -170,7 +170,7 @@ class GWAS:
         
         """
         self.beta = file['beta']
-        self.se = file['se']
+        # self.se = file['se']
         self.z = file['z']
         self.n_snps = file.attrs['n_snps']
         self.n_gwas = file.attrs['n_gwas']
@@ -453,12 +453,12 @@ class GWASLDR(ProcessGWAS):
     def _create_dataset(self, n_snps):
         with h5py.File(f'{self.out_dir}.sumstats', 'w') as file:
             file.create_dataset('beta', shape=(n_snps, self.n_gwas_files), dtype='float32')
-            file.create_dataset('se', shape=(n_snps, self.n_gwas_files), dtype='float32')
-            file.create_dataset('z', shape=(0,), dtype='float32')
+            file.create_dataset('z', shape=(n_snps, self.n_gwas_files), dtype='float32')
+            # file.create_dataset('se', shape=(0,), dtype='float32')
             file.attrs['n_snps'] = n_snps
             file.attrs['n_gwas'] = self.n_gwas_files
 
-    def _save_sumstats(self, index, beta, se):
+    def _save_sumstats(self, index, beta, z):
         """
         Saving sumstats and ensuring only one process is writing
 
@@ -467,7 +467,7 @@ class GWASLDR(ProcessGWAS):
         with FileLock(lock_file):
             with h5py.File(f'{self.out_dir}.sumstats', 'r+') as file:
                 file['beta'][:, index] = beta
-                file['se'][:, index] = se
+                file['z'][:, index] = z
     
     def process(self, threads):
         """
@@ -508,7 +508,9 @@ class GWASLDR(ProcessGWAS):
 
         if self.cols_map['null_value'] == 1:
             gwas_data['EFFECT'] = np.log(gwas_data['EFFECT'])
-        self._save_sumstats(0, beta=np.array(gwas_data['EFFECT']), se=np.array(gwas_data['SE']))
+        # self._save_sumstats(0, beta=np.array(gwas_data['EFFECT']), se=np.array(gwas_data['SE']))
+        self._save_sumstats(0, beta=np.array(gwas_data['EFFECT']), 
+                            z=np.array(gwas_data['EFFECT']/gwas_data['SE']))
 
         return is_valid_snp, snpinfo
     
@@ -539,7 +541,9 @@ class GWASLDR(ProcessGWAS):
         gwas_data = gwas_data.loc[is_valid_snp]
         if self.cols_map['null_value'] == 1:
             gwas_data['EFFECT'] = np.log(gwas_data['EFFECT'])
-        self._save_sumstats(i, beta=np.array(gwas_data['EFFECT']), se=np.array(gwas_data['SE']))
+        # self._save_sumstats(i, beta=np.array(gwas_data['EFFECT']), se=np.array(gwas_data['SE']))
+        self._save_sumstats(i, beta=np.array(gwas_data['EFFECT']), 
+                            z=np.array(gwas_data['EFFECT']/gwas_data['SE']))
 
     def _read_in_parallel(self, is_valid_snp, threads):
         """
@@ -573,7 +577,7 @@ class GWASY2(ProcessGWAS):
     def _create_dataset(self, n_snps):
         with h5py.File(f'{self.out_dir}.sumstats', 'w') as file:
             file.create_dataset('beta', shape=(0,), dtype='float32')
-            file.create_dataset('se', shape=(0,), dtype='float32')
+            # file.create_dataset('se', shape=(0,), dtype='float32')
             file.create_dataset('z', shape=(n_snps, self.n_gwas_files), dtype='float32')
             file.attrs['n_snps'] = n_snps
             file.attrs['n_gwas'] = self.n_gwas_files
