@@ -1,4 +1,5 @@
 import numpy as np
+import concurrent.futures
 
 
 class LDSC:
@@ -8,28 +9,34 @@ class LDSC:
     """
     def __init__(self, ldr_z, y2_z, 
                  ldscore, ldr_heri, y2_heri, n1, n2, 
-                 ld_rank, block_ranges, merged_blocks):
+                 ld_rank, block_ranges, merged_blocks, threads):
         n_blocks = len(merged_blocks)
         r = len(ldr_heri)
         n1 = np.squeeze(n1)
         n2 = np.squeeze(n2)
         n = np.sqrt(n1 * n2)
-        self.lobo_ldsc = np.zeros((n_blocks, r))
-        self.total_ldsc = np.zeros(r)
-
         y2_z_ldsc = np.squeeze(y2_z)
-        
-        for i in range(ldr_z.shape[1]):
-            self.total_ldsc[i], self.lobo_ldsc[:, i] = self.ldsc(ldr_z[:, i], y2_z_ldsc, n, n1, n2, 
-                                                                    ldr_heri[i], y2_heri, ld_rank, 
-                                                                    ldscore, block_ranges, merged_blocks)
+
+        self.lobo_ldsc = np.zeros((n_blocks, r), dtype=np.float32)
+        self.total_ldsc = np.zeros(r, dtype=np.float32)
+        futures = []
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+            for i in range(ldr_z.shape[1]):
+                futures.append(executor.submit(self.ldsc, i, ldr_z[:, i], y2_z_ldsc, n, n1, n2, 
+                                               ldr_heri[i], y2_heri, ld_rank, 
+                                               ldscore, block_ranges, merged_blocks))
+                
+                for future in concurrent.futures.as_completed(futures):
+                    future.result()
             
-    def ldsc(self, gwas1, gwas2, n, n1, n2, h1, h2, ld_rank, ldscore, block_ranges, merged_blocks):
+    def ldsc(self, i, gwas1, gwas2, n, n1, n2, h1, h2, ld_rank, ldscore, block_ranges, merged_blocks):
         """
         Main LDSC estimator
 
         Parameters:
         ------------
+        i: LDR index
         gwas1: a vector of Z score
         gwas2: a vector of Z score
         n: a vector of sqrt(n1 * n2)
@@ -71,7 +78,9 @@ class LDSC:
             lobo_ldsc.append(coef[0])
         lobo_ldsc = np.array(lobo_ldsc)
 
-        return coef_total[0], lobo_ldsc
+        self.total_ldsc[i] = coef_total[0]
+        self.lobo_ldsc[:, i] = lobo_ldsc
+        # return coef_total[0], lobo_ldsc
 
     def _block_range(self, block, block_ranges):
         return block_ranges[block[0]][0], block_ranges[block[-1]][1]

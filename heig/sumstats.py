@@ -616,7 +616,7 @@ class GWASY2(ProcessGWAS):
 
     def _save_sumstats(self, block_idx, z):
         with h5py.File(f'{self.out_dir}.sumstats', 'r+') as file:
-            file.create_dataset(f'z{block_idx}', data=z, dtype='float32', chunks=(10000, z.shape[1]))
+            file.create_dataset(f'z{block_idx}', data=z, dtype='float32', chunks=(10000, 1))
 
     def process(self, threads=None):
         """
@@ -647,7 +647,7 @@ class GWASY2(ProcessGWAS):
 
         self.logger.info(f'Pruning SNPs for {gwas_file} ...')
         gwas_data = self._prune_snps(gwas_data)
-        z = gwas_data['Z'].to_numpy()
+        z = gwas_data['Z'].to_numpy().reshape(-1, 1)
         snpinfo = gwas_data[['SNP', 'A1', 'A2', 'N']].reset_index(drop=True)
 
         self._create_dataset(z.shape[0])
