@@ -377,17 +377,7 @@ def split_files(arg):
     return files
 
 
-def main(args, log):
-    dirname = os.path.dirname(args.out)
-    if dirname != '' and not os.path.exists(dirname):
-        raise ValueError(f'{os.path.dirname(args.out)} does not exist')
-    if (args.heri_gc + args.read_image + args.fpca + args.make_ldr + args.ld_matrix + args.sumstats + 
-        args.voxel_gwas + args.gwas + args.annot_vcf + args.wgs_null + args.wgs_coding + 
-        args.wgs_sliding_window + args.relatedness != 1):
-        raise ValueError(('you must raise one and only one of following flags for doing analysis: '
-                          '--heri-gc, --read-image, --fpca, --make-ldr, --ld-matrix, --sumstats, '
-                          '--voxel-gwas, --gwas, --annot-vcf, --wgs-null, --wgs-coding, '
-                          '--wgs-sliding-window, --relatedness'))
+def process_args(args, log):
     if args.threads is not None:
         if args.threads <= 0:
             raise ValueError('--threads should be greater than 0')
@@ -400,71 +390,74 @@ def main(args, log):
         args.extract = split_files(args.extract)
     if args.voxel is not None:
         try:
-            args.voxel = np.array([int(args.voxel) - 1])
+            args.voxel = np.array([int(voxel) - 1 for voxel in ds.parse_input(args.voxel)])
         except ValueError:
             if os.path.exists(args.voxel):
                 args.voxel = ds.read_voxel(args.voxel)
             else:
                 raise FileNotFoundError(f"--voxel does not exist")
 
+
+def main(args, log):
+    dirname = os.path.dirname(args.out)
+    if dirname != '' and not os.path.exists(dirname):
+        raise ValueError(f'{os.path.dirname(args.out)} does not exist')
+    if (args.heri_gc + args.read_image + args.fpca + args.make_ldr + args.ld_matrix + args.sumstats + 
+        args.voxel_gwas + args.gwas + args.annot_vcf + args.wgs_null + args.wgs_coding + 
+        args.wgs_sliding_window + args.relatedness != 1):
+        raise ValueError(('you must raise one and only one of following flags for doing analysis: '
+                          '--heri-gc, --read-image, --fpca, --make-ldr, --ld-matrix, --sumstats, '
+                          '--voxel-gwas, --gwas, --annot-vcf, --wgs-null, --wgs-coding, '
+                          '--wgs-sliding-window, --relatedness'))
+
     if args.heri_gc:
         check_accepted_args('heri_gc', args, log)
-        import heig.herigc as herigc
-        herigc.run(args, log)
+        import heig.herigc as module
     elif args.read_image:
         check_accepted_args('read_image', args, log)
-        import heig.image as image
-        image.run(args, log)
+        import heig.image as module
     elif args.fpca:
         check_accepted_args('fpca', args, log)
-        import heig.fpca as fpca
-        fpca.run(args, log)
+        import heig.fpca as module
     elif args.make_ldr:
         check_accepted_args('make_ldr', args, log)
-        import heig.ldr as ldr
-        ldr.run(args, log)
+        import heig.ldr as module
     elif args.ld_matrix:
         check_accepted_args('ld_matrix', args, log)
-        import heig.ldmatrix as ldmatrix
-        ldmatrix.run(args, log)
+        import heig.ldmatrix as module
     elif args.sumstats:
         check_accepted_args('sumstats', args, log)
-        import heig.sumstats as sumstats
-        sumstats.run(args, log)
+        import heig.sumstats as module
     elif args.voxel_gwas:
         check_accepted_args('voxel_gwas', args, log)
-        import heig.voxelgwas as voxelgwas
-        voxelgwas.run(args, log)
+        import heig.voxelgwas as module
     elif args.gwas:
         log.info('--gwas module is under development.')
         # check_accepted_args('gwas', args, log)
-        # import heig.wgs.gwas as gwas
-        # gwas.run(args, log)
+        # import heig.wgs.gwas as module
     elif args.annot_vcf:
         log.info('--annot-vcf module is under development.')
         # check_accepted_args('annot_vcf', args, log)
-        # import heig.wgs.vcf2mt as vcf2mt
-        # vcf2mt.run(args, log)
+        # import heig.wgs.vcf2mt as module
     elif args.wgs_null:
         log.info('--wgs-null module is under development.')
         # check_accepted_args('wgs_null', args, log)
-        # import heig.wgs.null as null
-        # null.run(args, log)
+        # import heig.wgs.null as module
     elif args.wgs_coding:
         log.info('--wgs-coding module is under development.')
         # check_accepted_args('wgs_coding', args, log)
-        # import heig.wgs.coding as coding
-        # coding.run(args, log)
+        # import heig.wgs.coding as module
     elif args.wgs_sliding_window:
         log.info('--wgs-sliding-window module is under development.')
         # check_accepted_args('wgs_sliding_window', args, log)
-        # import heig.wgs.slidingwindow as slidingwindow
-        # slidingwindow.run(args, log)
+        # import heig.wgs.slidingwindow as module
     elif args.relatedness:
         log.info('--relatedness module is under development.')
         # check_accepted_args('relatedness', args, log)
-        # import heig.wgs.relatedness as relatedness
-        # relatedness.run(args, log)
+        # import heig.wgs.relatedness as module
+
+    process_args(args, log)
+    module.run(args, log)
 
 
 if __name__ == '__main__':

@@ -6,7 +6,7 @@ class LDSC:
     cross-trait LDSC for estimating the intercept when there is sample overlap
     
     """
-    def __init__(self, ldr_sumstats_reader, y2_sumstats_reader, 
+    def __init__(self, ldr_z, y2_z, 
                  ldscore, ldr_heri, y2_heri, n1, n2, 
                  ld_rank, block_ranges, merged_blocks):
         n_blocks = len(merged_blocks)
@@ -17,15 +17,13 @@ class LDSC:
         self.lobo_ldsc = np.zeros((n_blocks, r))
         self.total_ldsc = np.zeros(r)
 
-        y2_z_ldsc = np.squeeze(next(y2_sumstats_reader))
-        i = 0
-        for ldr_z_batch in ldr_sumstats_reader:
-            for j in range(ldr_z_batch.shape[1]):
-                self.total_ldsc[i], self.lobo_ldsc[:, i] = self.ldsc(ldr_z_batch[:, j], y2_z_ldsc, n, n1, n2, 
-                                                                     ldr_heri[i], y2_heri, ld_rank, 
-                                                                     ldscore, block_ranges, merged_blocks)
-                i += 1
-
+        y2_z_ldsc = np.squeeze(y2_z)
+        
+        for i in range(ldr_z.shape[1]):
+            self.total_ldsc[i], self.lobo_ldsc[:, i] = self.ldsc(ldr_z[:, i], y2_z_ldsc, n, n1, n2, 
+                                                                    ldr_heri[i], y2_heri, ld_rank, 
+                                                                    ldscore, block_ranges, merged_blocks)
+            
     def ldsc(self, gwas1, gwas2, n, n1, n2, h1, h2, ld_rank, ldscore, block_ranges, merged_blocks):
         """
         Main LDSC estimator

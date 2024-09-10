@@ -2,6 +2,7 @@ import os
 import h5py
 import numpy as np
 import pandas as pd
+import threading
 import concurrent.futures
 from abc import ABC, abstractmethod
 from scipy.stats import chi2
@@ -134,44 +135,25 @@ class Estimation(ABC):
         self.ldr_cov = ldr_cov
         self.block_ranges = ld.block_ranges
         self.sigmaX_var = np.sum(np.dot(bases, ldr_cov) * bases, axis=1)
+        self.ldr_z = self._ldr_sumstats_reader()
 
-    def _ldr_sumstats_reader(self, start, end, all_ldrs=True, normal=True):
+    def _ldr_sumstats_reader(self):
         """
-        Reading LDRs sumstats from HDF5 file and preprocessing:
-        0. selecting a subset of LDRs
-        1. selecting SNPs, reading beta, se into memory, getting z
-        2. flipping +/-
-        3. normalization (optional)
-        4. yield
-
-        Parameters:
-        ------------
-        start: start index of a LD block
-        end: end index of a LD block
-        all_ldrs: if extracting all LDR sumstats
-        normal: if doing normalization
+        Reading LDRs sumstats from HDF5 file and preprocessing
 
         Returns:
         ---------
-        preprocessed z scores
+        preprocessed z scores (n_snps, n_ldrs)
         
         """
         ldr_idxs = list(range(self.ldr_gwas.n_gwas))
-        block_snp_idxs = self.ldr_gwas.snp_idxs[start: end]
-        block_change_sign = self.ldr_gwas.change_sign[start: end]
-        block_n = self.n[start: end]
-        data_reader = self.ldr_gwas.data_reader(['z'], 
-                                                ldr_idxs, 
-                                                block_snp_idxs,
-                                                all_gwas=all_ldrs)
-            
+        z = self.ldr_gwas.data_reader('z', ldr_idxs, self.ldr_gwas.snp_idxs, all_gwas=True)
         ldr_se = np.sqrt(np.diag(self.ldr_cov))
-        for z in data_reader:
-            z = z[0]
-            z[block_change_sign] = -1 * z[block_change_sign]
-            if normal:
-                z = z * ldr_se / np.sqrt(block_n)
-            yield z
+        z[self.ldr_gwas.change_sign] = -1 * z[self.ldr_gwas.change_sign]
+        z *= ldr_se 
+        z /= np.sqrt(self.n)
+
+        return z
 
     def _get_heri_se(self, heri, d, n):
         """
@@ -220,29 +202,31 @@ class OneSample(Estimation):
         #    )
         #    self.ld_rank += ld_block_rank
         #    self.ldr_gene_cov += block_gene_cov
-
+        
         self.ld_rank, self.ldr_gene_cov = self._block_wise_estimate_parallel(threads)
+        del self.ldr_z
 
         self.gene_var = np.sum(np.dot(self.bases, self.ldr_gene_cov) * self.bases, axis=1)
+        self.gene_var[self.gene_var <= 0] = np.nan
         self.heri = self.gene_var / self.sigmaX_var
         self.heri_se = self._get_heri_se(self.heri, self.ld_rank, self.nbar)
         self.heri, self.heri_se = self._qc(self.heri, self.heri_se, 0, 1, 0, 1)
 
     def _block_wise_estimate_parallel(self, threads):
         ld_rank = 0
-        ldr_gene_cov = np.zeros((self.r, self.r))
+        ldr_gene_cov = np.zeros((self.r, self.r), dtype=np.float32)
+        lock = threading.Lock()
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
-            futures = [executor.submit(self._block_wise_estimate, start, end, ld_block, ld_inv_block) 
+            futures = [executor.submit(self._block_wise_estimate, start, end, ld_block, ld_inv_block, lock) 
                        for (start, end), ld_block, ld_inv_block in zip(self.block_ranges, self.ld.data, self.ld_inv.data)]
 
             for future in concurrent.futures.as_completed(futures):
-                ld_block_rank, block_gene_cov = future.result()
-                ld_rank += ld_block_rank
-                ldr_gene_cov += block_gene_cov
+                future.result()
 
         return ld_rank, ldr_gene_cov
 
-    def _block_wise_estimate(self, start, end, ld_block, ld_inv_block):
+    def _block_wise_estimate(self, ld_rank, ldr_gene_cov, start, end, ld_block, ld_inv_block, lock):
         """
         block_ld: eigenvectors * sqrt(eigenvalues)
         block_ld_inv: eigenvectors * sqrt(eigenvalues ** -1)
@@ -250,12 +234,13 @@ class OneSample(Estimation):
         """
         block_ld_ld_inv = np.dot(ld_block.T, ld_inv_block)
         ld_block_rank = np.sum(block_ld_ld_inv * block_ld_ld_inv)
-        block_z = next(self._ldr_sumstats_reader(start, end))
+        block_z = self.ldr_z[start: end]
         z_mat_block_ld_inv = np.dot(block_z.T, ld_inv_block) # (r, ld_size)
         block_gene_cov = (np.dot(z_mat_block_ld_inv, z_mat_block_ld_inv.T) -
                           ld_block_rank * self.ldr_cov / self.nbar) # (r, r)
-
-        return ld_block_rank, block_gene_cov
+        with lock:
+            ld_rank += ld_block_rank
+            ldr_gene_cov += block_gene_cov
 
     def get_gene_cor_se(self, out_dir):
         """
@@ -307,7 +292,7 @@ class OneSample(Estimation):
         temp3 = inv_heri1 * inv_heri2
         del inv_heri1, inv_heri2
 
-        gene_cor_se = np.zeros((gene_cor.shape[0], self.N))
+        gene_cor_se = np.zeros((gene_cor.shape[0], self.N), dtype=np.float32)
         n = self.nbar
         d = self.ld_rank
         gene_cor_se += (4 / n + d / n**2) * part1 * part1
@@ -332,6 +317,7 @@ class TwoSample(Estimation):
         self.y2_gwas = y2_gwas
         self.n2 = y2_gwas.snpinfo['N'].values.reshape(-1, 1)
         self.n2bar = np.mean(self.n2)
+        self.y2_z = self._y2_sumstats_reader()
 
         # n_blocks = len(self.block_ranges)
         # y2_block_gene_cov = np.zeros(n_blocks)
@@ -378,6 +364,7 @@ class TwoSample(Estimation):
             ldr_lobo_gene_cov = self._lobo_estimate(self.ldr_gene_cov,
                                                     self.ldr_block_gene_cov,
                                                     merged_blocks)
+            del self.ldr_block_gene_cov
             y2_lobo_heri = self._lobo_estimate(self.y2_heri, y2_block_gene_cov, merged_blocks)
             temp = np.matmul(np.swapaxes(ldr_lobo_gene_cov, 1, 2), bases.T).swapaxes(1, 2)
             temp = np.sum(temp * np.expand_dims(bases, 0), axis=2)
@@ -385,12 +372,14 @@ class TwoSample(Estimation):
 
             # compute left-one-block-out cross-trait LDSC intercept
             self.ldr_heri = np.diag(self.ldr_gene_cov) / np.diag(self.ldr_cov)
-            ldr_sumstats_reader = self._ldr_sumstats_reader(0, self.ldr_gwas.n_snps, 
-                                                            all_ldrs=False, normal=False)
-            y2_sumstats_reader = self._y2_sumstats_reader(0, self.y2_gwas.n_snps, normal=False)
-            ldsc_intercept = LDSC(ldr_sumstats_reader, y2_sumstats_reader, ldscore, self.ldr_heri, self.y2_heri,
+            self.ldr_z /= np.sqrt(np.diag(self.ldr_cov)) 
+            self.ldr_z *= np.sqrt(self.n)
+            self.y2_z * np.sqrt(self.n2)
+
+            ldsc_intercept = LDSC(self.ldr_z, self.y2_z, ldscore, self.ldr_heri, self.y2_heri,
                                   self.n, self.n2, self.ld_rank, self.block_ranges,
                                   merged_blocks)
+            del self.ldr_z
 
             # compute left-one-block-out genetic correlation
             ldr_y2_lobo_gene_cov_part1 = self._lobo_estimate(ldr_y2_gene_cov_part1,
@@ -423,82 +412,78 @@ class TwoSample(Estimation):
         self.y2_heri, self.y2_heri_se = self._qc(self.y2_heri, self.y2_heri_se, 
                                                  0, 1, 0, 1)
 
-    def _y2_sumstats_reader(self, start, end, normal=True):
+    def _y2_sumstats_reader(self):
         """
-        Reading LDRs summstats from HDF5 file and preprocessing:
-        1. selecting SNPs, reading z
-        2. flipping +/-
-        3. normalization
-        4. yield
-
-        Parameters:
-        ------------
-        start: start index of a LD block
-        end: end index of a LD block
-        normal: if do normalization
+        Reading y2 summstats from HDF5 file and preprocessing:
 
         Returns:
         ---------
-        preprocessed z scores
+        z: preprocessed z scores
         
         """
         y2_idxs = list(range(self.y2_gwas.n_gwas))
-        block_snp_idxs = self.y2_gwas.snp_idxs[start: end]
-        block_change_sign = self.y2_gwas.change_sign[start: end]
-        block_n = self.n2[start: end]
-        data_reader = self.y2_gwas.data_reader(['z'],
-                                            y2_idxs, 
-                                            block_snp_idxs,
-                                            all_gwas=False)
+        z = self.y2_gwas.data_reader('z',
+                                     y2_idxs, 
+                                     self.y2_gwas.snp_idxs,
+                                     all_gwas=True)
         
-        for z in data_reader:
-            z = z[0]
-            z[block_change_sign] = -1 * z[block_change_sign]
-            if normal:
-                z = z / np.sqrt(block_n)
-            yield z
+        z[self.y2_gwas.change_sign] = -1 * z[self.y2_gwas.change_sign]
+        z /= np.sqrt(self.n2)
+        
+        return z
 
     def _block_wise_estimate_parallel(self, threads):
         n_blocks = len(self.block_ranges)
-        y2_block_gene_cov = np.zeros(n_blocks)
-        ldr_y2_block_gene_cov_part1 = np.zeros((n_blocks, self.r))
-        ld_block_rank = np.zeros(n_blocks)
-        ldr_block_gene_cov = np.zeros((n_blocks, self.r, self.r))
-        
+        y2_block_gene_cov = np.zeros(n_blocks, dtype=np.float32)
+        ldr_y2_block_gene_cov_part1 = np.zeros((n_blocks, self.r), dtype=np.float32)
+        ld_block_rank = np.zeros(n_blocks, dtype=np.float32)
+        ldr_block_gene_cov = np.zeros((n_blocks, self.r, self.r), dtype=np.float32)
+
+        lock = threading.Lock()
+        futures = []
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
-            futures = {executor.submit(self._block_wise_estimate, start, end, ld_block, ld_inv_block): i
-                       for i, ((start, end), ld_block, ld_inv_block) in enumerate(zip(self.block_ranges, self.ld.data, self.ld_inv.data))}
-        
+            for i, ((start, end), ld_block, ld_inv_block) in enumerate(zip(self.block_ranges, self.ld.data, self.ld_inv.data)):
+                futures.append(executor.submit(
+                    self._block_wise_estimate, 
+                    ld_block_rank, 
+                    ldr_block_gene_cov, 
+                    y2_block_gene_cov, 
+                    ldr_y2_block_gene_cov_part1, 
+                    i, start, end, ld_block, 
+                    ld_inv_block, lock
+                    ))
+            
             for future in concurrent.futures.as_completed(futures):
-                i = futures[future]
-                ld_block_rank_, block_gene_var_y2, block_gene_cov, block_gene_cov_y2 = future.result()
-                ld_block_rank[i] = ld_block_rank_
-                ldr_block_gene_cov[i, :, :] = block_gene_cov
-                y2_block_gene_cov[i] = block_gene_var_y2
-                ldr_y2_block_gene_cov_part1[i, :] = block_gene_cov_y2
+                future.result()
 
         return ld_block_rank, ldr_block_gene_cov, y2_block_gene_cov, ldr_y2_block_gene_cov_part1
 
-    def _block_wise_estimate(self, start, end, ld_block, ld_block_inv):
+    def _block_wise_estimate(self, ld_block_rank, ldr_block_gene_cov, y2_block_gene_cov, ldr_y2_block_gene_cov_part1, 
+                             i, start, end, ld_block, ld_block_inv, lock):
         """
         ld_block: eigenvectors * sqrt(eigenvalues)
         ld_block_inv: eigenvectors * sqrt(eigenvalues ** -1)
 
         """
         ld_block_ld_inv = np.dot(ld_block.T, ld_block_inv)
-        ld_block_rank = np.sum(ld_block_ld_inv * ld_block_ld_inv)
+        ld_block_rank_ = np.sum(ld_block_ld_inv * ld_block_ld_inv)
 
-        block_z = next(self._ldr_sumstats_reader(start, end))
+        block_z = self.ldr_z[start: end]
         z_mat_ld_block_inv = np.dot(block_z.T, ld_block_inv)
-        block_y2z = next(self._y2_sumstats_reader(start, end))
+        block_y2z = self.y2_z[start: end]
         y2_ld_block_inv = np.dot(block_y2z.T, ld_block_inv)
 
         block_gene_var_y2 = np.dot(y2_ld_block_inv, y2_ld_block_inv.T) - ld_block_rank / self.n2bar
         block_gene_cov_y2 = np.squeeze(np.dot(z_mat_ld_block_inv, y2_ld_block_inv.T))
         block_gene_cov = (np.dot(z_mat_ld_block_inv, z_mat_ld_block_inv.T) -
                           ld_block_rank * self.ldr_cov / self.nbar)
-
-        return ld_block_rank, block_gene_var_y2, block_gene_cov, block_gene_cov_y2
+        
+        with lock:
+            ld_block_rank[i] = ld_block_rank_
+            ldr_block_gene_cov[i, :, :] = block_gene_cov
+            y2_block_gene_cov[i] = block_gene_var_y2
+            ldr_y2_block_gene_cov_part1[i, :] = block_gene_cov_y2
 
     def _get_gene_cor_ldsc(self, part1, ld_rank, ldsc, heri1, heri2):
         ldr_gene_cov = (part1 - ld_rank.reshape(-1, 1) * ldsc *
@@ -572,7 +557,7 @@ class TwoSample(Estimation):
         gene_cor_y2sq = gene_cor_y2 * gene_cor_y2
         gene_cor_y2sq1 = 1 - gene_cor_y2sq
 
-        var = np.zeros(self.N)
+        var = np.zeros(self.N, dtype=np.float32)
         var += gene_cor_y2sq / (2 * heri * heri) * d / n1 ** 2
         var += gene_cor_y2sq / (2 * heri_y2 * heri_y2) * d / n2 ** 2
         var += 1 / (heri * heri_y2) * d / (n1 * n2)

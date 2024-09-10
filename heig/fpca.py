@@ -66,7 +66,7 @@ class KernelSmooth:
         sparse_sm_weight: the sparse smoothing matrix
 
         """
-        score = np.zeros(len(bw_list))
+        score = np.zeros(len(bw_list), dtype=np.float32)
         min_score = np.Inf
 
         for cii, bw in enumerate(bw_list):
@@ -134,8 +134,8 @@ class KernelSmooth:
         """
         bw_raw = self.N ** (-1 / (4 + self.d))
         # weights = [0.2, 0.5, 1, 2, 5, 10]
-        weights = [0.8, 1, 1.5, 2, 2.5, 3]
-        bw_list = np.zeros((len(weights), self.d))
+        weights = [1, 1.5, 2, 2.5, 3, 5]
+        bw_list = np.zeros((len(weights), self.d), dtype=np.float32)
 
         for i, weight in enumerate(weights):
             bw_list[i, :] = np.repeat(weight * bw_raw, self.d)
@@ -277,7 +277,7 @@ def do_kernel_smoothing(raw_image_dir, sm_image_dir, keep_idvs, bw_opt, threads,
         n_voxels = images.shape[1]
         n_subjects = len(id_idxs)
         if sparse_sm_weight is not None:
-            subject_wise_mean = np.zeros(n_voxels)
+            subject_wise_mean = np.zeros(n_voxels, dtype=np.float32)
             with h5py.File(sm_image_dir, 'w') as h5f:
                 sm_images = h5f.create_dataset('sm_images', shape=(n_subjects, n_voxels), dtype='float32')
                 start_idx, end_idx = 0, 0
@@ -386,6 +386,7 @@ def do_fpca(sm_image_dir, subject_wise_mean, args, log):
         bases = fpca.ipca.components_.T
         bases = bases.astype(np.float32)
         eff_num = np.sum(values) ** 2 / np.sum(values ** 2)
+        eff_num = eff_num.astype(np.float32)
 
     return values, bases, eff_num, fpca.n_top
 

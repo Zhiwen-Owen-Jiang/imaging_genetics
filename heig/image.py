@@ -4,6 +4,7 @@ import h5py
 import concurrent.futures
 from abc import ABC, abstractmethod
 from filelock import FileLock
+from tqdm import tqdm
 import numpy as np
 import pandas as pd
 import nibabel as nib
@@ -49,6 +50,8 @@ class ImageReader(ABC):
         with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
             futures = [executor.submit(self._read_save_image, idx, img_file) 
                        for idx, img_file in enumerate(self.img_files)]
+            for _ in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc=f"{len(futures)} images"):
+                pass
             concurrent.futures.wait(futures)
 
             for future in concurrent.futures.as_completed(futures):
@@ -58,6 +61,7 @@ class ImageReader(ABC):
                     self.logger.info(f"Generated an exception: {exc}.")
                     break
 
+        self.logger.info('Done.')
         if os.path.exists(f'{self.out_dir}.lock'):
             os.remove(f'{self.out_dir}.lock')
     
@@ -199,7 +203,7 @@ def save_images(out_dir, images, coord, id):
 
     """
     with h5py.File(out_dir, 'w') as file:
-        dset = file.create_dataset('images', data=images)
+        dset = file.create_dataset('images', data=images, dtype='float32')
         file.create_dataset('id', data=np.array(id.tolist(), dtype='S10'))
         file.create_dataset('coord', data=coord)
         dset.attrs['id'] = 'id'
@@ -271,10 +275,13 @@ def run(args, log):
         if len(img_files) == 0:
             raise ValueError(f'no image in {args.image_dir} with suffix {args.image_suffix}')
         if args.coord_dir.endswith('nii.gz') or args.coord_dir.endswith('nii'):
+            log.info('Reading NIFTI images.')
             img_reader = NIFTIReader(img_files, ids, out_dir)
         elif args.coord_dir.endswith('gii.gz') or args.coord_dir.endswith('gii'):
+            log.info('Reading CIFTI images.')
             img_reader = CIFTIReader(img_files, ids, out_dir)
         else:
+            log.info('Reading FreeSurfer morphometry data.')
             img_reader = FreeSurferReader(img_files, ids, out_dir)
         img_reader.create_dataset(args.coord_dir)
         img_reader.read_save_image(args.threads)   

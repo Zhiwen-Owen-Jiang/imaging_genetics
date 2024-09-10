@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import threading
 import concurrent.futures
 from scipy.stats import chi2
 from tqdm import tqdm
@@ -43,28 +44,29 @@ class VGWAS:
         
         """
         ldr_var = np.diag(self.ldr_cov)
-        ztz_inv = np.zeros(np.sum(self.snp_idxs))
+        ztz_inv = np.zeros(np.sum(self.snp_idxs), dtype=np.float32)
         n_ldrs = self.bases.shape[1]
 
         futures = []
         i = 0
-        data_reader = self.ldr_gwas.data_reader(['beta', 'z'], self.ldr_idxs, self.snp_idxs)
-
+        data_reader = self.ldr_gwas.data_reader('both', self.ldr_idxs, self.snp_idxs, all_gwas=False)
+        lock = threading.Lock()
+    
         with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
             for ldr_beta_batch, ldr_z_batch in data_reader:
-                futures.append(executor.submit(self._compute_ztz_inv_batch, ldr_beta_batch, ldr_z_batch, ldr_var, i))
+                futures.append(executor.submit(self._compute_ztz_inv_batch, ztz_inv, ldr_beta_batch, ldr_z_batch, ldr_var, i, lock))
                 batch_size = ldr_beta_batch.shape[1]
                 i += batch_size
 
             for future in concurrent.futures.as_completed(futures):
-                ztz_inv += future.result()
+                future.result()
 
         ztz_inv /= n_ldrs
         ztz_inv = ztz_inv.reshape(-1, 1)
         
         return ztz_inv
     
-    def _compute_ztz_inv_batch(self, ldr_beta_batch, ldr_z_batch, ldr_var, i):
+    def _compute_ztz_inv_batch(self, ztz_inv, ldr_beta_batch, ldr_z_batch, ldr_var, i, lock):
         """
         Computing (Z'Z)^{-1} from summary statistics in batch
         
@@ -75,7 +77,8 @@ class VGWAS:
             (ldr_se_batch * ldr_se_batch + ldr_beta_batch * ldr_beta_batch / self.n) / ldr_var[i: i+batch_size], 
             axis=1
         )
-        return ztz_inv_batch
+        with lock:
+            ztz_inv += ztz_inv_batch
     
     def recover_beta(self, voxel_idxs, threads):
         """
@@ -90,31 +93,34 @@ class VGWAS:
         voxel_beta: a np.array of voxel beta (d, q)
         
         """
-        voxel_beta = np.zeros((np.sum(self.snp_idxs), len(voxel_idxs)))
-        data_reader = self.ldr_gwas.data_reader(['beta'], self.ldr_idxs, self.snp_idxs)
+        voxel_beta = np.zeros((np.sum(self.snp_idxs), len(voxel_idxs)), dtype=np.float32)
+        data_reader = self.ldr_gwas.data_reader('beta', self.ldr_idxs, self.snp_idxs, all_gwas=False)
         base = self.bases[voxel_idxs] # (q, r)
 
+        lock = threading.Lock()
         i = 0
         futures = []
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
             for ldr_beta_batch in data_reader:
-                futures.append(executor.submit(self._recover_beta_batch, ldr_beta_batch[0], base, i))
-                batch_size = ldr_beta_batch[0].shape[1]
+                futures.append(executor.submit(self._recover_beta_batch, voxel_beta, ldr_beta_batch, base, i, lock))
+                batch_size = ldr_beta_batch.shape[1]
                 i += batch_size
-
+            
             for future in concurrent.futures.as_completed(futures):
-                voxel_beta += future.result()
+                future.result()
 
         return voxel_beta
     
-    def _recover_beta_batch(self, ldr_beta_batch, base, i):
+    def _recover_beta_batch(self, voxel_beta, ldr_beta_batch, base, i, lock):
         """
         Computing voxel beta in batch
         
         """
         batch_size = ldr_beta_batch.shape[1]
         voxel_beta_batch = np.dot(ldr_beta_batch, base[:, i: i+batch_size].T)
-        return voxel_beta_batch
+        with lock:
+            voxel_beta += voxel_beta_batch
     
     def recover_se(self, voxel_idxs, voxel_beta):
         """
@@ -132,22 +138,27 @@ class VGWAS:
         """
         base = np.atleast_2d(self.bases[voxel_idxs]) # (q, r)
         part1 = np.sum(np.dot(base, self.ldr_cov) * base, axis=1) # (q, )
-        voxel_se = np.sqrt(part1 * self.ztz_inv - voxel_beta * voxel_beta / self.n) # slow
+        voxel_beta_squared = voxel_beta * voxel_beta
+        voxel_beta_squared /= self.n
+        voxel_se = part1 * self.ztz_inv
+        voxel_se -= voxel_beta_squared
+        np.sqrt(voxel_se, out=voxel_se)
+        # voxel_se = np.sqrt(part1 * self.ztz_inv - voxel_beta * voxel_beta / self.n) # slow
 
         return voxel_se
 
 
 def voxel_reader(n_snps, voxel_list):
     """
-    Doing voxel GWAS in batch, each block less than 0.5 GB
+    Doing voxel GWAS in batch, each block less than 3 GB
     
     """
     n_voxels = len(voxel_list)
     memory_use = n_snps * n_voxels * np.dtype(np.float32).itemsize / (1024 ** 3)
-    if memory_use <= 0.5:
+    if memory_use <= 3:
         batch_size = n_voxels
     else:
-        batch_size = int(n_voxels / memory_use * 0.5)
+        batch_size = int(n_voxels / memory_use * 3)
 
     for i in range(0, n_voxels, batch_size):
         yield voxel_list[i: i+batch_size]

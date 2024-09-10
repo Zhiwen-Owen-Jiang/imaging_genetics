@@ -33,6 +33,7 @@ def projection_ldr(ldr, covar):
     ldr_covar = np.dot(ldr.T, covar)
     part2 = np.dot(np.dot(ldr_covar, inner_covar_inv), ldr_covar.T)
     ldr_cov = (inner_ldr - part2) / n
+    ldr_cov = ldr_cov.astype(np.float32)
 
     return ldr_cov
 
@@ -166,7 +167,7 @@ def run(args, log):
         # contruct ldrs
         ids_ = ids.isin(common_idxs)
         id_idxs = np.arange(len(ids))[ids_]
-        ldrs = np.zeros((len(id_idxs), n_ldrs))
+        ldrs = np.zeros((len(id_idxs), n_ldrs), dtype=np.float32)
         
         start_idx, end_idx = 0, 0
         rec_corr = defaultdict(lambda: np.zeros(len(id_idxs)))

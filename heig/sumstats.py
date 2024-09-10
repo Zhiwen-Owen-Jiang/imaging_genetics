@@ -2,10 +2,12 @@ import os
 import h5py
 import logging
 import concurrent.futures
+import math
 import numpy as np
 import pandas as pd
 from abc import ABC, abstractmethod
 from filelock import FileLock
+from tqdm import tqdm
 from scipy.stats import chi2
 from heig import utils
 from functools import partial
@@ -169,11 +171,9 @@ class GWAS:
         snpinfo: a pd.DataFrame of SNP info
         
         """
-        self.beta = file['beta']
-        # self.se = file['se']
-        self.z = file['z']
         self.n_snps = file.attrs['n_snps']
         self.n_gwas = file.attrs['n_gwas']
+        self.n_blocks = file.attrs['n_blocks']
         self.file = file
         self.snpinfo = snpinfo
         self.snp_idxs = None
@@ -182,39 +182,69 @@ class GWAS:
     def close(self):
         self.file.close()
 
-    def data_reader(self, data_type_list, gwas_idxs, snps_idxs, all_gwas=False):
+    def data_reader(self, data_type, gwas_idxs, snps_idxs, all_gwas=True):
         """
-        Reading summary statistics in chunks, each chunk is ~1 GB
-        Two strategies: column first for reading all (a few) sumstats for a few LDRs
-        row first for reading a block of sumstats for all LDRs
+        Reading summary statistics in chunks, each chunk of 20 LDRs
+        Two modes: 
+        1. Reading a batch of LDRs and a subset of sumstats as a generator
+        2. Reading all LDRs and a small proportion of sumstats (e.g. hapmap3) into memory
 
         Parameters:
         ------------
-        data_type_list: a list of data type, including `beta`, `se`, and `z`
-        gwas_idxs (r, ): numerical indices of gwas to extract
+        data_type: data type including `both`, `beta`, and `z`
+        gwas_idxs (r, ): numerical indices of GWAS to extract
         snps_idxs (d, ): numerical/boolean indices of SNPs to extract
-        all: if reading all gwas
+        all_gwas: if reading all GWAS sumstats
 
         Returns:
         ---------
-        A generator of sumstats
+        A np.array or a generator of sumstats
 
         """
-        data_list = [getattr(self, data_type) for data_type in data_type_list] 
-        memory_use = self.n_snps * self.n_gwas * np.dtype(np.float32).itemsize / (1024 ** 3)
-        if memory_use <= 1 or all_gwas:
-            batch_size = self.n_gwas
-        else:
-            batch_size = int(self.n_gwas / memory_use * 1)
+        n_blocks = math.ceil(len(gwas_idxs) / 20)
+        remaining = self.n_gwas
 
-        for i in range(0, self.n_gwas, batch_size):
-            gwas_idxs_chuck = gwas_idxs[i: i+batch_size]
-            gwas_idxs_bool = np.zeros(self.n_gwas, dtype=bool)
-            gwas_idxs_bool[gwas_idxs_chuck] = True
-            if all_gwas:
-                yield [data[snps_idxs][:, gwas_idxs_bool] for data in data_list]
+        if all_gwas:
+            # in this case snps_idxs are numerical indices and only `z` is supported 
+            if data_type == 'z':
+                z_array = np.zeros((len(snps_idxs), self.n_gwas), dtype=np.float32)
+                for block_idx in range(n_blocks):
+                    if remaining >= 20:
+                        z_array[:, block_idx*20: (block_idx+1)*20] = self.file[f'z{block_idx}'][:][snps_idxs]
+                        remaining -= 20
+                    else:
+                        z_array[:, block_idx*20: self.n_gwas] = self.file[f'z{block_idx}'][:, :remaining][snps_idxs]
+                return z_array
             else:
-                yield [data[:, gwas_idxs_bool][snps_idxs] for data in data_list]
+                raise ValueError('only z-score can be read for all LDRs')
+        else:
+            return self._data_reader_generator(data_type, snps_idxs, n_blocks)
+            
+    def _data_reader_generator(self, data_type, snps_idxs, n_blocks):
+        """
+        Reading data as a generator
+        
+        """
+        remaining = self.n_gwas
+
+        if data_type == 'both':
+            for block_idx in range(n_blocks):
+                if remaining >= 20:
+                    yield [self.file[f'beta{block_idx}'][:][snps_idxs], 
+                            self.file[f'z{block_idx}'][:][snps_idxs]]
+                    remaining -= 20
+                else:
+                    yield [self.file[f'beta{block_idx}'][:, :remaining][snps_idxs], 
+                            self.file[f'z{block_idx}'][:, :remaining][snps_idxs]]
+        elif data_type == 'beta':
+            for block_idx in range(n_blocks):
+                if remaining >= 20:
+                    yield self.file[f'beta{block_idx}'][:][snps_idxs]
+                    remaining -= 20
+                else:
+                    yield self.file[f'beta{block_idx}'][:, :remaining][snps_idxs]
+        else:
+            raise ValueError('other data type is not supported')
 
     def extract_snps(self, keep_snps):
         """
@@ -251,6 +281,7 @@ class GWAS:
         self.snpinfo['A1'] = ref['A1'].values
         self.snpinfo['A2'] = ref['A2'].values
 
+    """
     def __eq__(self, other):
         if isinstance(other, GWAS):
             if not self.snpinfo.equals(other.snpinfo):
@@ -261,7 +292,7 @@ class GWAS:
                 return False
             return True
         return False
-
+    """
 
 class ProcessGWAS(ABC):
     complement = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C'}
@@ -452,13 +483,11 @@ class GWASLDR(ProcessGWAS):
     
     def _create_dataset(self, n_snps):
         with h5py.File(f'{self.out_dir}.sumstats', 'w') as file:
-            file.create_dataset('beta', shape=(n_snps, self.n_gwas_files), dtype='float32')
-            file.create_dataset('z', shape=(n_snps, self.n_gwas_files), dtype='float32')
-            # file.create_dataset('se', shape=(0,), dtype='float32')
             file.attrs['n_snps'] = n_snps
             file.attrs['n_gwas'] = self.n_gwas_files
+            file.attrs['n_blocks'] = math.ceil(self.n_gwas_files / 20)
 
-    def _save_sumstats(self, index, beta, z):
+    def _save_sumstats(self, block_idx, beta, z):
         """
         Saving sumstats and ensuring only one process is writing
 
@@ -466,8 +495,8 @@ class GWASLDR(ProcessGWAS):
         lock_file = f'{self.out_dir}.sumstats.lock'
         with FileLock(lock_file):
             with h5py.File(f'{self.out_dir}.sumstats', 'r+') as file:
-                file['beta'][:, index] = beta
-                file['z'][:, index] = z
+                file.create_dataset(f'beta{block_idx}', data=beta, dtype='float32', chunks=(10000, beta.shape[1]))
+                file.create_dataset(f'z{block_idx}', data=z, dtype='float32', chunks=(10000, z.shape[1]))
     
     def process(self, threads):
         """
@@ -500,17 +529,12 @@ class GWASLDR(ProcessGWAS):
 
         self.logger.info(f'Pruning SNPs for the first GWAS file ...')
         gwas_data = self._prune_snps(gwas_data)
-        self._create_dataset(gwas_data.shape[0])
         final_snps_list = gwas_data['SNP']
         valid_snp_idxs = valid_snp_idxs & orig_snps_list['SNP'].isin(final_snps_list).values
+
         is_valid_snp = valid_snp_idxs == 1
         snpinfo = orig_snps_list.loc[is_valid_snp].reset_index(drop=True)
-
-        if self.cols_map['null_value'] == 1:
-            gwas_data['EFFECT'] = np.log(gwas_data['EFFECT'])
-        # self._save_sumstats(0, beta=np.array(gwas_data['EFFECT']), se=np.array(gwas_data['SE']))
-        self._save_sumstats(0, beta=np.array(gwas_data['EFFECT']), 
-                            z=np.array(gwas_data['EFFECT']/gwas_data['SE']))
+        self._create_dataset(gwas_data.shape[0])
 
         return is_valid_snp, snpinfo
     
@@ -526,24 +550,29 @@ class GWASLDR(ProcessGWAS):
 
         return gwas_data
 
-    def _read_save(self, is_valid_snp, i, gwas_file):
+    def _read_save(self, is_valid_snp, block_idx, gwas_files):
         """
-        Reading, processing, and saving a single LDR GWAS file
+        Reading, processing, and saving a batch of LDR GWAS files
 
         Parameters:
         ------------
         is_valid_snp: boolean indices of valid SNPs
-        i: index of the current file
-        gwas_file: directory to a GWAS file
+        block_idx: block index
+        gwas_files: a list of GWAS files 
         
         """
-        gwas_data = self._read_gwas_effct(gwas_file)
-        gwas_data = gwas_data.loc[is_valid_snp]
-        if self.cols_map['null_value'] == 1:
-            gwas_data['EFFECT'] = np.log(gwas_data['EFFECT'])
-        # self._save_sumstats(i, beta=np.array(gwas_data['EFFECT']), se=np.array(gwas_data['SE']))
-        self._save_sumstats(i, beta=np.array(gwas_data['EFFECT']), 
-                            z=np.array(gwas_data['EFFECT']/gwas_data['SE']))
+        beta_array = np.zeros((np.sum(is_valid_snp), len(gwas_files)), dtype=np.float32)
+        z_array = np.zeros((np.sum(is_valid_snp), len(gwas_files)), dtype=np.float32)
+        
+        for i, gwas_file in enumerate(gwas_files):
+            gwas_data = self._read_gwas_effct(gwas_file)
+            gwas_data = gwas_data.loc[is_valid_snp]
+            if self.cols_map['null_value'] == 1:
+                gwas_data['EFFECT'] = np.log(gwas_data['EFFECT'])
+            beta_array[:, i] = gwas_data['EFFECT']
+            z_array[:, i] = gwas_data['EFFECT']/gwas_data['SE']
+        
+        self._save_sumstats(block_idx, beta=beta_array, z=z_array)
 
     def _read_in_parallel(self, is_valid_snp, threads):
         """
@@ -556,9 +585,12 @@ class GWASLDR(ProcessGWAS):
         
         """
         partial_function = partial(self._read_save, is_valid_snp)
-        idxs = range(1, len(self.gwas_files))
+        n_blocks = math.ceil(self.n_gwas_files / 20)
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
-            futures = [executor.submit(partial_function, idx, self.gwas_files[idx]) for idx in idxs]
+            futures = [executor.submit(partial_function, block_idx, self.gwas_files[block_idx*20: (block_idx+1)*20]) for block_idx in range(n_blocks)]
+            for _ in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc=f"{len(futures)} blocks"):
+                pass
             concurrent.futures.wait(futures)
             
             for future in concurrent.futures.as_completed(futures):
@@ -577,14 +609,14 @@ class GWASY2(ProcessGWAS):
     def _create_dataset(self, n_snps):
         with h5py.File(f'{self.out_dir}.sumstats', 'w') as file:
             file.create_dataset('beta', shape=(0,), dtype='float32')
-            # file.create_dataset('se', shape=(0,), dtype='float32')
             file.create_dataset('z', shape=(n_snps, self.n_gwas_files), dtype='float32')
             file.attrs['n_snps'] = n_snps
             file.attrs['n_gwas'] = self.n_gwas_files
+            file.attrs['n_blocks'] = 1
 
-    def _save_sumstats(self, index, z):
+    def _save_sumstats(self, block_idx, z):
         with h5py.File(f'{self.out_dir}.sumstats', 'r+') as file:
-            file['z'][:, index] = z
+            file.create_dataset(f'z{block_idx}', data=z, dtype='float32', chunks=(10000, z.shape[1]))
 
     def process(self, threads=None):
         """
