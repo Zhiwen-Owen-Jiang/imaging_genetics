@@ -311,18 +311,15 @@ def run(args, log):
         ldr_gwas = sumstats.read_sumstats(args.ldr_sumstats)
         log.info(f'{ldr_gwas.n_snps} SNPs read from LDR summary statistics {args.ldr_sumstats}')
 
-        # LDR subsetting
-        if args.n_ldrs:
-            if args.n_ldrs > ldr_gwas.n_gwas or args.n_ldrs > bases.shape[1] or args.n_ldrs > ldr_cov.shape[0]:
-                log.info('WARNING: --n-ldrs is greater than the maximum #LDRs. Use all LDRs.')
-            else:
-                ldr_gwas.n_gwas = args.n_ldrs
-                bases = bases[:, :args.n_ldrs]
-                ldr_cov = ldr_cov[:args.n_ldrs, :args.n_ldrs]
+        # keep selected LDRs
+        if args.n_ldrs is not None:
+            bases, ldr_cov, ldr_gwas = ds.keep_ldrs(args.n_ldrs, bases, ldr_cov, ldr_gwas)
+            log.info(f'Keep the top {args.n_ldrs} LDRs.')
 
-        if bases.shape[1] != ldr_gwas.n_gwas or bases.shape[1] != ldr_cov.shape[0]:
-            raise ValueError('dimension mismatch for --bases, --ldr-cov, and --ldr-sumstats. Try to use --n-ldrs')
-        log.info(f'Keep the top {bases.shape[1]} components.\n')
+        if bases.shape[1] != ldr_cov.shape[0] or bases.shape[1] != ldr_gwas.n_gwas:
+            raise ValueError(('inconsistent dimension for bases, variance-covariance matrix of LDRs, '
+                              'and LDR summary statistics. '
+                              'Try to use --n-ldrs'))
 
         # getting the outpath and SNP list
         outpath = args.out
@@ -377,7 +374,7 @@ def run(args, log):
                 voxel_se, voxel_z, all_sig_idxs_voxel, outpath, args.threads
             )
 
-        log.info(f"Save the output to {outpath}")
+        log.info(f"\nSave the output to {outpath}")
 
     finally:
         ldr_gwas.close()

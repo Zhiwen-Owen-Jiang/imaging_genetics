@@ -371,6 +371,24 @@ def parse_input(arg):
         return [arg]
     
 
+def keep_ldrs(n_ldrs, bases, ldr_cov, ldr_gwas):
+    """
+    Extracting a specific number of LDRs
+    
+    """
+    if bases.shape[1] < n_ldrs:
+        raise ValueError('the number of bases is less than --n-ldrs')
+    if ldr_cov.shape[0] < n_ldrs:
+        raise ValueError('the dimension of variance-covariance matrix of LDR is less than --n-ldrs')
+    if ldr_gwas.n_gwas < n_ldrs:
+        raise ValueError('LDRs in summary statistics is less than --n-ldrs')
+    bases = bases[:, :n_ldrs]
+    ldr_cov = ldr_cov[:n_ldrs, :n_ldrs]
+    ldr_gwas.n_gwas = n_ldrs
+
+    return bases, ldr_cov, ldr_gwas
+    
+
 class ReadCsvParallel:
     def __init__(self, filename, threads):
         self.filename = filename

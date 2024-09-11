@@ -135,7 +135,7 @@ class KernelSmooth:
         """
         bw_raw = self.N ** (-1 / (4 + self.d))
         # weights = [0.2, 0.5, 1, 2, 5, 10]
-        weights = [1, 1.5, 2, 2.5, 3, 5]
+        weights = [0.5, 1, 2, 3, 5, 10]
         bw_list = np.zeros((len(weights), self.d), dtype=np.float32)
 
         for i, weight in enumerate(weights):
@@ -262,11 +262,11 @@ def do_kernel_smoothing(raw_image_dir, sm_image_dir, keep_idvs, bw_opt, threads,
         else:
             common_ids = ids
         id_idxs = np.arange(len(ids))[ids.isin(common_ids)]
-        log.info(f"Using {len(id_idxs)} common subjects.")
+        log.info(f"Using {len(id_idxs)} subjects.")
 
-        log.info('\nDoing kernel smoothing ...')
         ks = LocalLinear(images, coord, id_idxs)
         if bw_opt is None:
+            log.info('\nDoing kernel smoothing ...')
             bw_list = ks.bw_cand()
             log.info(f"Selecting the optimal bandwidth from\n{np.round(bw_list, 3)}.")
             sparse_sm_weight = ks.gcv(bw_list, threads, temp_path, log)
@@ -411,7 +411,7 @@ class EigenValues:
         Using a B-spline with degree of 1 to predict log-eigenvalues
         
         """
-        self.logger('Imputing uncomputed eigenvalues using a B-spline (df=1).')
+        self.logger.info('Imputing uncomputed eigenvalues using a B-spline (df=1).')
         n_values = len(self.values)
         x_train = np.arange(n_values)
         y_train = np.log(self.values)

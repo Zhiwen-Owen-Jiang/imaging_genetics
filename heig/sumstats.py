@@ -667,4 +667,4 @@ def run(args, log):
                           args.maf_min, args.info_min)
     sumstats.process(args.threads)
 
-    log.info(f'Save the processed summary statistics to {args.out}.sumstats and {args.out}.snpinfo')
+    log.info(f'\nSave the processed summary statistics to {args.out}.sumstats and {args.out}.snpinfo')

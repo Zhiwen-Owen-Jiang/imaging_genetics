@@ -286,4 +286,4 @@ def run(args, log):
         img_reader.create_dataset(args.coord_dir)
         img_reader.read_save_image(args.threads)   
 
-    log.info(f'Save the images to {out_dir}')
+    log.info(f'\nSave the images to {out_dir}')

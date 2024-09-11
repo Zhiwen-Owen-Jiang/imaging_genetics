@@ -360,13 +360,12 @@ def check_accepted_args(module, args, log):
             continue
         elif k not in accepted_args[module]:
             ignored_args.append(k)
+            setattr(args, k, None)
 
     if len(ignored_args) > 0:
         ignored_args = [f"--{arg.replace('_', '-')}" for arg in ignored_args]
         ignored_args_str = ', '.join(ignored_args)
         log.info(f"WARNING: {ignored_args_str} are ignored by --{module.replace('_', '-')}.")
-
-    return ignored_args
 
 
 def split_files(arg):
@@ -378,6 +377,7 @@ def split_files(arg):
 
 
 def process_args(args, log):
+    
     if args.threads is not None:
         if args.threads <= 0:
             raise ValueError('--threads should be greater than 0')

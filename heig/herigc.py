@@ -117,24 +117,6 @@ class CommonSNPs:
     @staticmethod
     def _process_chunk(df_chunk):
         return df_chunk.apply(lambda x: len(set(x)) == 2, axis=1)
-    
-
-def keep_ldrs(n_ldrs, bases, ldr_cov, ldr_gwas):
-    """
-    Extracting a specific number of LDRs
-    
-    """
-    if bases.shape[1] < n_ldrs:
-        raise ValueError('the number of bases is less than --n-ldrs')
-    if ldr_cov.shape[0] < n_ldrs:
-        raise ValueError('the dimension of variance-covariance matrix of LDR is less than --n-ldrs')
-    if ldr_gwas.n_gwas < n_ldrs:
-        raise ValueError('LDRs in summary statistics is less than --n-ldrs')
-    bases = bases[:, :n_ldrs]
-    ldr_cov = ldr_cov[:n_ldrs, :n_ldrs]
-    ldr_gwas.n_gwas = n_ldrs
-
-    return bases, ldr_cov, ldr_gwas
 
 
 class Estimation(ABC):
@@ -686,9 +668,10 @@ def print_results_two(heri_gc, output, overlap):
 
     if overlap:
         msg += 'Genetic correlation (with sample overlap)\n'
+        msg += '-----------------------------------------\n'
     else:
         msg += 'Genetic correlation (without sample overlap)\n'
-    msg += '--------------------------------------------\n'
+        msg += '--------------------------------------------\n'
     msg += (f"Mean genetic correlation: {np.nanmean(output['GC']):.4f} "
             f"({np.nanmean(output['GC_SE']):.4f})\n")
     msg += f"Median genetic correlation: {np.nanmedian(output['GC']):.4f}\n"
@@ -750,7 +733,7 @@ def run(args, log):
 
         # keep selected LDRs
         if args.n_ldrs is not None:
-            bases, ldr_cov, ldr_gwas = keep_ldrs(args.n_ldrs, bases, ldr_cov, ldr_gwas)
+            bases, ldr_cov, ldr_gwas = ds.keep_ldrs(args.n_ldrs, bases, ldr_cov, ldr_gwas)
             log.info(f'Keep the top {args.n_ldrs} LDRs.')
         
         # check numbers of LDRs are the same
