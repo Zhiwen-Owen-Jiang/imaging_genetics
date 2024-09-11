@@ -470,11 +470,11 @@ class ProcessGWAS(ABC):
         """
         median_beta = np.nanmedian(data)
         if np.abs(median_beta - null_value > 0.1):
-            raise ValueError((f"median value of {effect} is {round(median_beta, 4)} "
+            raise ValueError((f"median value of {effect} is {median_beta:.4f} "
                               f"(should be close to {null_value}). "
                               "This column may be mislabeled"))
         else:
-            self.logger.info((f"Median value of {effect} is {round(median_beta, 4)}, "
+            self.logger.info((f"Median value of {effect} is {median_beta:.4f}, "
                             "which is reasonable."))
 
 

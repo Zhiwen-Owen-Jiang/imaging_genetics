@@ -10,6 +10,7 @@ from functools import partial
 from numpy.linalg import inv
 from scipy.sparse import csc_matrix, csr_matrix, dok_matrix, hstack
 from sklearn.decomposition import IncrementalPCA
+from scipy.interpolate import make_interp_spline
 import heig.input.dataset as ds
 
 
@@ -83,7 +84,7 @@ class KernelSmooth:
                 if score[cii] < min_score:
                     min_score = score[cii]
                     self._save_sparse_sm_weight(sparse_sm_weight, temp_path)
-                log.info(f"The GCV score for bandwidth {np.round(bw, 3)} is {round(score[cii], 3)}.")
+                log.info(f"The GCV score for bandwidth {np.round(bw, 3)} is {score[cii]:.3f}.")
             else:
                 score[cii] = np.Inf
 
@@ -93,7 +94,7 @@ class KernelSmooth:
                       "which may not be the best one."))
         bw_opt = bw_list[which_min]
         min_mse = score[which_min]
-        log.info(f"The optimal bandwidth is {np.round(bw_opt, 3)} with GCV score {round(min_mse, 3)}.")
+        log.info(f"The optimal bandwidth is {np.round(bw_opt, 3)} with GCV score {min_mse:.3f}.")
 
         sparse_sm_weight = self._load_sparse_sm_weight(temp_path)
 
@@ -311,13 +312,13 @@ class fPCA:
         
         """
         self.logger = logging.getLogger(__name__)
-        self.n_top = self._get_n_top(n_ldrs, max_n_pc, n_sub, compute_all)
+        self.n_top = self._get_n_top(n_ldrs, max_n_pc, compute_all)
         self.batch_size = self.n_top
         self.n_batches = n_sub // self.batch_size
         self.ipca = IncrementalPCA(n_components=self.n_top, batch_size=self.batch_size)
         self.logger.info(f"Computing the top {self.n_top} components.")
 
-    def _get_n_top(self, n_ldrs, max_n_pc, n_sub, compute_all):
+    def _get_n_top(self, n_ldrs, max_n_pc, compute_all):
         """
         Determine the number of top components to compute in PCA.
 
@@ -325,7 +326,6 @@ class fPCA:
         ------------
         n_ldrs: a specified number of components
         max_n_pc: the maximum possible number of components
-        n_sub: the sample size
         compute_all: a boolean variable for computing all components
 
         Returns:
@@ -341,10 +341,13 @@ class fPCA:
                 self.logger.info('WARNING: --n-ldrs is greater than the maximum #components.')
             else:
                 n_top = n_ldrs
+                if n_ldrs < int(max_n_pc / 5):
+                    self.logger.info(('WARNING: --n-ldrs is less than 20% of the maximum #components. '
+                                      'The number of LDRs for a proportion of variance and '
+                                      'the effective number of indenpendent voxels may be downward biased.'))
         else:
-            n_top = int(max_n_pc / 10)
+            n_top = int(max_n_pc / 5)
 
-        n_top = np.min((n_top, n_sub))
         return n_top
 
 
@@ -385,61 +388,76 @@ def do_fpca(sm_image_dir, subject_wise_mean, args, log):
         values = fpca.ipca.singular_values_ ** 2
         bases = fpca.ipca.components_.T
         bases = bases.astype(np.float32)
-        eff_num = np.sum(values) ** 2 / np.sum(values ** 2)
-        eff_num = eff_num.astype(np.float32)
 
-    return values, bases, eff_num, fpca.n_top
+    return values, bases, fpca.n_top
 
 
-def determine_n_ldr(values, prop, log):
+class EigenValues:
     """
-    Determine the number of LDRs for preserving a proportion of variance
-
-    Parameters:
-    ------------
-    values: a np.array of eigenvalues
-    prop: a scalar of proportion between 0 and 1
-    log: a logger
-
-    Returns:
-    ---------
-    n_opt: the number of LDRs
-
-    """
-    eff_num = np.sum(values) ** 2 / np.sum(values ** 2)
-    prop_var = np.cumsum(values) / np.sum(values)
-    idxs = (prop_var <= prop) & (values != 0)
-    n_idxs = np.sum(idxs) + 1
-    n_opt = max(n_idxs, int(eff_num) + 1)
-    var_prop = np.sum(values[:n_opt]) / np.sum(values)
-    log.info((f'Approximately {round(var_prop * 100, 1)}% variance '
-            f'is captured by the top {n_opt} components.\n'))
-    return n_opt
-
-
-def print_prop_ldr(values, log):
-    prop_var = np.cumsum(values) / np.sum(values)
-    prop_ldrs = {}
-    for prop in [0.7, 0.75, 0.8, 0.85, 0.9, 0.95]:
-        prop_ldrs[prop] = np.sum(prop_var <= prop) + 1
-
-    max_key_len = max(len(str(key)) for key in prop_ldrs.keys())
-    max_val_len = max(len(str(value)) for value in prop_ldrs.values())
-    max_len = max([max_key_len, max_val_len])
-    keys_str = "  ".join(f"{str(key):<{max_len}}" for key in prop_ldrs.keys())
-    values_str = "  ".join(f"{str(value):<{max_len}}" for value in prop_ldrs.values())
-
-    log.info('The number of LDRs for preserving varying proportions of image variance:')
-    log.info(keys_str)
-    log.info(values_str)
-    log.info(('Note: the number of LDRs might be downward biased if only top components were computed. '
-              'Try to construct more LDRs if computationally affordable in downstream analyses.'))
+    Predicting uncomputed eigenvalues using a B-spline
     
-    prop_ldrs_df = pd.DataFrame.from_dict(prop_ldrs, orient='index')
-    prop_ldrs_df.index.name = 'prop_var'
-    prop_ldrs_df = prop_ldrs_df.rename({0: 'n_ldrs'}, axis=1)
+    """
+    def __init__(self, values, max_n_pc):
+        self.values = values
+        self.max_n_pc = max_n_pc
+        self.logger = logging.getLogger(__name__)
 
-    return prop_ldrs_df
+        self.imputed_values = self._bspline()
+        self.eff_num = self._eff_num()
+        self.prop_ldrs_df = self._print_prop_ldr()
+
+    def _bspline(self):
+        """
+        Using a B-spline with degree of 1 to predict log-eigenvalues
+        
+        """
+        self.logger('Imputing uncomputed eigenvalues using a B-spline (df=1).')
+        n_values = len(self.values)
+        x_train = np.arange(n_values)
+        y_train = np.log(self.values)
+        spline = make_interp_spline(x_train, y_train, k=1)
+        x_pred = np.arange(n_values, self.max_n_pc)
+        y_pred = spline(x_pred)
+        imputed_values = np.concatenate([self.values, np.exp(y_pred)])
+
+        return imputed_values
+    
+    def _eff_num(self):
+        """
+        Computing effective number of independent voxels
+        
+        """
+        norm_values = self.imputed_values / self.imputed_values[0]
+        eff_num = np.sum(norm_values) ** 2 / np.sum((norm_values) ** 2)
+
+        return eff_num
+    
+    def _print_prop_ldr(self):
+        """
+        Computing the number of LDRs required for varying proportions of variance
+        
+        """
+        prop_var = np.cumsum(self.imputed_values) / np.sum(self.imputed_values)
+        prop_ldrs = {}
+        for prop in [0.7, 0.75, 0.8, 0.85, 0.9, 0.95]:
+            prop_ldrs[prop] = np.sum(prop_var <= prop) + 1
+
+        max_key_len = max(len(str(key)) for key in prop_ldrs.keys())
+        max_val_len = max(len(str(value)) for value in prop_ldrs.values())
+        max_len = max([max_key_len, max_val_len])
+        keys_str = "  ".join(f"{str(key):<{max_len}}" for key in prop_ldrs.keys())
+        values_str = "  ".join(f"{str(value):<{max_len}}" for value in prop_ldrs.values())
+
+        self.logger.info('The number of LDRs for preserving varying proportions of image variance:')
+        self.logger.info(keys_str)
+        self.logger.info(values_str)
+        
+        prop_ldrs_df = pd.DataFrame.from_dict(prop_ldrs, orient='index')
+        prop_ldrs_df.index.name = 'prop_var'
+        prop_ldrs_df = prop_ldrs_df.rename({0: 'n_ldrs'}, axis=1)
+
+        return prop_ldrs_df
+
 
 def check_input(args, log):
     if args.image is None:
@@ -483,20 +501,19 @@ def run(args, log):
         sm_image_dir = f'{args.out}_sm_images.h5'
         subject_wise_mean = do_kernel_smoothing(args.image, sm_image_dir, keep_idvs,
                                                 args.bw_opt, args.threads, temp_path, log)
-        # log.info(f'Save smoothed images to {sm_image_dir}\n')
 
         # fPCA
-        values, bases, eff_num, n_top = do_fpca(sm_image_dir, subject_wise_mean, args, log)
-        prop_ldrs_df = print_prop_ldr(values, log)
+        values, bases, n_top = do_fpca(sm_image_dir, subject_wise_mean, args, log)
+        eigenvalues = EigenValues(values, bases.shape[0])
 
         np.save(f"{args.out}_bases_top{n_top}.npy", bases)
-        np.save(f"{args.out}_eigenvalues_top{n_top}.npy", values)
-        prop_ldrs_df.to_csv(f"{args.out}_ldrs_prop_var.txt", sep='\t')
-        log.info((f"The effective number of independent voxels (vertices) is {round(eff_num, 3)}, "
-                f"which can be used in the Bonferroni p-value threshold (e.g., 0.05/{round(eff_num, 3)}) "
+        np.save(f"{args.out}_eigenvalues.npy", eigenvalues.imputed_values)
+        eigenvalues.prop_ldrs_df.to_csv(f"{args.out}_ldrs_prop_var.txt", sep='\t')
+        log.info((f"The effective number of independent voxels (vertices) is {eigenvalues.eff_num:.3f}, "
+                f"which can be used in the Bonferroni p-value threshold (e.g., 0.05/{eigenvalues.eff_num:.3f}) "
                 "across all voxels (vertices).\n"))
         log.info(f"Save the top {n_top} bases to {args.out}_bases_top{n_top}.npy")
-        log.info(f"Save the top {n_top} eigenvalues to {args.out}_eigenvalues_top{n_top}.npy")
+        log.info(f"Save the eigenvalues to {args.out}_eigenvalues.npy")
         log.info(f"Save the number of LDRs table to {args.out}_ldrs_prop_var.txt")
 
     finally:

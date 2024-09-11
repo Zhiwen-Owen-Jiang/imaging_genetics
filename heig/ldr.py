@@ -190,6 +190,7 @@ def run(args, log):
 
         for alt_n_ldrs, corr in rec_corr.items():
             rec_corr[alt_n_ldrs] = round(np.mean(corr), 2)
+
         print_alt_corr(rec_corr, log)
 
 
@@ -200,7 +201,7 @@ def run(args, log):
 
     # var-cov matrix of projected LDRs
     ldr_cov = projection_ldr(ldrs, np.array(covar.data))
-    log.info(f"Removed covariate effects from LDRs and variance-covariance matrix.\n")
+    log.info(f"Removed covariate effects from LDRs and computed variance-covariance matrix.\n")
 
     # save the output
     ldr_df = pd.DataFrame(ldrs, index=ids[ids_])
