@@ -260,10 +260,8 @@ class OneSample(Estimation):
 
             futures = []
             with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
-                for i in range(0, self.N, block_size):
-                    start = i
-                    end = i + block_size
-                    futures.append(executor.submit(self._get_gene_cor_se_block, gc, se, out_dir, start, end))
+                for start in range(0, self.N, block_size):
+                    futures.append(executor.submit(self._get_gene_cor_se_block, start, gc, se, out_dir))
 
                 for future in concurrent.futures.as_completed(futures):
                     gene_cor_sum, gene_cor_min, gene_cor_se_sum = future.result()
@@ -279,11 +277,12 @@ class OneSample(Estimation):
 
         return mean_gene_cor, min_gene_cor, mean_gene_cor_se
     
-    def _get_gene_cor_se_block(self, gc, se, out_dir, start, end):
+    def _get_gene_cor_se_block(self, start, gc, se, out_dir):
         """
         Computing genetic correlation and se for a block
 
         """
+        end = start + 100 
         gene_cov = np.dot(np.dot(self.bases[start: end], self.ldr_gene_cov), self.bases.T)
         gene_cov[gene_cov == 0] = 0.01
         gene_cor = gene_cov / np.sqrt(np.outer(self.gene_var[start: end], self.gene_var))
@@ -313,9 +312,11 @@ class OneSample(Estimation):
         gene_cor_se += d / n**2 * gene_cor2 * gene_cor2 * part2 * part2
         gene_cor_se += d / n**2 * temp3
         gene_cor_se -= d / n**2 * gene_cor2 * part2 * part3
-        
-        gene_cor_se[np.abs(gene_cor_se) < 10 ** -10] = 0
+
+        np.fill_diagonal(gene_cor, 1)
+        np.fill_diagonal(gene_cor_se, 0)
         gene_cor, gene_cor_se = self._qc(gene_cor, gene_cor_se, -1, 1, 0, 1)
+        gene_cor_se = np.sqrt(gene_cor_se)
 
         with FileLock(f'{out_dir}.gc.h5.lock'):
             gc[start: end] = gene_cor
@@ -340,10 +341,9 @@ class TwoSample(Estimation):
         (self.ld_block_rank, self.ldr_block_gene_cov, 
          y2_block_gene_cov, ldr_y2_block_gene_cov_part1) = self._block_wise_estimate_parallel(threads)
 
-        # since the sum stats have been normalized
         self.ld_rank = np.sum(self.ld_block_rank)
         self.ldr_gene_cov = np.sum(self.ldr_block_gene_cov, axis=0)
-        self.y2_heri = np.atleast_1d(np.sum(y2_block_gene_cov))
+        self.y2_heri = np.atleast_1d(np.sum(y2_block_gene_cov)) # since the sum stats have been normalized
         ldr_y2_gene_cov_part1 = np.sum(ldr_y2_block_gene_cov_part1, axis=0)
         
         # image heritability
