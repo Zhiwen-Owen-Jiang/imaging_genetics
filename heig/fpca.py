@@ -465,17 +465,12 @@ def check_input(args, log):
     if args.all_pc:
         log.info(('WARNING: computing all principal components might be very time '
                   'and memory consuming when images are of high resolution.'))
-    if args.n_ldrs is not None and args.n_ldrs <= 0:
-        raise ValueError('--n-ldrs should be greater than 0')
     if args.all_pc and args.n_ldrs is not None:
         log.info('--all-pc is ignored as --n-ldrs specified.')
         args.all_pc = False
     if args.bw_opt is not None and args.bw_opt <= 0:
         raise ValueError('--bw-opt should be positive')
 
-    if not os.path.exists(args.image):
-        raise FileNotFoundError(f"{args.image} does not exist")
-    
     temp_path = os.path.join(os.path.dirname(args.out), 'temp_sparse_sm_weight')
     i = 0
     while os.path.exists(temp_path + str(i)):
@@ -489,17 +484,10 @@ def run(args, log):
     # check input
     temp_path = check_input(args, log)
 
-    # keep subjects
-    if args.keep is not None:
-        keep_idvs = ds.read_keep(args.keep)
-        log.info(f'{len(keep_idvs)} subjects in --keep.')
-    else:
-        keep_idvs = None
-
     try:
         # kernel smoothing
         sm_image_dir = f'{args.out}_sm_images.h5'
-        subject_wise_mean = do_kernel_smoothing(args.image, sm_image_dir, keep_idvs,
+        subject_wise_mean = do_kernel_smoothing(args.image, sm_image_dir, args.keep,
                                                 args.bw_opt, args.threads, temp_path, log)
 
         # fPCA

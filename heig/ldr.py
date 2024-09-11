@@ -111,16 +111,6 @@ def check_input(args):
         raise ValueError('--covar is required')
     if args.bases is None:
         raise ValueError('--bases is required')
-    if args.n_ldrs is not None and args.n_ldrs <= 0:
-        raise ValueError('--n-ldrs should be greater than 0')
-    
-    # required arguments must exist
-    if not os.path.exists(args.image):
-        raise FileNotFoundError(f"{args.image} does not exist")
-    if not os.path.exists(args.covar):
-        raise FileNotFoundError(f"{args.covar} does not exist")
-    if not os.path.exists(args.bases):
-        raise FileNotFoundError(f"{args.bases} does not exist")
 
 
 def run(args, log):
@@ -153,15 +143,8 @@ def run(args, log):
         log.info(f"Read covariates from {args.covar}")
         covar = ds.Covar(args.covar, args.cat_covar_list)
 
-        # keep subjects
-        if args.keep is not None:
-            keep_idvs = ds.read_keep(args.keep)
-            log.info(f'{len(keep_idvs)} subjects in --keep.')
-        else:
-            keep_idvs = None
-
         # keep common subjects
-        common_idxs = ds.get_common_idxs(ids, covar.data.index, keep_idvs)
+        common_idxs = ds.get_common_idxs(ids, covar.data.index, args.keep)
         log.info(f'{len(common_idxs)} common subjects in these files.')
 
         # contruct ldrs

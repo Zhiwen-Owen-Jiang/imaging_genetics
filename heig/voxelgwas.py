@@ -252,23 +252,11 @@ def check_input(args, log):
         raise ValueError('--ldr-cov is required')
 
     # optional arguments
-    if args.n_ldrs is not None and args.n_ldrs <= 0:
-        raise ValueError('--n-ldrs should be greater than 0')
     if args.sig_thresh is not None and (args.sig_thresh <= 0 or args.sig_thresh >= 1):
         raise ValueError('--sig-thresh should be greater than 0 and less than 1')
     if args.range is None and args.voxel is None and args.sig_thresh is None and args.extract is None:
         log.info(('WARNING: generating all voxelwise summary statistics will require large disk space. '
                   'Specify a p-value threshold by --sig-thresh to screen out insignificant results.'))
-
-    # required files must exist
-    if not os.path.exists(f"{args.ldr_sumstats}.snpinfo"):
-        raise FileNotFoundError(f"{args.ldr_sumstats}.snpinfo does not exist")
-    if not os.path.exists(f"{args.ldr_sumstats}.sumstats"):
-        raise FileNotFoundError(f"{args.ldr_sumstats}.sumstats does not exist")
-    if not os.path.exists(args.bases):
-        raise FileNotFoundError(f"{args.bases} does not exist")
-    if not os.path.exists(args.ldr_cov):
-        raise FileNotFoundError(f"{args.ldr_cov} does not exist")
 
     # process some arguments
     if args.range is not None:
@@ -289,17 +277,12 @@ def check_input(args, log):
     else:
         start_chr, start_pos, end_chr, end_pos = None, None, None, None
 
-    if args.extract is not None:
-        keep_snps = ds.read_extract(args.extract)
-    else:
-        keep_snps = None
-
-    return start_chr, start_pos, end_pos, keep_snps
+    return start_chr, start_pos, end_pos
 
 
 def run(args, log):
     # checking input
-    target_chr, start_pos, end_pos, keep_snps = check_input(args, log)
+    target_chr, start_pos, end_pos = check_input(args, log)
 
     # reading data
     ldr_cov = np.load(args.ldr_cov)
@@ -341,10 +324,10 @@ def run(args, log):
             outpath += ".txt"
             log.info(f'{np.sum(snp_idxs)} SNP(s) in total.')
         
-        if keep_snps is not None:
-            idx_keep_snps = (ldr_gwas.snpinfo['SNP'].isin(keep_snps['SNP'])).to_numpy()
+        if args.extract is not None:
+            idx_keep_snps = (ldr_gwas.snpinfo['SNP'].isin(args.extract['SNP'])).to_numpy()
             snp_idxs = snp_idxs & idx_keep_snps
-            log.info(f"Keep {len(keep_snps['SNP'])} SNP(s) from --extract.")
+            log.info(f"Keep {len(args.extract['SNP'])} SNP(s) from --extract.")
 
         # extracting SNPs
         ldr_n = np.array(ldr_gwas.snpinfo['N']).reshape(-1, 1)

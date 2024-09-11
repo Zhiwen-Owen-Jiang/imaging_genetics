@@ -389,6 +389,15 @@ def keep_ldrs(n_ldrs, bases, ldr_cov, ldr_gwas):
     return bases, ldr_cov, ldr_gwas
     
 
+def check_existence(arg, suffix=''):
+    """
+    Checking file existence
+    
+    """
+    if arg is not None and not os.path.exists(f'{arg}{suffix}'):
+        raise FileNotFoundError(f"{arg}{suffix} does not exist")
+    
+
 class ReadCsvParallel:
     def __init__(self, filename, threads):
         self.filename = filename

@@ -212,19 +212,17 @@ def save_images(out_dir, images, coord, id):
 
 def check_input(args):
     ## --image-txt + --coord or --image-dir + --image-suffix is required
-    if args.image_txt is not None:
-        if args.coord_txt is None:
-            raise ValueError('--coord-txt is required')
-        if not os.path.exists(args.image_txt):
-            raise FileNotFoundError(f"{args.image_txt} does not exist")
-        if not os.path.exists(args.coord_txt):
-            raise FileNotFoundError(f"{args.coord_txt} does not exist")
+    if args.image_txt is not None and args.coord_txt is None:
+        raise ValueError('--coord-txt is required')
     elif args.image_dir is not None and args.image_suffix is None:
         raise ValueError('--image-suffix is required')
     elif args.image_dir is None and args.image_suffix is not None:
         raise ValueError('--image-dir is required')
     elif args.image_dir is None and args.image_suffix is None:
         raise ValueError('--image-txt + --coord-txt or --image-dir + --image-suffix is required')
+    
+    ds.check_existence(args.image_txt)
+    ds.check_existence(args.coord_txt)
     
     ## process arguments
     if args.image_dir is not None and args.image_suffix is not None:
@@ -235,22 +233,13 @@ def check_input(args):
         if len(args.image_dir) != len(args.image_suffix):
             raise ValueError('--image-dir and --image-suffix do not match')
         for image_dir in args.image_dir:
-            if not os.path.exists(image_dir):
-                raise FileNotFoundError(f"{image_dir} does not exist")
-    if args.coord_dir is not None and not os.path.exists(args.coord_dir):
-        raise FileNotFoundError(f"{args.coord_dir} does not exist")
+            ds.check_existence(image_dir)
+        ds.check_existence(args.coord_dir)
     
 
 def run(args, log):
     # check input
     check_input(args)
-
-    # subjects to keep
-    if args.keep is not None:
-        keep_idvs = ds.read_keep(args.keep)
-        log.info(f'{len(keep_idvs)} subjects are in --keep.')
-    else:
-        keep_idvs = None
 
     # read images
     out_dir = f"{args.out}_images.h5"
@@ -258,8 +247,8 @@ def run(args, log):
         images = ds.Dataset(args.image_txt)
         log.info((f'{images.data.shape[0]} subjects and {images.data.shape[1]} '
                  f'voxels (vertices) read from {args.image_txt}'))
-        if keep_idvs is not None:
-            common_ids = ds.get_common_idxs(images.data.index, keep_idvs)
+        if args.keep is not None:
+            common_ids = ds.get_common_idxs(images.data.index, args.keep)
             images.keep(common_ids)
             log.info(f'Keep {images.data.shape[0]} subjects.')
         ids = images.data.index
@@ -271,7 +260,7 @@ def run(args, log):
             raise ValueError('images and coordinates have different resolution')
         save_images(out_dir, images, coord, ids)
     else:
-        ids, img_files = get_image_list(args.image_dir, args.image_suffix, log, keep_idvs)
+        ids, img_files = get_image_list(args.image_dir, args.image_suffix, log, args.keep)
         if len(img_files) == 0:
             raise ValueError(f'no image in {args.image_dir} with suffix {args.image_suffix}')
         if args.coord_dir.endswith('nii.gz') or args.coord_dir.endswith('nii'):

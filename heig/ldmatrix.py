@@ -396,13 +396,6 @@ def check_input(args):
         raise ValueError('--partition is required')
     if args.ld_regu is None:
         raise ValueError('--ld-regu is required')
-    if args.maf_min is not None:
-        if args.maf_min >= 0.5 or args.maf_min <= 0:
-            raise ValueError('--maf-min must be greater than 0 and less than 0.5')
-
-    # check file/directory exists
-    if not os.path.exists(args.partition):
-        raise FileNotFoundError(f'{args.partition} does not exist')
 
     # processing some arguments
     try:
@@ -410,10 +403,8 @@ def check_input(args):
     except:
         raise ValueError('two bfiles must be provided with --bfile and separated with a comma')
     for suffix in ['.bed', '.fam', '.bim']:
-        if not os.path.exists(ld_bfile + suffix):
-            raise FileNotFoundError(f'{ld_bfile + suffix} does not exist')
-        if not os.path.exists(ld_inv_bfile + suffix):
-            raise FileNotFoundError(f'{ld_inv_bfile + suffix} does not exist')
+        ds.check_existence(ld_bfile, suffix)
+        ds.check_existence(ld_inv_bfile, suffix)
 
     try:
         ld_regu, ld_inv_regu = [float(x) for x in args.ld_regu.split(',')]
@@ -470,21 +461,18 @@ def run(args, log):
 
     # extracting SNPs
     if args.extract is not None:
-        keep_snps = ds.read_extract(args.extract)
-        ld_merged = ld_merged.loc[ld_merged['SNP'].isin(keep_snps['SNP'])]
-        log.info(f"{ld_merged.shape[0]} SNPs in --extract.")
+        ld_merged = ld_merged.loc[ld_merged['SNP'].isin(args.extract['SNP'])]
+        log.info(f"{ld_merged.shape[0]} SNPs merged with --extract.")
     ld_keep_snp = ld_bim.merge(ld_merged, on='SNP')
     ld_inv_keep_snp = ld_inv_bim.merge(ld_merged, on='SNP')
 
     # keeping individuals
     if args.keep is not None:
-        keep_idvs = ds.read_keep(args.keep)
-        log.info(f'{len(keep_idvs)} subjects in --keep.')
         ld_fam = read_process_idvs(ld_bfile + '.fam')
-        ld_keep_idv = ld_fam.loc[keep_idvs]
+        ld_keep_idv = ld_fam.loc[args.keep]
         log.info(f'{len(ld_keep_idv)} subjects kept in {ld_bfile}')
         ld_inv_fam = read_process_idvs(ld_inv_bfile + '.fam')
-        ld_inv_keep_idv = ld_inv_fam.loc[keep_idvs]
+        ld_inv_keep_idv = ld_inv_fam.loc[args.keep]
         log.info(f'{len(ld_inv_keep_idv)} subjects kept in {ld_inv_bfile}')
     else:
         ld_keep_idv, ld_inv_keep_idv = None, None

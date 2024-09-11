@@ -72,14 +72,11 @@ def check_input(args, log):
     if args.ldr_gwas is not None:
         ldr_gwas_files = ds.parse_input(args.ldr_gwas)
         for file in ldr_gwas_files:
-            if not os.path.exists(file):
-                raise FileNotFoundError(f"{file} does not exist")
+            ds.check_existence(file)
         args.ldr_gwas = ldr_gwas_files
     elif args.y2_gwas is not None:
-        if not os.path.exists(args.y2_gwas):
-            raise FileNotFoundError(f"{args.y2_gwas} does not exist")
-        else:
-            args.y2_gwas = [args.y2_gwas]
+        ds.check_existence(args.y2_gwas)
+        args.y2_gwas = [args.y2_gwas]
 
     if args.effect_col is not None:
         try:

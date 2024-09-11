@@ -25,25 +25,11 @@ def check_input(args, log):
         raise ValueError('--ld-inv is required')
     if args.ld is None:
         raise ValueError('--ld is required')
-
-    if not os.path.exists(f"{args.ldr_sumstats}.snpinfo"):
-        raise FileNotFoundError(f"{args.ldr_sumstats}.snpinfo does not exist")
-    if not os.path.exists(f"{args.ldr_sumstats}.sumstats"):
-        raise FileNotFoundError(
-            f"{args.ldr_sumstats}.sumstats does not exist")
-    if not os.path.exists(args.bases):
-        raise FileNotFoundError(f"{args.bases} does not exist")
-    if not os.path.exists(args.ldr_cov):
-        raise FileNotFoundError(f"{args.ldr_cov} does not exist")
-    if args.overlap and not args.y2_sumstats:
+    if args.overlap and args.y2_sumstats is None:
         log.info('WARNING: ignore --overlap as --y2-sumstats is not specified.')
-    if args.y2_sumstats is not None:
-        if not os.path.exists(f"{args.y2_sumstats}.snpinfo"):
-            raise FileNotFoundError(
-                f"{args.y2_sumstats}.snpinfo does not exist")
-        if not os.path.exists(f"{args.y2_sumstats}.sumstats"):
-            raise FileNotFoundError(
-                f"{args.y2_sumstats}.sumstats does not exist")
+    
+    ds.check_existence(args.y2_sumstats, '.snpinfo')
+    ds.check_existence(args.y2_sumstats, '.sumstats')
 
 
 class CommonSNPs:
@@ -749,15 +735,8 @@ def run(args, log):
         else:
             y2_gwas = None
 
-        # extract SNPs
-        if args.extract is not None:
-            keep_snps = ds.read_extract(args.extract)
-            log.info(f"{len(keep_snps)} SNPs in --extract.")
-        else:
-            keep_snps = None
-
         # get common snps from gwas, LD matrices, and keep_snps
-        common_snps = CommonSNPs(ld, ld_inv, ldr_gwas, y2_gwas, keep_snps, threads=args.threads)
+        common_snps = CommonSNPs(ld, ld_inv, ldr_gwas, y2_gwas, args.extract, threads=args.threads)
         log.info((f"{len(common_snps.common_snps)} SNPs are common in these files with identical alleles. "
                 "Extracting them from each file ..."))
 

@@ -317,6 +317,10 @@ relatedness_parser.add_argument('--bsize', type=int,
 
 
 def check_accepted_args(module, args, log):
+    """
+    Checking if the provided arguments are accepted by the module
+    
+    """
     accepted_args = {
         'heri_gc': {'out', 'heri_gc', 'ld_inv', 'ld', 'y2_sumstats',
                     'overlap', 'heri_only', 'n_ldrs', 'ldr_sumstats',
@@ -371,31 +375,53 @@ def check_accepted_args(module, args, log):
 def split_files(arg):
     files = arg.split(',')
     for file in files:
-        if not os.path.exists(file):
-            raise ValueError(f"{file} does not exist.")
+        ds.check_existence(file)
     return files
 
 
 def process_args(args, log):
+    """
+    Checking file existence and processing arguments
+    
+    """
+    ds.check_existence(args.image)
+    ds.check_existence(args.ldr_sumstats, '.snpinfo')
+    ds.check_existence(args.ldr_sumstats, '.sumstats')
+    ds.check_existence(args.bases)
+    ds.check_existence(args.ldr_cov)
+    ds.check_existence(args.covar)
+    ds.check_existence(args.partition)
+    
+    if args.n_ldrs is not None and args.n_ldrs <= 0:
+        raise ValueError('--n-ldrs must be greater than 0')
     
     if args.threads is not None:
         if args.threads <= 0:
-            raise ValueError('--threads should be greater than 0')
+            raise ValueError('--threads must be greater than 0')
     else:
         args.threads = 1
     log.info(f'Using {args.threads} thread(s) in analysis.')
+
     if args.keep is not None:
         args.keep = split_files(args.keep)
+        args.keep = ds.read_keep(args.keep)
+        log.info(f'{len(args.keep)} subjects in --keep.')
+
     if args.extract is not None:
         args.extract = split_files(args.extract)
+        args.extract = ds.read_extract(args.extract)
+        log.info(f"{len(args.extract)} SNPs in --extract.")
+
     if args.voxel is not None:
         try:
             args.voxel = np.array([int(voxel) - 1 for voxel in ds.parse_input(args.voxel)])
         except ValueError:
-            if os.path.exists(args.voxel):
-                args.voxel = ds.read_voxel(args.voxel)
-            else:
-                raise FileNotFoundError(f"--voxel does not exist")
+            ds.check_existence(args.voxel)
+            args.voxel = ds.read_voxel(args.voxel)
+    
+    if args.maf_min is not None:
+        if args.maf_min >= 0.5 or args.maf_min <= 0:
+            raise ValueError('--maf-min must be greater than 0 and less than 0.5')
 
 
 def main(args, log):
