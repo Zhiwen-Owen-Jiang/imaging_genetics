@@ -588,7 +588,6 @@ class GWASLDR(ProcessGWAS):
             futures = [executor.submit(partial_function, block_idx, self.gwas_files[block_idx*20: (block_idx+1)*20]) for block_idx in range(n_blocks)]
             for _ in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc=f"{len(futures)} blocks"):
                 pass
-            concurrent.futures.wait(futures)
             
             for future in concurrent.futures.as_completed(futures):
                 try:

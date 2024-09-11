@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import threading
 import concurrent.futures
+from filelock import FileLock
 from abc import ABC, abstractmethod
 from scipy.stats import chi2
 from heig import sumstats
@@ -243,7 +244,7 @@ class OneSample(Estimation):
             ld_rank += ld_block_rank
             ldr_gene_cov += block_gene_cov
 
-    def get_gene_cor_se(self, out_dir):
+    def get_gene_cor_se(self, out_dir, threads):
         """
         Computing genetic correlation and its se by block
         Saving to a HDF5 file
@@ -256,21 +257,29 @@ class OneSample(Estimation):
         with h5py.File(f'{out_dir}_gc.h5', 'w') as file:
             gc = file.create_dataset('gc', shape=(self.N, self.N), dtype='float32')
             se = file.create_dataset('se', shape=(self.N, self.N), dtype='float32')
-            for i in range(0, self.N, block_size):
-                start = i
-                end = i + block_size
-                gene_cor, gene_cor_se = self._get_gene_cor_se_block(start, end)
-                gc[start: end] = gene_cor
-                se[start: end] = gene_cor_se
-                mean_gene_cor += np.nansum(gene_cor)
-                mean_gene_cor_se += np.nansum(gene_cor_se)
-                min_gene_cor = np.min((min_gene_cor, np.nanmin(gene_cor)))
+
+            futures = []
+            with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+                for i in range(0, self.N, block_size):
+                    start = i
+                    end = i + block_size
+                    futures.append(executor.submit(self._get_gene_cor_se_block, gc, se, out_dir, start, end))
+
+                for future in concurrent.futures.as_completed(futures):
+                    gene_cor_sum, gene_cor_min, gene_cor_se_sum = future.result()
+                    mean_gene_cor += gene_cor_sum
+                    mean_gene_cor_se += gene_cor_se_sum 
+                    min_gene_cor = np.min((min_gene_cor, gene_cor_min))
+
         mean_gene_cor /= self.N**2
         mean_gene_cor_se /= self.N**2
+        
+        if os.path.exists(f'{out_dir}.gc.h5.lock'):
+            os.remove(f'{out_dir}.gc.h5.lock')
 
         return mean_gene_cor, min_gene_cor, mean_gene_cor_se
     
-    def _get_gene_cor_se_block(self, start, end):
+    def _get_gene_cor_se_block(self, gc, se, out_dir, start, end):
         """
         Computing genetic correlation and se for a block
 
@@ -308,7 +317,11 @@ class OneSample(Estimation):
         gene_cor_se[np.abs(gene_cor_se) < 10 ** -10] = 0
         gene_cor, gene_cor_se = self._qc(gene_cor, gene_cor_se, -1, 1, 0, 1)
 
-        return gene_cor, np.sqrt(gene_cor_se)
+        with FileLock(f'{out_dir}.gc.h5.lock'):
+            gc[start: end] = gene_cor
+            se[start: end] = gene_cor_se
+
+        return np.nansum(gene_cor), np.nanmin(gene_cor), np.nansum(gene_cor_se)
 
 
 class TwoSample(Estimation):
@@ -765,7 +778,7 @@ def run(args, log):
             log.info(f'Save the heritability results to {args.out}_heri.txt')
 
             if not args.heri_only:
-                mean_gene_cor, min_gene_cor, mean_gene_cor_se = heri_gc.get_gene_cor_se(args.out)
+                mean_gene_cor, min_gene_cor, mean_gene_cor_se = heri_gc.get_gene_cor_se(args.out, args.threads)
                 msg = print_results_gc(mean_gene_cor, min_gene_cor, mean_gene_cor_se)
                 log.info(f'{msg}')
                 log.info(f'Save the genetic correlation results to {args.out}_gc.h5')

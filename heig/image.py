@@ -52,7 +52,6 @@ class ImageReader(ABC):
                        for idx, img_file in enumerate(self.img_files)]
             for _ in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc=f"{len(futures)} images"):
                 pass
-            concurrent.futures.wait(futures)
 
             for future in concurrent.futures.as_completed(futures):
                 try:
