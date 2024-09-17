@@ -2,6 +2,7 @@ import numpy as np
 import concurrent.futures
 
 
+
 class LDSC:
     """
     cross-trait LDSC for estimating the intercept when there is sample overlap

@@ -1,4 +1,3 @@
-import os
 import h5py
 import concurrent.futures
 import numpy as np

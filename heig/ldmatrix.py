@@ -1,12 +1,11 @@
-import os
 import h5py
-# import pickle
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
 import heig.input.genotype as gt
 import heig.input.dataset as ds
 from heig.utils import find_loc
+
 
 
 class LDmatrix:
@@ -37,9 +36,9 @@ class LDmatrix:
         ldinfo: a pd.DataFrame of ldinfo
 
         """
-        ldinfo = pd.read_csv(f"{prefix}.ldinfo", sep='\s+', header=None,
+        ldinfo = pd.read_csv(f"{prefix}.ldinfo", sep='\t', header=None, engine='pyarrow',
                              names=['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2', 'MAF',
-                                    'block_idx', 'block_idx2', 'ldscore']) # slow
+                                    'block_idx', 'block_idx2', 'ldscore'])
         if not ldinfo.groupby('CHR')['POS'].apply(lambda x: x.is_monotonic_increasing).all():
             raise ValueError(f'the SNPs in each chromosome are not sorted')
         if ldinfo.groupby('CHR')['POS'].apply(lambda x: x.duplicated()).any():
@@ -83,10 +82,6 @@ class LDmatrix:
         """
         for prefix in prefix_list:
             file_path = f"{prefix}.ldmatrix"
-            # with open(file_path, 'rb') as file:
-            #     data = pickle.load(file)
-            #     for item in data:
-            #         yield item
             with h5py.File(file_path, 'r') as file:
                 for i in range(file.attrs['n_blocks']):
                     yield file[f'block_{i}'][:]
@@ -281,13 +276,10 @@ class LDmatrixBED(LDmatrix):
         else:
             prefix = f"{out}_ld_inv_regu{int(regu*100)}"
 
-        # with open(f"{prefix}.ldmatrix", 'wb') as file:
-        #     pickle.dump(self.data, file)
         with h5py.File(f"{prefix}.ldmatrix", 'w') as file:
             file.attrs['n_blocks'] = len(self.data)
             for i, block in enumerate(self.data):
-                file.create_dataset(f'block_{i}', data=block)
-        # self.ldinfo['MAF'] = self.ldinfo['MAF'].astype(np.float64)
+                file.create_dataset(f'block_{i}', data=block, dtype='float32')
         self.ldinfo.to_csv(f"{prefix}.ldinfo", sep='\t', index=None,
                            header=None, float_format='%.4f')
 

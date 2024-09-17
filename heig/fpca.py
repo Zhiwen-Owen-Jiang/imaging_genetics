@@ -300,17 +300,17 @@ def do_kernel_smoothing(raw_image_dir, sm_image_dir, keep_idvs, bw_opt, threads,
 
 
 class fPCA:
-    def __init__(self, n_sub, max_n_pc, compute_all, n_ldrs):
+    def __init__(self, n_sub, n_voxels, compute_all, n_ldrs):
         """
         Parameters:
         ------------
-        n_sub: the sample size
-        max_n_pc: the maximum possible number of components
-        dim: the dimension of images
+        n_sub: sample size
+        n_voxels: the number of voxels
         compute_all: a boolean variable for computing all components
         n_ldrs: a specified number of components
         
         """
+        max_n_pc = np.min((n_sub, n_voxels))
         self.logger = logging.getLogger(__name__)
         self.n_top = self._get_n_top(n_ldrs, max_n_pc, compute_all)
         self.batch_size = self.n_top
@@ -376,8 +376,7 @@ def do_fpca(sm_image_dir, subject_wise_mean, args, log):
 
         # setup parameters
         log.info(f'\nDoing functional PCA ...')
-        max_n_pc = np.min((n_subjects, n_voxels))
-        fpca = fPCA(n_subjects, max_n_pc, args.all_pc, args.n_ldrs)
+        fpca = fPCA(n_subjects, n_voxels, args.all_pc, args.n_ldrs)
 
         # incremental PCA
         max_avail_n_sub = fpca.n_batches * fpca.batch_size
@@ -411,7 +410,7 @@ class EigenValues:
         Using a B-spline with degree of 1 to predict log-eigenvalues
         
         """
-        self.logger.info('Imputing uncomputed eigenvalues using a B-spline (df=1).')
+        self.logger.info('Imputing uncomputed eigenvalues using a B-spline (degree=1).')
         n_values = len(self.values)
         x_train = np.arange(n_values)
         y_train = np.log(self.values)

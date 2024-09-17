@@ -316,7 +316,7 @@ class OneSample(Estimation):
         np.fill_diagonal(gene_cor, 1)
         np.fill_diagonal(gene_cor_se, 0)
         gene_cor, gene_cor_se = self._qc(gene_cor, gene_cor_se, -1, 1, 0, 1)
-        gene_cor_se = np.sqrt(gene_cor_se)
+        np.sqrt(gene_cor_se, out=gene_cor_se)
 
         with FileLock(f'{out_dir}.gc.h5.lock'):
             gc[start: end] = gene_cor

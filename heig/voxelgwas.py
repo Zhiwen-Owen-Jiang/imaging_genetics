@@ -1,4 +1,3 @@
-import os
 import numpy as np
 import threading
 import concurrent.futures

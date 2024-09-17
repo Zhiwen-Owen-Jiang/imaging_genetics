@@ -150,7 +150,7 @@ def read_sumstats(prefix):
         raise FileNotFoundError(f"either .sumstats or .snpinfo file does not exist")
     
     file = h5py.File(sumstats_dir, 'r')
-    snpinfo = pd.read_csv(snpinfo_dir, sep='\s+') # slow
+    snpinfo = pd.read_csv(snpinfo_dir, sep='\t', compression='gzip', engine='pyarrow')
 
     if snpinfo.shape[0] != file.attrs['n_snps']:
         raise ValueError(("summary statistics and the meta data contain different number of SNPs, "
@@ -326,7 +326,7 @@ class ProcessGWAS(ABC):
         pass
 
     def _save_snpinfo(self, snpinfo):
-        snpinfo.to_csv(f'{self.out_dir}.snpinfo', sep='\t', index=None, na_rep='NA')
+        snpinfo.to_csv(f'{self.out_dir}.snpinfo', compression='gzip', sep='\t', index=None, na_rep='NA')
 
     @abstractmethod
     def process(self):

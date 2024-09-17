@@ -4,6 +4,7 @@ import logging
 from functools import reduce
 
 
+
 def GetLogger(logpath):
     log = logging.getLogger()
     log.setLevel(logging.INFO)
