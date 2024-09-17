@@ -1,9 +1,8 @@
 import sys
 import os
 import re
-import pickle
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import numpy as np
 from heig import utils
@@ -20,17 +19,10 @@ class Dataset():
 
         """
         self.logger = logging.getLogger(__name__)
-        if dir.endswith('dat'):
-            self.logger.info(('WARNING: reading a .dat file is deprecated. '
-                              'Will be removed in the next version.'))
-            self.data = pickle.load(open(dir, 'rb'))
-            if not 'FID' in self.data.columns or not 'IID' in self.data.columns:
-                raise ValueError('FID and IID do not exist')
-        else:
-            openfunc, compression = utils.check_compression(dir)
-            self._check_header(openfunc, compression, dir)
-            self.data = pd.read_csv(dir, sep='\s+', compression=compression,
-                                    na_values=[-9, 'NONE', '.'], dtype={'FID': str, 'IID': str})
+        openfunc, compression = utils.check_compression(dir)
+        self._check_header(openfunc, compression, dir)
+        self.data = pd.read_csv(dir, sep='\s+', compression=compression,
+                                na_values=[-9, 'NONE', '.'], dtype={'FID': str, 'IID': str})
         
         n_sub = len(self.data)
         self.data.drop_duplicates(subset=['FID', 'IID'], inplace=True, keep=False)

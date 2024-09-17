@@ -255,6 +255,8 @@ def run(args, log):
 
         coord = pd.read_csv(args.coord_txt, sep='\s+', header=None)
         log.info(f'Read coordinates from {args.coord_txt}')
+        if coord.isnull().sum().sum() > 0:
+            raise ValueError('no missing values allowed in coordinates')
         if coord.shape[0] != images.shape[1]:
             raise ValueError('images and coordinates have different resolution')
         save_images(out_dir, images, coord, ids)

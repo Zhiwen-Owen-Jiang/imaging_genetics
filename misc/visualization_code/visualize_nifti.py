@@ -76,8 +76,6 @@ def main(args):
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--coord', help='a white space-delimited coordinate file')
-parser.add_argument('--coord-h5', help=('a h5 image file produced by `--ksm` in HEIG. '
-                                        'Coordinates are in the metadata.'))
 parser.add_argument('--mask', help='a mask file (e.g., .nii.gz) as template')
 parser.add_argument('--offset', type=int, help='a fixed number to ensure every result greater than 0.')
 parser.add_argument('--res', help='a white space-delimited result file')

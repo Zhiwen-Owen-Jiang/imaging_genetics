@@ -313,7 +313,7 @@ class fPCA:
         max_n_pc = np.min((n_sub, n_voxels))
         self.logger = logging.getLogger(__name__)
         self.n_top = self._get_n_top(n_ldrs, max_n_pc, compute_all)
-        self.batch_size = self.n_top
+        self.batch_size = self._get_batch_size(max_n_pc, n_sub)
         self.n_batches = n_sub // self.batch_size
         self.ipca = IncrementalPCA(n_components=self.n_top, batch_size=self.batch_size)
         self.logger.info(f"Computing the top {self.n_top} components.")
@@ -349,6 +349,36 @@ class fPCA:
             n_top = int(max_n_pc / 5)
 
         return n_top
+    
+    def _get_batch_size(self, max_n_pc, n_sub):
+        """
+        Adaptively determine batch size
+
+        Parameters:
+        ------------
+        max_n_pc: the maximum possible number of components
+        n_sub: the sample size
+
+        Returns:
+        ---------
+        batch size for IncrementalPCA
+
+        """
+        if max_n_pc <= 15000:
+            if n_sub <= 50000:
+                batch_size = n_sub
+            else:
+                batch_size = n_sub // (n_sub // 50000 + 1)
+        else:
+            if self.n_top > 15000 or n_sub > 50000:
+                i = 2
+                while n_sub // i > 50000:
+                    i += 1
+                batch_size = n_sub // i
+            else:
+                batch_size = n_sub
+
+        return np.max((batch_size, self.n_top))
 
 
 def do_fpca(sm_image_dir, subject_wise_mean, args, log):
@@ -384,7 +414,7 @@ def do_fpca(sm_image_dir, subject_wise_mean, args, log):
                     f'with batch size {fpca.batch_size}.'))
         for i in tqdm(range(0, max_avail_n_sub, fpca.batch_size), desc=f"{fpca.n_batches} batch(es)"):
             fpca.ipca.partial_fit(sm_images[i: i+fpca.batch_size] - subject_wise_mean)
-        values = fpca.ipca.singular_values_ ** 2
+        values = (fpca.ipca.singular_values_ ** 2).astype(np.float32)
         bases = fpca.ipca.components_.T
         bases = bases.astype(np.float32)
 
@@ -417,7 +447,7 @@ class EigenValues:
         spline = make_interp_spline(x_train, y_train, k=1)
         x_pred = np.arange(n_values, self.max_n_pc)
         y_pred = spline(x_pred)
-        imputed_values = np.concatenate([self.values, np.exp(y_pred)])
+        imputed_values = np.concatenate([self.values, np.exp(y_pred)]).astype(np.float32)
 
         return imputed_values
     
