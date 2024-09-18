@@ -410,9 +410,9 @@ class FPCA:
             else:
                 batch_size = n_sub // (n_sub // 50000 + 1)
         else:
-            if self.n_top > 15000 or n_sub > 50000:
+            if self.n_top > 2000 or n_sub > 20000:
                 i = 2
-                while n_sub // i > 50000:
+                while n_sub // i > 20000:
                     i += 1
                 batch_size = n_sub // i
             else:
