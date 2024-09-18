@@ -86,6 +86,7 @@ class VGWAS:
         Parameters:
         ------------
         voxel_idxs: a list of voxel idxs (q)
+        threads: number of threads
 
         Returns:
         ---------

@@ -3,7 +3,7 @@ import logging
 import numpy as np
 
 from heig.fpca import (
-    fPCA
+    FPCA
 )
 
 log = logging.getLogger()
@@ -41,19 +41,19 @@ def get_batch_size(n_top, max_n_pc, n_sub):
 
 class Test_get_n_top(unittest.TestCase):
     def test_get_n_top(self):
-        fpca = fPCA(n_sub=100, max_n_pc=10, dim=1, compute_all=False, n_ldrs=15)
+        fpca = FPCA(n_sub=100, n_voxels=10, compute_all=False, n_ldrs=15)
         self.assertEqual(10, fpca.n_top)
 
-        fpca = fPCA(n_sub=100, max_n_pc=10, dim=3, compute_all=False, n_ldrs=15)
+        fpca = FPCA(n_sub=100, n_voxels=10, compute_all=False, n_ldrs=15)
         self.assertEqual(10, fpca.n_top)
 
-        fpca = fPCA(n_sub=100, max_n_pc=20, dim=3, compute_all=False, n_ldrs=15)
+        fpca = FPCA(n_sub=100, n_voxels=20, compute_all=False, n_ldrs=15)
         self.assertEqual(15, fpca.n_top)
 
-        fpca = fPCA(n_sub=100, max_n_pc=20, dim=3, compute_all=False, n_ldrs=None)
-        self.assertEqual(10, fpca.n_top)
+        fpca = FPCA(n_sub=100, n_voxels=20, compute_all=False, n_ldrs=None)
+        self.assertEqual(4, fpca.n_top)
 
-        fpca = fPCA(n_sub=10, max_n_pc=20, dim=3, compute_all=True, n_ldrs=None)
+        fpca = FPCA(n_sub=10, n_voxels=20, compute_all=True, n_ldrs=None)
         self.assertEqual(10, fpca.n_top)
 
 class Test_get_batch_size(unittest.TestCase):

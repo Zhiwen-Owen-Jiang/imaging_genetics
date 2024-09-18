@@ -56,6 +56,10 @@ class CommonSNPs:
         self.common_snps = common_snps.loc[matched_alleles_set, 'SNP']
 
     def _merge_snp_list(self):
+        """
+        Merging multiple SNP files
+        
+        """
         n_snp_list = len(self.snp_list)
         if n_snp_list == 0:
             raise ValueError('no SNP list provided')

@@ -6,7 +6,6 @@ from pandas.testing import assert_index_equal
 
 from heig.image import (
     get_image_list,
-    NIFTIReader
 )
 
 MAIN_DIR = os.getcwd()

@@ -186,6 +186,11 @@ class LocalLinear(KernelSmooth):
     def _sm_weight(self, bw, idx):
         """
         Computing smoothing weight for a voxel
+
+        Parameters:
+        ------------
+        bw (dim, 1): bandwidth for dim dimension
+        idx: voxel index
         
         """
         t_mat0 = self.coord - self.coord[idx]  # N * d
@@ -299,7 +304,7 @@ def do_kernel_smoothing(raw_image_dir, sm_image_dir, keep_idvs, bw_opt, threads,
     return subject_wise_mean
 
 
-class fPCA:
+class FPCA:
     def __init__(self, n_sub, n_voxels, compute_all, n_ldrs):
         """
         Parameters:
@@ -396,7 +401,6 @@ def do_fpca(sm_image_dir, subject_wise_mean, args, log):
     ---------
     values (n_top, ): eigenvalues
     bases (N, n_top): functional bases
-    eff_num (1, ): effective number
     fpca.n_top (1, ): #PCs
 
     """
@@ -406,7 +410,7 @@ def do_fpca(sm_image_dir, subject_wise_mean, args, log):
 
         # setup parameters
         log.info(f'\nDoing functional PCA ...')
-        fpca = fPCA(n_subjects, n_voxels, args.all_pc, args.n_ldrs)
+        fpca = FPCA(n_subjects, n_voxels, args.all_pc, args.n_ldrs)
 
         # incremental PCA
         max_avail_n_sub = fpca.n_batches * fpca.batch_size
@@ -427,6 +431,13 @@ class EigenValues:
     
     """
     def __init__(self, values, max_n_pc):
+        """
+        Parameters:
+        ------------
+        values (n_top, ): eigenvalues
+        max_n_pc (1, ): maximum #pc
+        
+        """
         self.values = values
         self.max_n_pc = max_n_pc
         self.logger = logging.getLogger(__name__)

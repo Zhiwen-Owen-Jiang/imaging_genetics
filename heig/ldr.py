@@ -85,6 +85,11 @@ def construct_ldr_batch(images_, start_idx, end_idx, bases, alt_n_ldrs_list, rec
 
 
 def print_alt_corr(rec_corr, log):
+    """
+    Printing a table of reconstruction correlation
+    using varying numbers of LDRs
+    
+    """
     max_key_len = max(len(str(key)) for key in rec_corr.keys())
     max_val_len = max(len(str(value)) for value in rec_corr.values())
     max_len = max([max_key_len, max_val_len])
@@ -174,7 +179,6 @@ def run(args, log):
             rec_corr[alt_n_ldrs] = round(np.mean(corr), 2)
 
         print_alt_corr(rec_corr, log)
-
 
     # process covar
     covar.keep(common_idxs)

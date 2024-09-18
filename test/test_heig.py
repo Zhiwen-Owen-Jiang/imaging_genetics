@@ -1,4 +1,8 @@
 import unittest
+import numpy as np
+from numpy.testing import assert_array_equal
+import heig.input.dataset as ds
+
 
 
 def check_accepted_args(module, args):
@@ -38,8 +42,7 @@ def check_accepted_args(module, args):
     if len(ignored_args) > 0:
         ignored_args = [f"--{arg.replace('_', '-')}" for arg in ignored_args]
         ignored_args_str = ', '.join(ignored_args)
-        print(
-            f"WARNING: {ignored_args_str} are ignored by --{module.replace('_', '-')}")
+        print(f"WARNING: {ignored_args_str} are ignored by --{module.replace('_', '-')}.")
 
     return ignored_args
 
@@ -51,3 +54,33 @@ class Test_check_accepted_args(unittest.TestCase):
 
         ignored_args = check_accepted_args('heri_gc', args)
         self.assertEqual(true_ignored_args, ignored_args)
+
+
+def process_args(args):
+    try:
+        args.voxel = np.array([int(voxel) - 1 for voxel in ds.parse_input(args.voxel)])
+    except ValueError:
+        ds.check_existence(args.voxel)
+        args.voxel = ds.read_voxel(args.voxel)
+    if np.min(args.voxel) <= -1:
+        raise ValueError('voxel index must be one-based')
+
+
+class Args:
+    def __init__(self, voxel):
+        self.voxel = voxel
+
+
+class Test_process_args(unittest.TestCase):
+    def test_voxel(self):
+        args = Args(voxel='3')
+        process_args(args)
+        assert_array_equal(np.array([2]), args.voxel)
+
+        args = Args(voxel='{2:3}')
+        process_args(args)
+        assert_array_equal(np.array([1,2]), args.voxel)
+
+        args = Args(voxel='2,3')
+        with self.assertRaises(FileNotFoundError):
+            process_args(args)

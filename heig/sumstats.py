@@ -278,18 +278,6 @@ class GWAS:
         self.snpinfo['A1'] = ref['A1'].values
         self.snpinfo['A2'] = ref['A2'].values
 
-    """
-    def __eq__(self, other):
-        if isinstance(other, GWAS):
-            if not self.snpinfo.equals(other.snpinfo):
-                return False
-            if (not np.equal(self.z, other.z).all() or
-                not np.equal(self.beta, other.beta).all() or
-                    not np.equal(self.se, other.se).all()):
-                return False
-            return True
-        return False
-    """
 
 class ProcessGWAS(ABC):
     complement = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C'}
@@ -489,11 +477,12 @@ class GWASLDR(ProcessGWAS):
         Saving sumstats and ensuring only one process is writing
 
         """
+        chunk_size = np.min((beta.shape[0], 10000))
         lock_file = f'{self.out_dir}.sumstats.lock'
         with FileLock(lock_file):
             with h5py.File(f'{self.out_dir}.sumstats', 'r+') as file:
-                file.create_dataset(f'beta{block_idx}', data=beta, dtype='float32', chunks=(10000, beta.shape[1]))
-                file.create_dataset(f'z{block_idx}', data=z, dtype='float32', chunks=(10000, z.shape[1]))
+                file.create_dataset(f'beta{block_idx}', data=beta, dtype='float32', chunks=(chunk_size, beta.shape[1]))
+                file.create_dataset(f'z{block_idx}', data=z, dtype='float32', chunks=(chunk_size, z.shape[1]))
     
     def process(self, threads):
         """
@@ -584,8 +573,11 @@ class GWASLDR(ProcessGWAS):
         partial_function = partial(self._read_save, is_valid_snp)
         n_blocks = math.ceil(self.n_gwas_files / 20)
 
+        futures = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
-            futures = [executor.submit(partial_function, block_idx, self.gwas_files[block_idx*20: (block_idx+1)*20]) for block_idx in range(n_blocks)]
+            for block_idx in range(n_blocks):
+                futures.append(executor.submit(partial_function, block_idx, self.gwas_files[block_idx*20: (block_idx+1)*20]))
+
             for _ in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc=f"{len(futures)} blocks"):
                 pass
             
@@ -611,8 +603,9 @@ class GWASY2(ProcessGWAS):
             file.attrs['n_blocks'] = 1
 
     def _save_sumstats(self, block_idx, z):
+        chunk_size = np.min((z.shape[0], 10000))
         with h5py.File(f'{self.out_dir}.sumstats', 'r+') as file:
-            file.create_dataset(f'z{block_idx}', data=z, dtype='float32', chunks=(10000, 1))
+            file.create_dataset(f'z{block_idx}', data=z, dtype='float32', chunks=(chunk_size, 1))
 
     def process(self, threads=None):
         """

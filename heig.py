@@ -418,6 +418,8 @@ def process_args(args, log):
         except ValueError:
             ds.check_existence(args.voxel)
             args.voxel = ds.read_voxel(args.voxel)
+        if np.min(args.voxel) <= -1:
+            raise ValueError('voxel index must be one-based')
     
     if args.maf_min is not None:
         if args.maf_min >= 0.5 or args.maf_min <= 0:
