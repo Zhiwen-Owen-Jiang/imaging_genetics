@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='heig',
-      version='1.0.0',
+      version='1.1.0',
       description='Highly Efficient Imaging Genetics (HEIG)',
       long_description=open('README.md').read(),
       long_description_content_type='text/markdown',
@@ -21,6 +21,7 @@ setup(name='heig',
           'bitarray==2.9.2',
           'h5py==3.11.0',
           'numexpr==2.10.0',
-          'tqdm==4.66.4'
+          'tqdm==4.66.4',
+          'pyarrow==17.0.0'
       ])
 

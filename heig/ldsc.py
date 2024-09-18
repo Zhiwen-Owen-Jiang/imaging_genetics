@@ -2,15 +2,26 @@ import numpy as np
 import concurrent.futures
 
 
-
 class LDSC:
     """
     cross-trait LDSC for estimating the intercept when there is sample overlap
-    
+
     """
-    def __init__(self, ldr_z, y2_z, 
-                 ldscore, ldr_heri, y2_heri, n1, n2, 
-                 ld_rank, block_ranges, merged_blocks, threads):
+
+    def __init__(
+        self,
+        ldr_z,
+        y2_z,
+        ldscore,
+        ldr_heri,
+        y2_heri,
+        n1,
+        n2,
+        ld_rank,
+        block_ranges,
+        merged_blocks,
+        threads,
+    ):
         n_blocks = len(merged_blocks)
         r = len(ldr_heri)
         n1 = np.squeeze(n1)
@@ -24,14 +35,42 @@ class LDSC:
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
             for i in range(ldr_z.shape[1]):
-                futures.append(executor.submit(self.ldsc, i, ldr_z[:, i], y2_z_ldsc, n, n1, n2, 
-                                               ldr_heri[i], y2_heri, ld_rank, 
-                                               ldscore, block_ranges, merged_blocks))
-                
+                futures.append(
+                    executor.submit(
+                        self.ldsc,
+                        i,
+                        ldr_z[:, i],
+                        y2_z_ldsc,
+                        n,
+                        n1,
+                        n2,
+                        ldr_heri[i],
+                        y2_heri,
+                        ld_rank,
+                        ldscore,
+                        block_ranges,
+                        merged_blocks,
+                    )
+                )
+
                 for future in concurrent.futures.as_completed(futures):
                     future.result()
-            
-    def ldsc(self, i, gwas1, gwas2, n, n1, n2, h1, h2, ld_rank, ldscore, block_ranges, merged_blocks):
+
+    def ldsc(
+        self,
+        i,
+        gwas1,
+        gwas2,
+        n,
+        n1,
+        n2,
+        h1,
+        h2,
+        ld_rank,
+        ldscore,
+        block_ranges,
+        merged_blocks,
+    ):
         """
         Main LDSC estimator
 
@@ -46,7 +85,7 @@ class LDSC:
         h1: heritability estimate of gwas1
         h2: heritability estimate of gwas2
         ldscore: a vector of ld score
-        block_ranges: a list of block ranges 
+        block_ranges: a list of block ranges
 
         gwas1, gwas2 and ldscore should be aligned
 
@@ -54,11 +93,15 @@ class LDSC:
         ---------
         coef_total[0]: intercept estimate using all data (1, )
         lobo_ldsc: left-one-block-out intercept estimates (n_blocks, )
-        
+
         """
         y = gwas1 * gwas2
-        init_h1, init_h2, init_gc, w_ldscore = self._process_input(y, h1, h2, n, n1, n2, ld_rank, ldscore)
-        weights_part1 = (init_h1 * w_ldscore + 1) * (init_h2 * w_ldscore + 1)  # don't update
+        init_h1, init_h2, init_gc, w_ldscore = self._process_input(
+            y, h1, h2, n, n1, n2, ld_rank, ldscore
+        )
+        weights_part1 = (init_h1 * w_ldscore + 1) * (
+            init_h2 * w_ldscore + 1
+        )  # don't update
         weights_part2 = (init_gc * w_ldscore) ** 2  # need to update
         weights = 1 / (weights_part1 + weights_part2)
         weights *= 1 / w_ldscore
@@ -68,13 +111,15 @@ class LDSC:
         for _ in range(2):
             xwx_total, xwy_total = self._wls(y, X, weights)
             coef_total = np.dot(np.linalg.inv(xwx_total), xwy_total)
-            weights = self._update_weights(coef_total, n, ld_rank, w_ldscore, weights_part1)
+            weights = self._update_weights(
+                coef_total, n, ld_rank, w_ldscore, weights_part1
+            )
 
         # compute left-one-block-out WLS
         lobo_ldsc = []
         for block in merged_blocks:
             begin, end = self._block_range(block, block_ranges)
-            xwx_i, xwy_i = self._wls(y[begin: end], X[begin: end], weights[begin: end])
+            xwx_i, xwy_i = self._wls(y[begin:end], X[begin:end], weights[begin:end])
             coef = np.dot(np.linalg.inv(xwx_total - xwx_i), xwy_total - xwy_i)
             lobo_ldsc.append(coef[0])
         lobo_ldsc = np.array(lobo_ldsc)

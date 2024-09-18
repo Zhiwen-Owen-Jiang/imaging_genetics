@@ -13,3 +13,4 @@ dependencies:
  - h5py=3.11.0
  - numexpr=2.10.0
  - tqdm=4.66.4
+ - pyarrow=17.0.0

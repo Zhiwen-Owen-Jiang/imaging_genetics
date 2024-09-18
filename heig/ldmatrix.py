@@ -7,7 +7,6 @@ import heig.input.dataset as ds
 from heig.utils import find_loc
 
 
-
 class LDmatrix:
     def __init__(self, ld_prefix):
         """
@@ -15,11 +14,11 @@ class LDmatrix:
 
         Parameters:
         ------------
-        ld_prefix: prefix of LD matrix file 
+        ld_prefix: prefix of LD matrix file
 
         """
         ld_prefix_list = ds.parse_input(ld_prefix)
-        self.ldinfo = self._merge_ldinfo(ld_prefix_list) # slow
+        self.ldinfo = self._merge_ldinfo(ld_prefix_list)  # slow
         self.data = self._read_as_generator(ld_prefix_list)
         self.block_sizes, self.block_ranges = self._get_block_info(self.ldinfo)
 
@@ -36,13 +35,32 @@ class LDmatrix:
         ldinfo: a pd.DataFrame of ldinfo
 
         """
-        ldinfo = pd.read_csv(f"{prefix}.ldinfo", sep='\t', header=None, engine='pyarrow',
-                             names=['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2', 'MAF',
-                                    'block_idx', 'block_idx2', 'ldscore'])
-        if not ldinfo.groupby('CHR')['POS'].apply(lambda x: x.is_monotonic_increasing).all():
-            raise ValueError(f'the SNPs in each chromosome are not sorted')
-        if ldinfo.groupby('CHR')['POS'].apply(lambda x: x.duplicated()).any():
-            raise ValueError(f'duplicated SNPs in LD matrix are not allowed')
+        ldinfo = pd.read_csv(
+            f"{prefix}.ldinfo",
+            sep="\t",
+            header=None,
+            engine="pyarrow",
+            names=[
+                "CHR",
+                "SNP",
+                "CM",
+                "POS",
+                "A1",
+                "A2",
+                "MAF",
+                "block_idx",
+                "block_idx2",
+                "ldscore",
+            ],
+        )
+        if (
+            not ldinfo.groupby("CHR")["POS"]
+            .apply(lambda x: x.is_monotonic_increasing)
+            .all()
+        ):
+            raise ValueError(f"the SNPs in each chromosome are not sorted")
+        if ldinfo.groupby("CHR")["POS"].apply(lambda x: x.duplicated()).any():
+            raise ValueError(f"duplicated SNPs in LD matrix are not allowed")
         return ldinfo
 
     def _merge_ldinfo(self, prefix_list):
@@ -59,11 +77,11 @@ class LDmatrix:
 
         """
         if len(prefix_list) == 0:
-            raise ValueError('nothing in the LD list')
+            raise ValueError("nothing in the LD list")
         ldinfo = self._read_ldinfo(prefix_list[0])
         for prefix in prefix_list[1:]:
             ldinfo_i = self._read_ldinfo(prefix)
-            ldinfo_i['block_idx'] += ldinfo.loc[ldinfo.index[-1], 'block_idx'] + 1
+            ldinfo_i["block_idx"] += ldinfo.loc[ldinfo.index[-1], "block_idx"] + 1
             ldinfo = pd.concat([ldinfo, ldinfo_i], axis=0, ignore_index=True)
         return ldinfo
 
@@ -82,9 +100,9 @@ class LDmatrix:
         """
         for prefix in prefix_list:
             file_path = f"{prefix}.ldmatrix"
-            with h5py.File(file_path, 'r') as file:
-                for i in range(file.attrs['n_blocks']):
-                    yield file[f'block_{i}'][:]
+            with h5py.File(file_path, "r") as file:
+                for i in range(file.attrs["n_blocks"]):
+                    yield file[f"block_{i}"][:]
 
     def _get_block_info(self, ldinfo):
         """
@@ -100,7 +118,7 @@ class LDmatrix:
         block_ranges: a list of tuples (begin, end)
 
         """
-        block_sizes = ldinfo['block_idx'].value_counts().sort_index().to_list()
+        block_sizes = ldinfo["block_idx"].value_counts().sort_index().to_list()
         block_ranges = []
         begin, end = 0, 0
         for block_size in block_sizes:
@@ -115,15 +133,17 @@ class LDmatrix:
 
         Parameters:
         ------------
-        snps: a list/set of rdID 
+        snps: a list/set of rdID
 
         """
-        self.ldinfo = self.ldinfo.loc[self.ldinfo['SNP'].isin(snps)]
-        block_dict = {k: g["block_idx2"].tolist()
-                      for k, g in self.ldinfo.groupby("block_idx")}
+        self.ldinfo = self.ldinfo.loc[self.ldinfo["SNP"].isin(snps)]
+        block_dict = {
+            k: g["block_idx2"].tolist() for k, g in self.ldinfo.groupby("block_idx")
+        }
         self.block_sizes, self.block_ranges = self._get_block_info(self.ldinfo)
-        self.data = (block[block_dict[i]]
-                     for i, block in enumerate(self.data) if i in block_dict)
+        self.data = (
+            block[block_dict[i]] for i, block in enumerate(self.data) if i in block_dict
+        )
 
     def merge_blocks(self):
         """
@@ -143,7 +163,10 @@ class LDmatrix:
         cur_group = []
         for i, block_size in enumerate(self.block_sizes):
             if i < n_blocks - 1:
-                if cur_size + block_size <= mean_size or cur_size + block_size // 2 <= mean_size:
+                if (
+                    cur_size + block_size <= mean_size
+                    or cur_size + block_size // 2 <= mean_size
+                ):
                     cur_group.append(i)
                     cur_size += block_size
                 else:
@@ -151,7 +174,10 @@ class LDmatrix:
                     cur_group = [i]
                     cur_size = block_size
             else:
-                if cur_size + block_size <= mean_size or cur_size + block_size // 2 <= mean_size:
+                if (
+                    cur_size + block_size <= mean_size
+                    or cur_size + block_size // 2 <= mean_size
+                ):
                     cur_group.append(i)
                     merged_blocks.append(tuple(cur_group))
                 else:
@@ -171,12 +197,14 @@ class LDmatrixBED(LDmatrix):
         ldinfo: SNP information
         snp_getter: a generator for getting SNPs
         prop: proportion of variance to keep for each LD block
-        inv: if take inverse or not 
+        inv: if take inverse or not
 
         """
         self.data = []
         ldscore = []
-        for _, num in enumerate(tqdm(num_snps_part, desc=f'Making {len(num_snps_part)} LD blocks')):
+        for _, num in enumerate(
+            tqdm(num_snps_part, desc=f"Making {len(num_snps_part)} LD blocks")
+        ):
             block = snp_getter(num)
             block = self._fill_na(block)
             corr = np.atleast_2d(np.corrcoef(block.T))
@@ -184,11 +212,11 @@ class LDmatrixBED(LDmatrix):
             ldscore.append(ldscore_i)
             values, bases = self._truncate(corr, prop)
             if inv:
-                bases = bases * np.sqrt(values ** -1)
+                bases = bases * np.sqrt(values**-1)
             else:
                 bases = bases * np.sqrt(values)
             self.data.append(bases)
-        ldinfo['ldscore'] = np.concatenate(ldscore, axis=None)
+        ldinfo["ldscore"] = np.concatenate(ldscore, axis=None)
         self.ldinfo = ldinfo
 
     def _truncate(self, block, prop):
@@ -251,7 +279,7 @@ class LDmatrixBED(LDmatrix):
         adj_ld: an array of LD scores (p, )
 
         """
-        raw_ld = np.sum(corr ** 2, axis=0)
+        raw_ld = np.sum(corr**2, axis=0)
         adj_ld = raw_ld - (corr.shape[0] - raw_ld) / (n - 2)
 
         return adj_ld
@@ -276,12 +304,13 @@ class LDmatrixBED(LDmatrix):
         else:
             prefix = f"{out}_ld_inv_regu{int(regu*100)}"
 
-        with h5py.File(f"{prefix}.ldmatrix", 'w') as file:
-            file.attrs['n_blocks'] = len(self.data)
+        with h5py.File(f"{prefix}.ldmatrix", "w") as file:
+            file.attrs["n_blocks"] = len(self.data)
             for i, block in enumerate(self.data):
-                file.create_dataset(f'block_{i}', data=block, dtype='float32')
-        self.ldinfo.to_csv(f"{prefix}.ldinfo", sep='\t', index=None,
-                           header=None, float_format='%.4f')
+                file.create_dataset(f"block_{i}", data=block, dtype="float32")
+        self.ldinfo.to_csv(
+            f"{prefix}.ldinfo", sep="\t", index=None, header=None, float_format="%.4f"
+        )
 
         return prefix
 
@@ -305,18 +334,18 @@ def partition_genome(ld_bim, part, log):
     """
     num_snps_part = []
     # end = -1
-    cand = list(ld_bim.loc[ld_bim['CHR'] == part.iloc[0, 0], 'POS'])
+    cand = list(ld_bim.loc[ld_bim["CHR"] == part.iloc[0, 0], "POS"])
     end = find_loc(cand, part.iloc[0, 1])
     if end == 0:
         end = -1  # to include the 1st SNP into the 1st block
-    ld_bim['block_idx'] = 0
-    ld_bim['block_idx2'] = 0
+    ld_bim["block_idx"] = 0
+    ld_bim["block_idx2"] = 0
     abs_begin = 0
     abs_end = 0
     n_skipped_blocks = 0
     block_idx = 0
     for i in range(part.shape[0]):
-        cand = list(ld_bim.loc[ld_bim['CHR'] == part.iloc[i, 0], 'POS'])
+        cand = list(ld_bim.loc[ld_bim["CHR"] == part.iloc[i, 0], "POS"])
         begin = end
         end = find_loc(cand, part.iloc[i, 2])
         if end < begin:
@@ -326,8 +355,12 @@ def partition_genome(ld_bim, part, log):
             if block_size < 2000:
                 sub_blocks = [(begin, end)]
             else:
-                log.info((f'A large LD block with size {block_size}, '
-                          'evenly partition it to small blocks with size ~1000.'))
+                log.info(
+                    (
+                        f"A large LD block with size {block_size}, "
+                        "evenly partition it to small blocks with size ~1000."
+                    )
+                )
                 sub_blocks = get_sub_blocks(begin, end)
             for sub_block in sub_blocks:
                 sub_begin, sub_end = sub_block
@@ -339,16 +372,16 @@ def partition_genome(ld_bim, part, log):
                 else:
                     abs_begin = abs_end
                     abs_end += sub_block_size
-                ld_bim.loc[ld_bim.index[abs_begin: abs_end],
-                           'block_idx'] = block_idx
-                ld_bim.loc[ld_bim.index[abs_begin: abs_end],
-                           'block_idx2'] = range(sub_block_size)
+                ld_bim.loc[ld_bim.index[abs_begin:abs_end], "block_idx"] = block_idx
+                ld_bim.loc[ld_bim.index[abs_begin:abs_end], "block_idx2"] = range(
+                    sub_block_size
+                )
                 block_idx += 1
         else:
             n_skipped_blocks += 1
     if len(num_snps_part) == 0:
-        raise ValueError('no SNP is overlapped with LD blocks')
-    log.info(f'{n_skipped_blocks} blocks with no SNP are skipped.')
+        raise ValueError("no SNP is overlapped with LD blocks")
+    log.info(f"{n_skipped_blocks} blocks with no SNP are skipped.")
 
     return num_snps_part, ld_bim
 
@@ -383,58 +416,82 @@ def get_sub_blocks(begin, end):
 def check_input(args):
     # required arguments
     if args.bfile is None:
-        raise ValueError('--bfile is required')
+        raise ValueError("--bfile is required")
     if args.partition is None:
-        raise ValueError('--partition is required')
+        raise ValueError("--partition is required")
     if args.ld_regu is None:
-        raise ValueError('--ld-regu is required')
+        raise ValueError("--ld-regu is required")
 
     # processing some arguments
     try:
-        ld_bfile, ld_inv_bfile = args.bfile.split(',')
+        ld_bfile, ld_inv_bfile = args.bfile.split(",")
     except:
-        raise ValueError('two bfiles must be provided with --bfile and separated with a comma')
-    for suffix in ['.bed', '.fam', '.bim']:
+        raise ValueError(
+            "two bfiles must be provided with --bfile and separated with a comma"
+        )
+    for suffix in [".bed", ".fam", ".bim"]:
         ds.check_existence(ld_bfile, suffix)
         ds.check_existence(ld_inv_bfile, suffix)
 
     try:
-        ld_regu, ld_inv_regu = [float(x) for x in args.ld_regu.split(',')]
+        ld_regu, ld_inv_regu = [float(x) for x in args.ld_regu.split(",")]
     except:
-        raise ValueError(('two regularization levels must be provided with --prop '
-                          'and separated with a comma'))
+        raise ValueError(
+            (
+                "two regularization levels must be provided with --prop "
+                "and separated with a comma"
+            )
+        )
     if ld_regu >= 1 or ld_regu <= 0 or ld_inv_regu >= 1 or ld_inv_regu <= 0:
-        raise ValueError('both regularization levels must be greater than 0 and less than 1')
+        raise ValueError(
+            "both regularization levels must be greater than 0 and less than 1"
+        )
 
     return ld_bfile, ld_inv_bfile, ld_regu, ld_inv_regu
 
 
 def read_process_snps(bim_dir, log):
     log.info(f"Read SNP list from {bim_dir} and remove duplicated SNPs.")
-    ld_bim = pd.read_csv(bim_dir, sep='\s+', header=None,
-                         names=['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2'],
-                         dtype={'A1': 'category', 'A2': 'category'})
-    ld_bim.drop_duplicates(subset=['SNP'], keep=False, inplace=True)
-    log.info(f'{ld_bim.shape[0]} SNPs remaining after removing duplicated SNPs.')
+    ld_bim = pd.read_csv(
+        bim_dir,
+        sep="\s+",
+        header=None,
+        names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
+        dtype={"A1": "category", "A2": "category"},
+    )
+    ld_bim.drop_duplicates(subset=["SNP"], keep=False, inplace=True)
+    log.info(f"{ld_bim.shape[0]} SNPs remaining after removing duplicated SNPs.")
 
     return ld_bim
 
 
 def read_process_idvs(fam_dir):
-    ld_fam = pd.read_csv(fam_dir, sep='\s+', header=None,
-                         names=['FID', 'IID', 'FATHER',
-                                'MOTHER', 'GENDER', 'TRAIT'],
-                         dtype={'FID': str, 'IID': str})
-    ld_fam = ld_fam.set_index(['FID', 'IID'])
+    ld_fam = pd.read_csv(
+        fam_dir,
+        sep="\s+",
+        header=None,
+        names=["FID", "IID", "FATHER", "MOTHER", "GENDER", "TRAIT"],
+        dtype={"FID": str, "IID": str},
+    )
+    ld_fam = ld_fam.set_index(["FID", "IID"])
 
     return ld_fam
 
 
-def filter_maf(ld_bfile, ld_keep_snp, ld_keep_idv,
-               ld_inv_bfile, ld_inv_keep_snp, ld_inv_keep_idv, min_maf):
+def filter_maf(
+    ld_bfile,
+    ld_keep_snp,
+    ld_keep_idv,
+    ld_inv_bfile,
+    ld_inv_keep_snp,
+    ld_inv_keep_idv,
+    min_maf,
+):
     ld_bim2, *_ = gt.read_plink(ld_bfile, ld_keep_snp, ld_keep_idv)
-    ld_inv_bim2, *_ = gt.read_plink(ld_inv_bfile,ld_inv_keep_snp, ld_inv_keep_idv)
-    common_snps = ld_bim2.loc[(ld_bim2['MAF'] >= min_maf) & (ld_inv_bim2['MAF'] >= min_maf)]
+    ld_inv_bim2, *_ = gt.read_plink(ld_inv_bfile, ld_inv_keep_snp, ld_inv_keep_idv)
+    common_snps = ld_bim2.loc[
+        (ld_bim2["MAF"] >= min_maf) & (ld_inv_bim2["MAF"] >= min_maf)
+    ]
 
     return common_snps
 
@@ -444,60 +501,78 @@ def run(args, log):
     ld_bfile, ld_inv_bfile, ld_regu, ld_inv_regu = check_input(args)
 
     # reading and removing duplicated SNPs
-    ld_bim = read_process_snps(ld_bfile + '.bim', log)
-    ld_inv_bim = read_process_snps(ld_inv_bfile + '.bim', log)
+    ld_bim = read_process_snps(ld_bfile + ".bim", log)
+    ld_inv_bim = read_process_snps(ld_inv_bfile + ".bim", log)
 
     # merging two SNP lists
-    ld_merged = ld_bim.merge(ld_inv_bim, on=['SNP', 'A1', 'A2'])
-    log.info(f"{ld_merged.shape[0]} SNPs are common in two bfiles with identical A1 and A2.")
+    ld_merged = ld_bim.merge(ld_inv_bim, on=["SNP", "A1", "A2"])
+    log.info(
+        f"{ld_merged.shape[0]} SNPs are common in two bfiles with identical A1 and A2."
+    )
 
     # extracting SNPs
     if args.extract is not None:
-        ld_merged = ld_merged.loc[ld_merged['SNP'].isin(args.extract['SNP'])]
+        ld_merged = ld_merged.loc[ld_merged["SNP"].isin(args.extract["SNP"])]
         log.info(f"{ld_merged.shape[0]} SNPs merged with --extract.")
-    ld_keep_snp = ld_bim.merge(ld_merged, on='SNP')
-    ld_inv_keep_snp = ld_inv_bim.merge(ld_merged, on='SNP')
+    ld_keep_snp = ld_bim.merge(ld_merged, on="SNP")
+    ld_inv_keep_snp = ld_inv_bim.merge(ld_merged, on="SNP")
 
     # keeping individuals
     if args.keep is not None:
-        ld_fam = read_process_idvs(ld_bfile + '.fam')
+        ld_fam = read_process_idvs(ld_bfile + ".fam")
         ld_keep_idv = ld_fam.loc[args.keep]
-        log.info(f'{len(ld_keep_idv)} subjects kept in {ld_bfile}')
-        ld_inv_fam = read_process_idvs(ld_inv_bfile + '.fam')
+        log.info(f"{len(ld_keep_idv)} subjects kept in {ld_bfile}")
+        ld_inv_fam = read_process_idvs(ld_inv_bfile + ".fam")
         ld_inv_keep_idv = ld_inv_fam.loc[args.keep]
-        log.info(f'{len(ld_inv_keep_idv)} subjects kept in {ld_inv_bfile}')
+        log.info(f"{len(ld_inv_keep_idv)} subjects kept in {ld_inv_bfile}")
     else:
         ld_keep_idv, ld_inv_keep_idv = None, None
 
     # filtering rare SNPs
     if args.maf_min is not None:
         log.info(f"Removing SNPs with MAF < {args.maf_min} ...")
-        common_snps = filter_maf(ld_bfile, ld_keep_snp,
-                                 ld_keep_idv, ld_inv_bfile,
-                                 ld_inv_keep_snp, ld_inv_keep_idv, args.maf_min)
+        common_snps = filter_maf(
+            ld_bfile,
+            ld_keep_snp,
+            ld_keep_idv,
+            ld_inv_bfile,
+            ld_inv_keep_snp,
+            ld_inv_keep_idv,
+            args.maf_min,
+        )
         log.info(f"{len(common_snps)} SNPs remaining.")
 
     # reading bfiles
     log.info(f"Read bfile from {ld_bfile} with selected SNPs and individuals.")
     ld_bim, _, ld_snp_getter = gt.read_plink(ld_bfile, common_snps, ld_keep_idv)
     log.info(f"Read bfile from {ld_inv_bfile} with selected SNPs and individuals.")
-    ld_inv_bim, _, ld_inv_snp_getter = gt.read_plink(ld_inv_bfile, common_snps, ld_inv_keep_idv)
+    ld_inv_bim, _, ld_inv_snp_getter = gt.read_plink(
+        ld_inv_bfile, common_snps, ld_inv_keep_idv
+    )
 
     # reading and doing genome partition
     log.info(f"\nRead genome partition from {args.partition}")
     genome_part = ds.read_geno_part(args.partition)
     log.info(f"{genome_part.shape[0]} genome blocks to partition.")
     num_snps_part, ld_bim = partition_genome(ld_bim, genome_part, log)
-    ld_inv_bim['block_idx'] = ld_bim['block_idx']
-    ld_inv_bim['block_idx2'] = ld_bim['block_idx2']
-    log.info((f"{sum(num_snps_part)} SNPs partitioned into {len(num_snps_part)} blocks, "
-              f"with the biggest one {np.max(num_snps_part)} SNPs."))
+    ld_inv_bim["block_idx"] = ld_bim["block_idx"]
+    ld_inv_bim["block_idx2"] = ld_bim["block_idx2"]
+    log.info(
+        (
+            f"{sum(num_snps_part)} SNPs partitioned into {len(num_snps_part)} blocks, "
+            f"with the biggest one {np.max(num_snps_part)} SNPs."
+        )
+    )
 
     # making LD matrix and its inverse
-    log.info(f"Regularization {ld_regu} for LD matrix, and {ld_inv_regu} for LD inverse matrix.")
+    log.info(
+        f"Regularization {ld_regu} for LD matrix, and {ld_inv_regu} for LD inverse matrix."
+    )
     log.info(f"Making LD matrix and its inverse ...\n")
     ld = LDmatrixBED(num_snps_part, ld_bim, ld_snp_getter, ld_regu)
-    ld_inv = LDmatrixBED(num_snps_part, ld_inv_bim,ld_inv_snp_getter, ld_inv_regu, inv=True)
+    ld_inv = LDmatrixBED(
+        num_snps_part, ld_inv_bim, ld_inv_snp_getter, ld_inv_regu, inv=True
+    )
 
     ld_prefix = ld.save(args.out, False, ld_regu)
     log.info(f"Save LD matrix to {ld_prefix}.ldmatrix")
