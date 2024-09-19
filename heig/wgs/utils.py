@@ -1,4 +1,5 @@
 import os
+import json
 import hail as hl
 import numpy as np
 import pandas as pd
@@ -55,10 +56,27 @@ Annotation_name = ["CADD",
                    ]
 
 
+def init_hail(spark_conf_file, geno_ref):
+    """
+    Initializing hail
+
+    Parameters:
+    ------------
+    spark_conf_file: spark configuration in json format
+    geno_ref: GRCh37 or GRCh38
+    
+    """
+    with open(spark_conf_file, 'r') as file:
+        spark_conf = json.load(file)
+
+    hl.init(quiet=True, spark_conf=spark_conf)
+    hl.default_reference = geno_ref
+
+
 class GProcessor:
     MODE = {
         'gwas':{
-            'defaults': {'maf_min': 0},  
+            'defaults': {'maf_min': 0, 'maf_max': 0.5},  
             'methods': ['_extract_variant_type', '_extract_maf', 
                         '_extract_call_rate', '_filter_hwe'],
             'conditions': {'_extract_variant_type': ['variant_type'],
@@ -308,12 +326,12 @@ class GProcessor:
 
     def _extract_maf(self):
         """
-        Extracting variants with a MAF < maf_max
+        Extracting variants with a maf_min < MAF <= maf_max
         
         """
         if self.maf_min is None:
             self.maf_min = 0
-        if self.maf_min >= self.maf_max:
+        if self.maf_min > self.maf_max:
             raise ValueError('maf_min is greater than maf_max')
         if 'maf' not in self.snps_mt.row:
             self.snps_mt = self.snps_mt.annotate_rows(
@@ -381,6 +399,19 @@ class GProcessor:
                                 (self.snps_mt.info.AN - self.snps_mt.info.AC[-1] <= self.mac_thresh)),
                                 True, False)
         )
+
+    def extract_unique_chrs(self):
+        """
+        Extracting unique chromosomes
+        
+        """
+        unique_chrs = set(self.snps_mt.aggregate_rows(hl.agg.collect(self.snps_mt.locus.contig)))
+        if self.geno_ref == 'GRCh38':
+            unique_chrs = [int(chr.replace('chr', '')) for chr in unique_chrs]
+        else:
+            unique_chrs = [int(chr) for chr in unique_chrs]
+
+        return unique_chrs
 
     def extract_gene(self, chr, start, end, gene_name=None):
         """

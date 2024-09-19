@@ -902,7 +902,7 @@ def run(args, log):
         if bases.shape[1] != ldr_cov.shape[0] or bases.shape[1] != ldr_gwas.n_gwas:
             raise ValueError(
                 (
-                    "inconsistent dimension for bases, variance-covariance matrix of LDRs, "
+                    "inconsistent dimension in bases, variance-covariance matrix of LDRs, "
                     "and LDR summary statistics. "
                     "Try to use --n-ldrs"
                 )

@@ -2,19 +2,19 @@ import os
 import h5py
 import shutil
 import numpy as np
+import pandas as pd
 import hail as hl
 from tqdm import tqdm
 from collections import defaultdict
 from sklearn.model_selection import KFold
 import heig.input.dataset as ds
-from heig.wgs.utils import GProcessor
+from heig.wgs.utils import GProcessor, init_hail
 from hail.linalg import BlockMatrix
 
 
 """
 TODO: 
 1. support parallel
-2. spark configure
 
 """
 
@@ -51,17 +51,17 @@ class Relatedness:
         ## these may come from the null model
         self.n, self.r = ldrs.shape
         self.n_blocks = n_blocks
-        self.n_params = len(shrinkage)
 
         shrinkage = np.array([0.01, 0.25, 0.5, 0.75, 0.99])
         shrinkage_ = (1 - shrinkage) / shrinkage
+        self.n_params = len(shrinkage)
         self.shrinkage_level0 = n_snps * shrinkage_
         self.shrinkage_level1 = self.n_params * n_blocks * shrinkage_
         self.kf = KFold(n_splits=5, shuffle=True, random_state=42)
 
-        self.inner_covar_inv = np.linalg.inv(np.dot(covar.T, covar))
+        self.inner_covar_inv = np.linalg.inv(np.dot(covar.T, covar)) # (X'X)^{-1}, (p, p)
         self.resid_ldrs = ldrs - np.dot(np.dot(covar, self.inner_covar_inv), 
-                                        np.dot(covar.T, ldrs))
+                                        np.dot(covar.T, ldrs)) # \Xi - X(X'X)^{-1}X'\Xi, (n, r)
         self.covar = covar
 
     def level0_ridge_block(self, block):
@@ -78,7 +78,7 @@ class Relatedness:
         level0_preds: a (r by n by 5) array of predictions
 
         """
-        level0_preds = np.zeros((self.r, self.n, len(self.shrinkage_level0)))
+        level0_preds = np.zeros((self.r, self.n, len(self.shrinkage_level0)), dtype=np.float32)
 
         block_covar = np.dot(block.T, self.covar) # Z'X, (m, p)
         resid_block = block - np.dot(np.dot(self.covar, self.inner_covar_inv), 
@@ -114,8 +114,8 @@ class Relatedness:
         chr_preds: a (r by n by #chr) array of predictions
 
         """
-        best_params = np.zeros(self.r)
-        chr_preds = np.zeros((self.r, self.n, len(chr_idxs)))
+        best_params = np.zeros(self.r, dtype=np.float32)
+        chr_preds = np.zeros((self.r, self.n, len(chr_idxs)), dtype=np.float32)
         
         ## get column idxs for each CHR after reshaping
         reshaped_idxs = self._get_reshaped_idxs(chr_idxs)
@@ -171,7 +171,7 @@ class Relatedness:
         """
         level0_preds = level0_preds.reshape(level0_preds.shape[0], -1)
         level0_preds = level0_preds / np.std(level0_preds, axis=0)
-        mse = np.zeros((5, len(self.shrinkage_level1)))
+        mse = np.zeros((5, len(self.shrinkage_level1)), dtype=np.float32)
 
         ## overall results
         inner_level0_preds = np.dot(level0_preds.T, level0_preds)
@@ -210,7 +210,7 @@ class Relatedness:
         loco_predictions: loco predictions for ldr j, (n, 22)
 
         """
-        loco_predictions = np.zeros((self.n, 22))
+        loco_predictions = np.zeros((self.n, 22), dtype=np.float32)
         level0_preds = level0_preds.reshape(self.n, -1)
         level0_preds = level0_preds / np.std(level0_preds, axis=0)
 
@@ -380,6 +380,57 @@ class GenoBlocks:
         return blocks, chr_idxs
 
 
+class LOCOpreds:
+    """
+    Reading LOCO LDR predictions
+    
+    """
+    def __init__(self, file_path):
+        self.file = h5py.File(file_path, 'r')
+        self.preds = self.file['ldr_loco_preds']
+        ids = self.file['id'][:]
+        self.ids = pd.MultiIndex.from_arrays(ids.astype(str).T, names=["FID", "IID"])
+        self.id_idxs = np.arange(len(self.ids))
+        self.n_ldrs = self.preds.shape[0]
+        
+    def close(self):
+        self.file.close()
+
+    def select_ldr(self, n_ldrs=None):
+        if n_ldrs is not None:
+            if n_ldrs <= self.preds.shape[0]:
+                self.n_ldrs = n_ldrs
+            else:
+                raise ValueError('--n-ldrs is greater than #LDRs in LOCO predictions')
+
+    def keep(self, keep_idvs):
+        """
+        Keep subjects
+
+        Parameters:
+        ------------
+        keep_idvs: a list of subject ids
+
+        Returns:
+        ---------
+        self.id_idxs: numeric indices of subjects
+        
+        """
+        keep_idvs = pd.MultiIndex.from_arrays([keep_idvs, keep_idvs], names=['FID', 'IID'])
+        common_ids = ds.get_common_idxs(keep_idvs, self.ids).get_level_values('IID')
+        ids_df = pd.DataFrame({'id': self.id_idxs}, index=self.ids.get_level_values('IID'))
+        ids_df = ids_df.loc[common_ids]
+        self.id_idxs = ids_df['id'].values
+
+    def data_reader(self, chr):
+        """
+        Reading LDR predictions for a chromosome
+        
+        """
+        loco_preds_chr = self.preds[:, :, chr-1].T # (n, r)
+        return loco_preds_chr[self.id_idxs]
+
+
 def check_input(args, log):
     # required arguments
     if args.bfile is None and args.geno_mt is None:
@@ -388,26 +439,9 @@ def check_input(args, log):
         raise ValueError('--covar is required.')
     if args.ldrs is None:
         raise ValueError('--ldrs is required.')
-    if args.maf_min is not None:
-        if args.maf_min > 0.5 or args.maf_min < 0:
-            raise ValueError('--maf-min must be greater than 0 and less than 0.5')
-    if args.n_ldrs is not None and args.n_ldrs <= 0:
-        raise ValueError('--n-ldrs should be greater than 0.')
+    if args.spark_conf is None:
+        raise ValueError('--spark-conf is required')
 
-    # required files must exist
-    if not os.path.exists(args.covar):
-        raise FileNotFoundError(f"{args.covar} does not exist.")
-    if not os.path.exists(args.ldrs):
-        raise FileNotFoundError(f"{args.ldrs} does not exist.")
-    if args.partition is not None and not os.path.exists(args.partition):
-        raise FileNotFoundError(f"{args.partition} does not exist.")
-    if args.geno_mt is not None and not os.path.exists(args.geno_mt):
-            raise FileNotFoundError(f"{args.geno_mt} does not exist.")
-    if args.bfile is not None:
-        for suffix in ['.bed', '.fam', '.bim']:
-            if not os.path.exists(args.bfile + suffix):
-                raise FileNotFoundError(f'{args.bfile + suffix} does not exist.')
-            
     if args.bsize is not None and args.bsize < 1000:
         raise ValueError('--bsize should be no less than 1000.')
     elif args.bsize is None:
@@ -446,29 +480,11 @@ def run(args, log):
     log.info(f'Read covariates from {args.covar}')
     covar = ds.Covar(args.covar, args.cat_covar_list)
 
-    # keep subjects
-    if args.keep is not None:
-        keep_idvs = ds.read_keep(args.keep)
-        log.info(f'{len(keep_idvs)} subjects in --keep.')
-    else:
-        keep_idvs = None
-    common_ids = ds.get_common_idxs(ldrs.data.index, covar.data.index, keep_idvs, single_id=True)
-
-    # extract SNPs
-    if args.extract is not None:
-        keep_snps = ds.read_extract(args.extract)
-        log.info(f"{len(keep_snps)} SNPs in --extract.")
-    else:
-        keep_snps = None
+    # keep common subjects
+    common_ids = ds.get_common_idxs(ldrs.data.index, covar.data.index, args.keep, single_id=True)
 
     # read genotype data
-    spark_conf = {
-    'spark.executor.memory': '8g',
-    'spark.driver.memory': '8g',
-    'spark.master': 'local[8]'
-    }
-    hl.init(quiet=True, spark_conf=spark_conf)
-    hl.default_reference = geno_ref
+    init_hail(args.spark_conf, geno_ref)
 
     if args.bfile is not None:
         log.info(f'Read bfile from {args.bfile}')
@@ -479,7 +495,7 @@ def run(args, log):
         gprocessor = GProcessor.read_matrix_table(args.geno_mt, geno_ref,
                                                   maf_min=args.maf_min)
     log.info(f"Processing genetic data ...")
-    gprocessor.extract_snps(keep_snps)
+    gprocessor.extract_snps(args.extract)
     gprocessor.extract_idvs(common_ids)
     gprocessor.do_processing(mode='gwas')
 
@@ -488,6 +504,7 @@ def run(args, log):
         gprocessor.save_interim_data(temp_path)
     
     try:
+        # get common subjects
         gprocessor.check_valid()
         snps_mt_ids = gprocessor.subject_id()
         ldrs.to_single_index()
@@ -517,8 +534,10 @@ def run(args, log):
         relatedness_remover = Relatedness(
             n_variants, n_blocks, np.array(ldrs.data), np.array(covar.data)
         )
-        with h5py.File(f'{args.out}_l0_pred_temp.h5', 'w') as file:
-            log.info(f'Doing level0 ridge regression ...')
+
+        log.info(f'Doing level0 ridge regression ...')
+        l0_pred_file = f'{args.out}_l0_pred_temp.h5'
+        with h5py.File(l0_pred_file, 'w') as file:
             dset = file.create_dataset('level0_preds',
                                         (ldrs.data.shape[1],
                                         ldrs.data.shape[0],
@@ -530,18 +549,22 @@ def run(args, log):
                 block = block.to_numpy().T
                 block_level0_preds = relatedness_remover.level0_ridge_block(block)
                 dset[:, :, :, i] = block_level0_preds
-        log.info(f'Save level0 ridge predictions to a temporary file {args.out}_l0_pred_temp.h5')
+        log.info(f'Save level0 ridge predictions to a temporary file {l0_pred_file}')
 
         # load level 0 predictions by each ldr and do level 1 ridge prediction
-        with h5py.File(f'{args.out}_l0_pred_temp.h5', 'r') as file:
+        with h5py.File(l0_pred_file, 'r') as file:
             log.info(f'Doing level1 ridge regression ...')
             level0_preds_reader = file['level0_preds']
             chr_preds = relatedness_remover.level1_ridge(level0_preds_reader, chr_idxs)
 
         with h5py.File(f'{args.out}_ldr_loco_preds.h5', 'w') as file:
             file.create_dataset('ldr_loco_preds', data=chr_preds, dtype='float32')
+            file.create_dataset("id", data=np.array([snps_mt_ids, snps_mt_ids], dtype="S10").T)
         log.info(f'Save level1 loco ridge predictions to {args.out}_ldr_loco_preds.h5')
     finally:
         if os.path.exists(temp_path):
             shutil.rmtree(temp_path)
             log.info(f'Removed preprocessed genotype data at {temp_path}')
+        # if os.path.exists(l0_pred_file):
+        #     shutil.rmtree(l0_pred_file)
+        #     log.info(f'Removed level0 ridge predictions to a temporary file at {l0_pred_file}')
