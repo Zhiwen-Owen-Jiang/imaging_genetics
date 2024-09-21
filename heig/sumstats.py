@@ -1,5 +1,6 @@
 import os
 import h5py
+import ast
 import logging
 import concurrent.futures
 import math
@@ -16,15 +17,33 @@ import heig.input.dataset as ds
 
 def check_input(args, log):
     # required arguments
-    if args.ldr_gwas is None and args.y2_gwas is None:
-        raise ValueError("either --ldr-gwas or --y2-gwas should be provided")
+    if args.ldr_gwas is None and args.y2_gwas and args.ldr_gwas_heig is None:
+        raise ValueError("--ldr-gwas, --ldr-gwas-heig, or --y2-gwas should be provided")
+    
+    # columns of LDR GWAS in HEIG are fixed
+    if args.ldr_gwas_heig is not None:
+        args.chr_col = 'chr'
+        args.pos_col = 'pos'
+        args.snp_col = 'rsid'
+        args.n_col = 'n_called'
+        args.a1_col = 'alt_allele'
+        args.a2_col = 'ref_allele'
+        args.effect_col = 'beta,0'
+        args.se_col = 'standard_error'
+        args.maf_col = None
+        args.info_col = None
+        args.maf_min = None
+        args.info_min = None
+        args.ldr_gwas = None
+        args.y2_gwas = None
+
     if args.snp_col is None:
         raise ValueError("--snp-col is required")
     if args.a1_col is None:
         raise ValueError("--a1-col is required")
     if args.a2_col is None:
         raise ValueError("--a2-col is required")
-
+    
     # optional arguments
     if args.n_col is None and args.n is None:
         raise ValueError("either --n-col or --n is required")
@@ -82,6 +101,11 @@ def check_input(args, log):
         for file in ldr_gwas_files:
             ds.check_existence(file)
         args.ldr_gwas = ldr_gwas_files
+    elif args.ldr_gwas_heig is not None:
+        ldr_gwas_heig_files = ds.parse_input(args.ldr_gwas_heig)
+        for file in ldr_gwas_heig_files:
+            ds.check_existence(file)
+        args.ldr_gwas_heig = ldr_gwas_heig_files
     elif args.y2_gwas is not None:
         ds.check_existence(args.y2_gwas)
         args.y2_gwas = [args.y2_gwas]
@@ -577,6 +601,8 @@ class GWASLDR(ProcessGWAS):
         gwas_data = self._read_gwas(self.gwas_files[0])
         if self.cols_map["N"] is None:
             gwas_data["N"] = self.cols_map["n"]
+        if self.cols_map["null_value"] == 1:
+            raise ValueError('the null value of LDR GWAS effect size must be 0')
         self._check_median(gwas_data["EFFECT"], "EFFECT", self.cols_map["null_value"])
         orig_snps_list = gwas_data[["CHR", "POS", "SNP", "A1", "A2", "N"]]
         valid_snp_idxs = np.ones(gwas_data.shape[0], dtype=bool)
@@ -628,8 +654,6 @@ class GWASLDR(ProcessGWAS):
         for i, gwas_file in enumerate(gwas_files):
             gwas_data = self._read_gwas_effct(gwas_file)
             gwas_data = gwas_data.loc[is_valid_snp]
-            if self.cols_map["null_value"] == 1:
-                gwas_data["EFFECT"] = np.log(gwas_data["EFFECT"])
             beta_array[:, i] = gwas_data["EFFECT"]
             z_array[:, i] = gwas_data["EFFECT"] / gwas_data["SE"]
 
@@ -735,6 +759,140 @@ class GWASY2(ProcessGWAS):
         self._save_snpinfo(snpinfo)
 
 
+class GWASHEIG(GWASLDR):
+    def _create_dataset(self, n_snps):
+        self.current_block_idx = -1
+        self.current_empty_space = 0
+
+        with h5py.File(f"{self.out_dir}.sumstats", "w") as file:
+            file.attrs["n_snps"] = n_snps
+            file.attrs["n_gwas"] = 0 # initialize as 0
+            file.attrs["n_blocks"] = 0
+
+    def _save_sumstats(self, beta, z):
+        """
+        Saving sumstats in blocks
+
+        Parameters:
+        ------------
+        idx: index of the current LDR to save
+        self.current_empty_space: the number of empty columns in the current block
+        self.current_block_idx: index of the corrent block
+
+        """
+        chunk_size = np.min((beta.shape[0], 10000))
+        idx = 0
+        n_ldrs = beta.shape[1]
+        
+        with h5py.File(f"{self.out_dir}.sumstats", "r+") as file:
+            # checking if the current block is full, if not fill it first
+            if self.current_empty_space != 0:
+                file[f"beta{self.current_block_idx}"][:, -self.current_empty_space:] = beta[:, :self.current_empty_space]
+                file[f"z{self.current_block_idx}"][:, -self.current_empty_space:] = z[:, :self.current_empty_space]
+
+                if n_ldrs > self.current_empty_space:
+                    file.attrs["n_gwas"] += self.current_empty_space
+                    idx = self.current_empty_space
+                    self.current_empty_space = 0
+                else:
+                    self.current_empty_space -= n_ldrs
+                    file.attrs["n_gwas"] += n_ldrs
+                    return 
+
+            # save data to new blocks
+            else:
+                chunk_size = np.min((beta.shape[0], 10000))
+                # n_blocks = math.ceil((n_ldrs-idx) / 20)
+                for i in range(idx, n_ldrs, 20):
+                    self.current_block_idx += 1
+                    file.attrs["n_blocks"] += 1
+                    file.create_dataset(
+                        f"beta{self.current_block_idx}",
+                        data=beta[:, i: i+20],
+                        dtype="float32",
+                        chunks=(chunk_size, beta.shape[1]),
+                    )
+                    file.create_dataset(
+                        f"z{self.current_block_idx}",
+                        data=z[:, i: i+20],
+                        dtype="float32",
+                        chunks=(chunk_size, z.shape[1]),
+                    )
+
+                    if i + 20 > n_ldrs:
+                        self.current_empty_space = 20 - n_ldrs + i
+
+
+    def process(self, threads):
+        """
+        Processing LDR GWAS summary statistics. BETA and SE are required columns.
+
+        """
+        self.logger.info(
+            (
+                f"Reading and processing {self.n_gwas_files} LDR GWAS summary statistics files. "
+                "Only the first GWAS file will be QCed ..."
+            )
+        )
+        is_valid_snp, snpinfo = self._qc()
+        self.logger.info("Reading and processing remaining GWAS files ...")
+        for gwas_file in self.gwas_files:
+            self._read_save(is_valid_snp, gwas_file, threads)
+        self._save_snpinfo(snpinfo)
+
+    def _qc(self):
+        """
+        Quality control using the first GWAS file
+
+        Returns:
+        ---------
+        is_valid_snp: boolean indices of valid SNPs
+        snpinfo: SNP metadata
+
+        """
+        gwas_data = self._read_gwas(self.gwas_files[0])
+        orig_snps_list = gwas_data[["CHR", "POS", "SNP", "A1", "A2", "N"]]
+        valid_snp_idxs = np.ones(gwas_data.shape[0], dtype=bool)
+
+        self.logger.info(f"Pruning SNPs for the first GWAS file ...")
+        gwas_data = self._prune_snps(gwas_data)
+        final_snps_list = gwas_data["SNP"]
+        valid_snp_idxs = (
+            valid_snp_idxs & orig_snps_list["SNP"].isin(final_snps_list).values
+        )
+
+        is_valid_snp = valid_snp_idxs == 1
+        snpinfo = orig_snps_list.loc[is_valid_snp].reset_index(drop=True)
+        self._create_dataset(gwas_data.shape[0])
+
+        return is_valid_snp, snpinfo
+
+    def _read_save(self, is_valid_snp, gwas_file, threads):
+        """
+        Reading, processing, and saving a batch of LDR GWAS files
+
+        Parameters:
+        ------------
+        is_valid_snp: boolean indices of valid SNPs
+        gwas_file: a GWAS file
+        threads: number of threads to use
+
+        """
+        gwas_data = self._read_gwas_effct(gwas_file)
+        gwas_data = gwas_data.loc[is_valid_snp]
+        beta_array = self._string_to_float(gwas_data, "EFFECT", threads)
+        se_array = self._string_to_float(gwas_data, "SE", threads)
+        z_array = beta_array / se_array
+        self._save_sumstats(beta=beta_array, z=z_array)
+
+    @staticmethod
+    def _string_to_float(gwas, stat, threads):
+        # data = np.array([ast.literal_eval(x) for x in list(gwas[stat])])
+        with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+            results = list(executor.map(ast.literal_eval, gwas[stat]))
+        return np.array(results, dtype=np.float32)
+
+
 def run(args, log):
     check_input(args, log)
     cols_map, cols_map2 = map_cols(args)
@@ -742,6 +900,10 @@ def run(args, log):
     if args.ldr_gwas is not None:
         sumstats = GWASLDR(
             args.ldr_gwas, cols_map, cols_map2, args.out, args.maf_min, args.info_min
+        )
+    elif args.ldr_gwas_heig is not None:
+        sumstats = GWASHEIG(
+            args.ldr_gwas_heig, cols_map, cols_map2, args.out, args.maf_min, args.info_min
         )
     elif args.y2_gwas is not None:
         sumstats = GWASY2(

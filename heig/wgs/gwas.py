@@ -260,7 +260,7 @@ def run(args, log):
             loco_preds.keep(snps_mt_ids)
         else:
             loco_preds = None
-        log.info(f'{len(common_ids)} common subjects in the data.')
+        log.info(f'{len(snps_mt_ids)} common subjects in the data.')
         log.info(f"{covar.data.shape[1]} fixed effects in the covariates (including the intercept).")
 
         # gwas
@@ -270,9 +270,9 @@ def run(args, log):
         gwas.gwas.export(f"{args.out}.txt.bgz")
         log.info(f"Save GWAS results to {args.out}.txt.bgz")
     finally:
-        if os.path.exists(temp_path):
-            shutil.rmtree(temp_path)
-            log.info(f'Removed preprocessed genotype data at {temp_path}')
+        # if os.path.exists(temp_path):
+        #     shutil.rmtree(temp_path)
+        #     log.info(f'Removed preprocessed genotype data at {temp_path}')
         if os.path.exists(f'{temp_path}_covar.txt'):
             os.remove(f'{temp_path}_covar.txt')
             log.info(f'Removed temporary covariate data at {temp_path}_covar.txt')

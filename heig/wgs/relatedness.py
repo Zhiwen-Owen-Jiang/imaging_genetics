@@ -62,6 +62,8 @@ class Relatedness:
         self.inner_covar_inv = np.linalg.inv(np.dot(covar.T, covar)) # (X'X)^{-1}, (p, p)
         self.resid_ldrs = ldrs - np.dot(np.dot(covar, self.inner_covar_inv), 
                                         np.dot(covar.T, ldrs)) # \Xi - X(X'X)^{-1}X'\Xi, (n, r)
+        self.resid_ldrs_std = np.std(self.resid_ldrs, axis=0)
+        self.resid_ldrs /= self.resid_ldrs_std # scale to var 1 for heritability definition
         self.covar = covar
 
     def level0_ridge_block(self, block):
@@ -84,11 +86,11 @@ class Relatedness:
         resid_block = block - np.dot(np.dot(self.covar, self.inner_covar_inv), 
                                      block_covar.T) # (I-M)Z = Z-X(X'X)^{-1}X'Z, (n, m)
         resid_block = resid_block / np.std(resid_block, axis=0)
-        proj_inner_block = np.dot(block.T, resid_block) # Z'(I-M)Z, (m, m)
+        proj_inner_block = np.dot(resid_block.T, resid_block) # Z'(I-M)Z, (m, m)
         proj_block_ldrs = np.dot(resid_block.T, self.resid_ldrs) # Z'(I-M)\Xi, (m, r)
 
         for _, test_idxs in self.kf.split(range(self.n)):
-            proj_inner_block_ = proj_inner_block - np.dot(block[test_idxs].T, resid_block[test_idxs])
+            proj_inner_block_ = proj_inner_block - np.dot(resid_block[test_idxs].T, resid_block[test_idxs])
             proj_block_ldrs_ = proj_block_ldrs - np.dot(resid_block[test_idxs].T, self.resid_ldrs[test_idxs])
             for i, param in enumerate(self.shrinkage_level0):
                 preds = np.dot(
@@ -127,6 +129,7 @@ class Relatedness:
                 best_params[j], 
                 level0_preds_reader[j], 
                 self.resid_ldrs[:, j], 
+                self.resid_ldrs_std[j],
                 reshaped_idxs
             )
 
@@ -194,7 +197,7 @@ class Relatedness:
 
         return best_param
 
-    def _chr_preds_ldr(self, best_param, level0_preds, ldr, reshaped_idxs):
+    def _chr_preds_ldr(self, best_param, level0_preds, ldr, ldr_std, reshaped_idxs):
         """
         Using the optimal parameter to get the chromosome-wise predictions
 
@@ -203,6 +206,7 @@ class Relatedness:
         best_param: the optimal parameter
         level0_preds: n by n_params by n_blocks matrix for ldr j
         ldr: resid ldr 
+        ldr_std: std of resid ldr
         reshaped_idxs: a dictionary of chromosome: [idxs in reshaped predictors]
 
         Returns:
@@ -230,7 +234,7 @@ class Relatedness:
                 loco_preds_ldr
                 )
             loco_prediction = np.dot(level0_preds[:, mask], loco_preditors)
-            loco_predictions[:, chr-1] = loco_prediction
+            loco_predictions[:, chr-1] = loco_prediction * ldr_std # recover to original scale
 
         return loco_predictions
 
@@ -427,7 +431,7 @@ class LOCOpreds:
         Reading LDR predictions for a chromosome
         
         """
-        loco_preds_chr = self.preds[:, :, chr-1].T # (n, r)
+        loco_preds_chr = self.preds[:self.n_ldrs, :, chr-1].T # (n, r)
         return loco_preds_chr[self.id_idxs]
 
 
@@ -562,9 +566,10 @@ def run(args, log):
             file.create_dataset("id", data=np.array([snps_mt_ids, snps_mt_ids], dtype="S10").T)
         log.info(f'Save level1 loco ridge predictions to {args.out}_ldr_loco_preds.h5')
     finally:
-        if os.path.exists(temp_path):
-            shutil.rmtree(temp_path)
-            log.info(f'Removed preprocessed genotype data at {temp_path}')
+        pass
+        # if os.path.exists(temp_path):
+        #     shutil.rmtree(temp_path)
+        #     log.info(f'Removed preprocessed genotype data at {temp_path}')
         # if os.path.exists(l0_pred_file):
         #     shutil.rmtree(l0_pred_file)
         #     log.info(f'Removed level0 ridge predictions to a temporary file at {l0_pred_file}')
