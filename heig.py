@@ -431,7 +431,15 @@ sumstats_parser.add_argument(
     "--ldr-gwas",
     help=(
         "Directory to raw LDR GWAS summary statistics files. "
-        "Multiple files can be provided using {:}, e.g., `ldr_gwas{1:10}.txt`"
+        "Multiple files can be provided using {:}, e.g., `ldr_gwas{1:10}.txt`."
+    ),
+)
+sumstats_parser.add_argument(
+    "--ldr-gwas-heig",
+    help=(
+        "Directory to raw LDR GWAS summary statistics files produced by --gwas. "
+        "Multiple files can be provided using {:}, e.g., `ldr_gwas{1:10}.txt.bgz`. "
+        "One file may contain multiple LDRs. These files must be in order."
     ),
 )
 sumstats_parser.add_argument(
@@ -605,6 +613,7 @@ def check_accepted_args(module, args, log):
             "sumstats",
             "ldr_gwas",
             "y2_gwas",
+            "ldr_gwas_heig",
             "n",
             "n_col",
             "chr_col",
