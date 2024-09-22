@@ -772,18 +772,20 @@ class GWASHEIG(GWASLDR):
             file.attrs["n_gwas"] = 0 # initialize as 0
             file.attrs["n_blocks"] = 0
 
-    def _save_sumstats(self, beta, z):
+    def _save_sumstats(self, beta, z, is_last_file):
         """
         Saving sumstats in blocks
 
         Parameters:
         ------------
+        beta (n_snps, n_ldrs): a np.array of beta to save
+        z (n_snps, n_ldrs): a np.array of z to save
+        is_last_file: if it is the last gwas file
         idx: index of the current LDR to save
         self.current_empty_space: the number of empty columns in the current block
         self.current_block_idx: index of the corrent block
 
         """
-        chunk_size = np.min((beta.shape[0], 10000))
         idx = 0
         n_ldrs = beta.shape[1]
         
@@ -802,28 +804,52 @@ class GWASHEIG(GWASLDR):
                     file.attrs["n_gwas"] += n_ldrs
                     return 
 
-            # save data to new blocks
-            else:
-                chunk_size = np.min((beta.shape[0], 10000))
-                # n_blocks = math.ceil((n_ldrs-idx) / 20)
-                for i in range(idx, n_ldrs, 20):
-                    self.current_block_idx += 1
-                    file.attrs["n_blocks"] += 1
-                    file.create_dataset(
-                        f"beta{self.current_block_idx}",
-                        data=beta[:, i: i+20],
-                        dtype="float32",
-                        chunks=(chunk_size, beta.shape[1]),
-                    )
-                    file.create_dataset(
-                        f"z{self.current_block_idx}",
-                        data=z[:, i: i+20],
-                        dtype="float32",
-                        chunks=(chunk_size, z.shape[1]),
-                    )
+            # save remaining data to new blocks
+            chunk_size = np.min((beta.shape[0], 10000))
 
-                    if i + 20 > n_ldrs:
-                        self.current_empty_space = 20 - n_ldrs + i
+            for i in range(idx, n_ldrs, 20):
+                self.current_block_idx += 1
+                file.attrs["n_blocks"] += 1
+                file.create_dataset(
+                    f"beta{self.current_block_idx}",
+                    # data=beta[:, i: i+20],
+                    shape=(file.attrs['n_snps'], 20), 
+                    dtype="float32",
+                    chunks=(chunk_size, 20),
+                )
+                file.create_dataset(
+                    f"z{self.current_block_idx}",
+                    # data=z[:, i: i+20],
+                    shape=(file.attrs['n_snps'], 20), 
+                    dtype="float32",
+                    chunks=(chunk_size, 20),
+                )
+
+                end = np.min((i+20, n_ldrs))
+                file[f"beta{self.current_block_idx}"][:, :end - i] = beta[:, i: end]
+                file[f"z{self.current_block_idx}"][:, :end - i] = z[:, i: end]
+                file.attrs['n_gwas'] += end - i
+                self.current_empty_space = 20 - end + i
+
+            # remove the zero columns in the last block
+            if is_last_file and self.current_empty_space > 0:
+                last_beta = file[f"beta{self.current_block_idx}"][:, :-self.current_empty_space]
+                last_z = file[f"z{self.current_block_idx}"][:, :-self.current_empty_space]
+                del file[f"beta{self.current_block_idx}"]
+                del file[f"z{self.current_block_idx}"]
+                
+                file.create_dataset(
+                    f"beta{self.current_block_idx}",
+                    data=last_beta,
+                    dtype="float32",
+                    chunks=(chunk_size, last_beta.shape[1]),
+                    )
+                file.create_dataset(
+                    f"z{self.current_block_idx}",
+                    data=last_z,
+                    dtype="float32",
+                    chunks=(chunk_size, last_z.shape[1]),
+                    )
 
 
     def process(self, threads):
@@ -839,8 +865,11 @@ class GWASHEIG(GWASLDR):
         )
         is_valid_snp, snpinfo = self._qc()
         self.logger.info("Reading and processing remaining GWAS files ...")
-        for gwas_file in self.gwas_files:
-            self._read_save(is_valid_snp, gwas_file, threads)
+        is_last_file = False
+        for i, gwas_file in enumerate(self.gwas_files):
+            if i == self.n_gwas_files - 1:
+                is_last_file = True
+            self._read_save(is_valid_snp, gwas_file, is_last_file, threads)
         self._save_snpinfo(snpinfo)
 
     def _qc(self):
@@ -870,7 +899,7 @@ class GWASHEIG(GWASLDR):
 
         return is_valid_snp, snpinfo
 
-    def _read_save(self, is_valid_snp, gwas_file, threads):
+    def _read_save(self, is_valid_snp, gwas_file, is_last_file, threads):
         """
         Reading, processing, and saving a batch of LDR GWAS files
 
@@ -878,6 +907,7 @@ class GWASHEIG(GWASLDR):
         ------------
         is_valid_snp: boolean indices of valid SNPs
         gwas_file: a GWAS file
+        is_last_file: if it is the last gwas file
         threads: number of threads to use
 
         """
@@ -886,7 +916,7 @@ class GWASHEIG(GWASLDR):
         beta_array = self._string_to_float(gwas_data, "EFFECT", threads)
         se_array = self._string_to_float(gwas_data, "SE", threads)
         z_array = beta_array / se_array
-        self._save_sumstats(beta=beta_array, z=z_array)
+        self._save_sumstats(beta_array, z_array, is_last_file)
 
     @staticmethod
     def _string_to_float(gwas, stat, threads):
