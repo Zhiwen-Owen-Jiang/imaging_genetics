@@ -7,6 +7,7 @@ import hail as hl
 from tqdm import tqdm
 from collections import defaultdict
 from sklearn.model_selection import KFold
+from scipy.linalg import cho_solve, cho_factor
 import heig.input.dataset as ds
 from heig.wgs.utils import GProcessor, init_hail
 from hail.linalg import BlockMatrix
@@ -65,10 +66,29 @@ class Relatedness:
         self.resid_ldrs_std = np.std(self.resid_ldrs, axis=0)
         self.resid_ldrs /= self.resid_ldrs_std # scale to var 1 for heritability definition
         self.covar = covar
+        
+    @staticmethod
+    def _ridge_prediction(XtX, alpha, Xty, x_test):
+        """
+        Computing ridge predictions
+
+        Parameters:
+        ------------
+        XtX: X'X
+        alpha: tuning parameter
+        Xty: X'y
+        x_test: test data
+        
+        """
+        A = XtX + np.eye(XtX.shape[1]) * alpha
+        c, lower = cho_factor(A)
+        ridge_beta = cho_solve((c, lower), Xty)
+        y_pred = np.dot(x_test, ridge_beta)
+        return y_pred
 
     def level0_ridge_block(self, block):
         """
-        Compute level 0 ridge prediction for a genotype block.
+        Computing level 0 ridge prediction for a genotype block.
         Missing values in each block have been imputed.
 
         Parameters:
@@ -93,18 +113,19 @@ class Relatedness:
             proj_inner_block_ = proj_inner_block - np.dot(resid_block[test_idxs].T, resid_block[test_idxs])
             proj_block_ldrs_ = proj_block_ldrs - np.dot(resid_block[test_idxs].T, self.resid_ldrs[test_idxs])
             for i, param in enumerate(self.shrinkage_level0):
-                preds = np.dot(
-                    resid_block[test_idxs],
-                    np.dot(np.linalg.inv(proj_inner_block_ + np.eye(proj_inner_block_.shape[1]) * param), 
-                        proj_block_ldrs_)
-                ) # (I-M)Z (Z'(I-M)Z+\lambdaI)^{-1} Z'(I-M)\Xi, (n, r)
+                # preds = np.dot(
+                #     resid_block[test_idxs],
+                #     np.dot(np.linalg.inv(proj_inner_block_ + np.eye(proj_inner_block_.shape[1]) * param), 
+                #         proj_block_ldrs_)
+                # ) # (I-M)Z (Z'(I-M)Z+\lambdaI)^{-1} Z'(I-M)\Xi, (n, r)
+                preds = self._ridge_prediction(proj_inner_block_, param, proj_block_ldrs_, resid_block[test_idxs])
                 level0_preds[:, test_idxs, i] = preds.T
 
         return level0_preds
 
     def level1_ridge(self, level0_preds_reader, chr_idxs):
         """
-        Compute level 1 ridge predictions.
+        Computing level 1 ridge predictions.
 
         Parameters:
         ------------
@@ -187,9 +208,10 @@ class Relatedness:
             inner_train_x = inner_level0_preds - np.dot(test_x.T, test_x)
             train_xy = level0_preds_ldr - np.dot(test_x.T, test_y)
             for j, param in enumerate(self.shrinkage_level1):
-                preditors = np.dot(np.linalg.inv(inner_train_x + np.eye(inner_train_x.shape[1]) * param), 
-                                   train_xy)
-                predictions = np.dot(test_x, preditors)
+                # preditors = np.dot(np.linalg.inv(inner_train_x + np.eye(inner_train_x.shape[1]) * param), 
+                #                    train_xy)
+                # predictions = np.dot(test_x, preditors)
+                predictions = self._ridge_prediction(inner_train_x, param, train_xy, test_x)
                 mse[i, j] = np.sum((test_y - predictions) ** 2) # squared L2 norm
         mse = np.sum(mse, axis=0) / self.n
         min_idx = np.argmin(mse)
@@ -228,12 +250,13 @@ class Relatedness:
             mask[idxs] = False
             inner_loco_level0_preds = inner_level0_preds[mask, :][:, mask]
             loco_preds_ldr = preds_ldr[mask]
-            loco_preditors = np.dot(
-                np.linalg.inv(
-                inner_loco_level0_preds + np.eye(inner_loco_level0_preds.shape[1]) * best_param), 
-                loco_preds_ldr
-                )
-            loco_prediction = np.dot(level0_preds[:, mask], loco_preditors)
+            # loco_preditors = np.dot(
+            #     np.linalg.inv(
+            #     inner_loco_level0_preds + np.eye(inner_loco_level0_preds.shape[1]) * best_param), 
+            #     loco_preds_ldr
+            #     )
+            # loco_prediction = np.dot(level0_preds[:, mask], loco_preditors)
+            loco_prediction = self._ridge_prediction(inner_loco_level0_preds, best_param, loco_preds_ldr, level0_preds[:, mask])
             loco_predictions[:, chr-1] = loco_prediction * ldr_std # recover to original scale
 
         return loco_predictions
