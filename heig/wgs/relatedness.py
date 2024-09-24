@@ -125,11 +125,6 @@ class Relatedness:
                 resid_block[test_idxs].T, self.resid_ldrs[test_idxs]
             )
             for i, param in enumerate(self.shrinkage_level0):
-                # preds = np.dot(
-                #     resid_block[test_idxs],
-                #     np.dot(np.linalg.inv(proj_inner_block_ + np.eye(proj_inner_block_.shape[1]) * param),
-                #         proj_block_ldrs_)
-                # ) # (I-M)Z (Z'(I-M)Z+\lambdaI)^{-1} Z'(I-M)\Xi, (n, r)
                 preds = self._ridge_prediction(
                     proj_inner_block_, param, proj_block_ldrs_, resid_block[test_idxs]
                 )
@@ -226,9 +221,6 @@ class Relatedness:
             inner_train_x = inner_level0_preds - np.dot(test_x.T, test_x)
             train_xy = level0_preds_ldr - np.dot(test_x.T, test_y)
             for j, param in enumerate(self.shrinkage_level1):
-                # preditors = np.dot(np.linalg.inv(inner_train_x + np.eye(inner_train_x.shape[1]) * param),
-                #                    train_xy)
-                # predictions = np.dot(test_x, preditors)
                 predictions = self._ridge_prediction(
                     inner_train_x, param, train_xy, test_x
                 )
@@ -270,12 +262,6 @@ class Relatedness:
             mask[idxs] = False
             inner_loco_level0_preds = inner_level0_preds[mask, :][:, mask]
             loco_preds_ldr = preds_ldr[mask]
-            # loco_preditors = np.dot(
-            #     np.linalg.inv(
-            #     inner_loco_level0_preds + np.eye(inner_loco_level0_preds.shape[1]) * best_param),
-            #     loco_preds_ldr
-            #     )
-            # loco_prediction = np.dot(level0_preds[:, mask], loco_preditors)
             loco_prediction = self._ridge_prediction(
                 inner_loco_level0_preds,
                 best_param,
@@ -456,7 +442,7 @@ class LOCOpreds:
     def close(self):
         self.file.close()
 
-    def select_ldr(self, n_ldrs=None):
+    def select_ldrs(self, n_ldrs=None):
         if n_ldrs is not None:
             if n_ldrs <= self.preds.shape[0]:
                 self.n_ldrs = n_ldrs

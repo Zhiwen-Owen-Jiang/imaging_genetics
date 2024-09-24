@@ -195,8 +195,9 @@ def run(args, log):
     try:
         # read loco preds
         if args.loco_preds is not None:
+            log.info(f'Read LOCO predictions from {args.loco_preds}')
             loco_preds = LOCOpreds(args.loco_preds)
-            loco_preds.select_ldr(args.n_ldrs)
+            loco_preds.select_ldrs(args.n_ldrs)
             if loco_preds.n_ldrs != ldrs.data.shape[1]:
                 raise ValueError(
                     (
@@ -284,5 +285,5 @@ def run(args, log):
             if os.path.exists(f"{temp_path}_ldr.txt"):
                 os.remove(f"{temp_path}_ldr.txt")
                 log.info(f"Removed temporary LDR data at {temp_path}_ldr.txt")
-            if args.loco_preds is not None:
-                loco_preds.close()
+        if args.loco_preds is not None:
+            loco_preds.close()
