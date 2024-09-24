@@ -101,6 +101,8 @@ class KernelSmooth:
             )
         bw_opt = bw_list[which_min]
         min_mse = score[which_min]
+        if min_mse == np.inf:
+            raise ValueError('the optimal bandwidth is invalid. Try to input one using --bw-opt')
         log.info(
             f"The optimal bandwidth is {np.round(bw_opt, 3)} with GCV score {min_mse:.3f}."
         )
@@ -131,6 +133,8 @@ class KernelSmooth:
 
     @staticmethod
     def _load_sparse_sm_weight(temp_path):
+        if not os.path.exists(f"{temp_path}.npz"):
+            raise FileNotFoundError(f'no {temp_path}.npz. Kernel smoothing failed')
         sparse_sm_weight = sp.load_npz(f"{temp_path}.npz")
         sparse_sm_weight = sparse_sm_weight.todok()
         return sparse_sm_weight
