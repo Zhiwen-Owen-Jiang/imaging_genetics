@@ -9,7 +9,7 @@ import logging
 __all__ = ['Annotation_name_catalog', 'Annotation_catalog_name',
            'Annotation_name', 'GProcessor', 'keep_ldrs',
            'remove_dependent_columns', 'extract_align_subjects',
-           'get_common_ids']
+           'get_common_ids', 'init_hail', 'process_range', 'get_temp_path']
 
 
 Annotation_name_catalog = {
@@ -56,18 +56,25 @@ Annotation_name = ["CADD",
                    ]
 
 
-def init_hail(spark_conf_file, geno_ref):
+def init_hail(spark_conf_file, grch37, log):
     """
     Initializing hail
 
     Parameters:
     ------------
     spark_conf_file: spark configuration in json format
-    geno_ref: GRCh37 or GRCh38
+    grch37: if the reference genome is GRCh37
+    log: a logger
     
     """
     with open(spark_conf_file, 'r') as file:
         spark_conf = json.load(file)
+
+    if grch37:
+        geno_ref = 'GRCh37'
+    else:
+        geno_ref = 'GRCh38'
+    log.info(f'Set {geno_ref} as the reference genome.')
 
     hl.init(quiet=True, spark_conf=spark_conf)
     hl.default_reference = geno_ref
@@ -107,7 +114,7 @@ class GProcessor:
                   'call_rate': 'Call rate', 
                   'hwe': 'HWE p-value threshold'}
 
-    def __init__(self, snps_mt, geno_ref=None, variant_type=None, 
+    def __init__(self, snps_mt, grch37=None, variant_type=None, 
                  hwe=None, maf_min=None, maf_max=None, 
                  mac_thresh=None, call_rate=None): 
         """
@@ -117,7 +124,7 @@ class GProcessor:
         ------------
         snps_mt: a hl.MatrixTable of annotated VCF
         variant_type: one of ('variant', 'snv', 'indel')
-        geno_ref: reference genome
+        grch37: if the reference genome is GRCh37
         maf_max: a float number between 0 and 0.5
         maf_min: a float number between 0 and 0.5, must be smaller than maf_max
             (maf_min, maf_max) is the maf range for analysis
@@ -130,7 +137,7 @@ class GProcessor:
         """
         self.snps_mt = snps_mt
         self.variant_type = variant_type
-        self.geno_ref = geno_ref
+        self.geno_ref = 'GRCh37' if grch37 else 'GRCh38'
         self.maf_min = maf_min
         self.maf_max = maf_max
         self.mac_thresh = mac_thresh
@@ -191,35 +198,33 @@ class GProcessor:
         return cls(snps_mt, *args, **kwargs)
     
     @classmethod
-    def import_plink(cls, bfile, geno_ref, *args, **kwargs):
+    def import_plink(cls, bfile, grch37, *args, **kwargs):
         """
         Importing genotype data from PLINK triplets
 
         Parameters:
         ------------
         dir: directory to PLINK triplets (prefix only)
+        grch37: if the reference genome is GRCh37
 
         """
-        if geno_ref == 'GRCh38':
-            recode = {f"{i}":f"chr{i}" for i in (list(range(1, 23)) + ['X', 'Y'])}
-        else:
-            recode = {f"chr{i}":f"{i}" for i in (list(range(1, 23)) + ['X', 'Y'])}
-
+        geno_ref, recode = cls._recode(grch37)
         snps_mt = hl.import_plink(bed=bfile + '.bed',
                                   bim=bfile + '.bim',
                                   fam=bfile + '.fam',
                                   reference_genome=geno_ref,
                                   contig_recoding=recode)
-        return cls(snps_mt, geno_ref, *args, **kwargs)
+        return cls(snps_mt, grch37, *args, **kwargs)
 
     @classmethod
-    def import_vcf(cls, dir, geno_ref, *args, **kwargs):
+    def import_vcf(cls, dir, grch37, *args, **kwargs):
         """
         Importing a VCF file as MatrixTable
 
         Parameters:
         ------------
         dir: directory to VCF file
+        grch37: if the reference genome is GRCh37
         geno_ref: reference genome
         
         """
@@ -230,14 +235,20 @@ class GProcessor:
         else:
             raise ValueError('VCF suffix is incorrect')
 
-        if geno_ref == 'GRCh38':
-            recode = {f"{i}":f"chr{i}" for i in (list(range(1, 23)) + ['X', 'Y'])}
-        else:
-            recode = {f"chr{i}":f"{i}" for i in (list(range(1, 23)) + ['X', 'Y'])}
-
+        geno_ref, recode = cls._recode(grch37)
         vcf_mt = hl.import_vcf(dir, force_bgz=force_bgz, reference_genome=geno_ref,
                                contig_recoding=recode)
-        return cls(vcf_mt, geno_ref, *args, **kwargs)
+        return cls(vcf_mt, grch37, *args, **kwargs)
+    
+    @staticmethod
+    def _recode(grch37):
+        if not grch37:
+            geno_ref = 'GRCh38'
+            recode = {f"{i}":f"chr{i}" for i in (list(range(1, 23)) + ['X', 'Y'])}
+        else:
+            geno_ref = 'GRCh37'
+            recode = {f"chr{i}":f"{i}" for i in (list(range(1, 23)) + ['X', 'Y'])}
+        return geno_ref, recode
     
     def save_interim_data(self, temp_dir):
         """
@@ -249,6 +260,7 @@ class GProcessor:
         temp_dir: directory to temporarily save the MatrixTable
         
         """
+        self.logger.info(f'Save preprocessed genotype data to {temp_dir}')
         self.snps_mt.write(temp_dir) # slow but fair
         self.snps_mt = hl.read_matrix_table(temp_dir)
 
@@ -289,14 +301,6 @@ class GProcessor:
         table = table.key_by('IID')
         annot_expr = {annot_name: table[self.snps_mt.s]}
         self.snps_mt = self.snps_mt.annotate_cols(**annot_expr)
-
-    def get_bim(self):
-        """
-        Get SNP info in bim format 
-        
-        """
-        pass
-        # 11:42pm how to get the bim from a MatrixTable?
 
     def _vcf_filter(self):
         """
@@ -593,4 +597,42 @@ def pandas_to_table(df, dir):
                             types={'IID': hl.tstr}, missing='NA')      
 
     return table
+
+
+def process_range(range):
+    """
+    Converting range from string to readable format
+
+    """
+    if range is not None:
+        try:
+            start, end = range.split(',')
+            start_chr, start_pos = [int(x) for x in start.split(':')]
+            end_chr, end_pos = [int(x) for x in end.split(':')]
+        except:
+            raise ValueError(
+                '--range should be in this format: <CHR>:<POS1>,<CHR>:<POS2>')
+        if start_chr != end_chr:
+            raise ValueError((f'starting with chromosome {start_chr} '
+                                f'while ending with chromosome {end_chr} '
+                                'is not allowed'))
+        if start_pos > end_pos:
+            raise ValueError((f'starting with {start_pos} '
+                                f'while ending with position is {end_pos} '
+                                'is not allowed'))
+    else:
+        start_chr, start_pos, end_pos = None, None, None
+
+    return start_chr, start_pos, end_pos
+
+
+def get_temp_path():
+    """
+    Generating a path for saving temporary files
     
+    """
+    temp_path = 'temp'
+    i = np.random.choice(1000000, 1)[0] # randomly select a large number
+    temp_path += str(i)
+
+    return temp_path

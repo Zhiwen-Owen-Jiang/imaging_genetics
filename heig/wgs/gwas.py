@@ -4,7 +4,13 @@ import logging
 import hail as hl
 import heig.input.dataset as ds
 from heig.wgs.relatedness import LOCOpreds
-from heig.wgs.utils import GProcessor, pandas_to_table, init_hail
+from heig.wgs.utils import (
+    GProcessor,
+    pandas_to_table,
+    init_hail,
+    process_range,
+    get_temp_path,
+)
 
 
 """
@@ -16,71 +22,35 @@ TODO: consider providing more preprocessing options? such as --chr
 def check_input(args, log):
     # required arguments
     if args.ldrs is None:
-        raise ValueError('--ldrs is required')
+        raise ValueError("--ldrs is required")
     if args.covar is None:
-        raise ValueError('--covar is required')
+        raise ValueError("--covar is required")
     if args.bfile is None and args.geno_mt is None:
-        raise ValueError('either --bfile or --geno-mt is required')
+        raise ValueError("either --bfile or --geno-mt is required")
     elif args.bfile is not None and args.geno_mt is not None:
-        log.info('WARNING: --bfile is ignored if --geno-mt is provided')
+        log.info("WARNING: --bfile is ignored if --geno-mt is provided")
         args.bfile = None
-    
+
     if args.variant_type is None:
-        args.variant_type = 'variant'
+        args.variant_type = "variant"
     else:
         args.variant_type = args.variant_type.lower()
-        if args.variant_type not in {'snv', 'variant', 'indel'}:
-            raise ValueError("--variant-type must be one of ('variant', 'snv', 'indel')")
-        
-    # if args.maf_min is None:
-    #     args.maf_min = 0
-    # if args.maf_max is None:
-    #     args.maf_max = 0.5
-    # elif args.maf_max > 0.5 or args.maf_max < 0 or args.maf_max < args.maf_min:
-    #     raise ValueError(('--maf-max must be greater than 0, less than 0.5, '
-    #                       'and greater than --maf-min'))
-    
-    # process arguments
-    if args.range is not None:
-        try:
-            start, end = args.range.split(',')
-            start_chr, start_pos = [int(x) for x in start.split(':')]
-            end_chr, end_pos = [int(x) for x in end.split(':')]
-        except:
+        if args.variant_type not in {"snv", "variant", "indel"}:
             raise ValueError(
-                '--range should be in this format: <CHR>:<POS1>,<CHR>:<POS2>')
-        if start_chr != end_chr:
-            raise ValueError((f'starting with chromosome {start_chr} '
-                                f'while ending with chromosome {end_chr} '
-                                'is not allowed'))
-        if start_pos > end_pos:
-            raise ValueError((f'starting with {start_pos} '
-                                f'while ending with position is {end_pos} '
-                                'is not allowed'))
-    else:
-        start_chr, start_pos, end_pos = None, None, None
+                "--variant-type must be one of ('variant', 'snv', 'indel')"
+            )
 
-    temp_path = os.path.join(os.path.dirname(args.out), 'temp')
-    i = 0
-    while os.path.exists(temp_path):
-        temp_path += str(i)
-        i += 1
+    start_chr, start_pos, end_pos = process_range(args.range)
 
-    if args.grch37 is None or not args.grch37:
-        geno_ref = 'GRCh38'
-    else:
-        geno_ref = 'GRCh37'
-    log.info(f'Set {geno_ref} as the reference genome.')
-    
-    return start_chr, start_pos, end_pos, temp_path, geno_ref
+    return start_chr, start_pos, end_pos
 
 
 class DoGWAS:
     """
     Conducting GWAS for all LDRs w/ or w/o relatedness
-    
+
     """
-    
+
     def __init__(self, gprocessor, ldrs, covar, temp_path, loco_preds=None):
         """
         Parameters:
@@ -102,37 +72,41 @@ class DoGWAS:
         self.loco_preds = loco_preds
         self.logger = logging.getLogger(__name__)
 
-        covar_table = pandas_to_table(self.covar.data, f'{temp_path}_covar')
-        self.gprocessor.annotate_cols(covar_table, 'covar')
+        covar_table = pandas_to_table(self.covar.data, f"{temp_path}_covar")
+        self.gprocessor.annotate_cols(covar_table, "covar")
 
         if self.loco_preds is None:
-            self.logger.info(f'Doing GWAS for {self.n_ldrs} LDRs without relatedness ...')
-            ldrs_table = pandas_to_table(self.ldrs.data, f'{temp_path}_ldr')
-            self.gprocessor.annotate_cols(ldrs_table, 'ldrs')
+            self.logger.info(
+                f"Doing GWAS for {self.n_ldrs} LDRs without relatedness ..."
+            )
+            ldrs_table = pandas_to_table(self.ldrs.data, f"{temp_path}_ldr")
+            self.gprocessor.annotate_cols(ldrs_table, "ldrs")
             self.gwas = self.do_gwas(self.gprocessor.snps_mt)
         else:
-            self.logger.info(f'Doing GWAS for {self.n_ldrs} LDRs considering relatedness ...')
-            unique_chrs = sorted(gprocessor.extract_unique_chrs()) # slow
+            self.logger.info(
+                f"Doing GWAS for {self.n_ldrs} LDRs considering relatedness ..."
+            )
+            unique_chrs = sorted(gprocessor.extract_unique_chrs())  # slow
             self.gwas = []
             for chr in unique_chrs:
                 chr_mt = self._extract_chr(chr)
                 resid_ldrs = self.ldrs.data - self.loco_preds.data_reader(chr)
-                ldrs_table = pandas_to_table(resid_ldrs, f'{temp_path}_ldr')
-                chr_mt = self._annotate_cols(chr_mt, ldrs_table, 'ldrs')
+                ldrs_table = pandas_to_table(resid_ldrs, f"{temp_path}_ldr")
+                chr_mt = self._annotate_cols(chr_mt, ldrs_table, "ldrs")
                 self.gwas.append(self.do_gwas(chr_mt))
             self.gwas = hl.Table.union(*self.gwas, unify=False)
 
     def _extract_chr(self, chr):
         chr = str(chr)
-        if hl.default_reference == 'GRCh38':
-            chr = 'chr' + chr
+        if hl.default_reference == "GRCh38":
+            chr = "chr" + chr
 
         chr_mt = self.gprocessor.snps_mt.filter_rows(
             self.gprocessor.snps_mt.locus.contig == chr
         )
 
         return chr_mt
-    
+
     @staticmethod
     def _annotate_cols(snps_mt, table, annot_name):
         """
@@ -144,9 +118,9 @@ class DoGWAS:
         snps_mt: a hl.MatrixTable
         table: a hl.Table
         annot_name: annotation name
-        
+
         """
-        table = table.key_by('IID')
+        table = table.key_by("IID")
         annot_expr = {annot_name: table[snps_mt.s]}
         snps_mt = snps_mt.annotate_cols(**annot_expr)
         return snps_mt
@@ -162,46 +136,60 @@ class DoGWAS:
         Returns:
         ---------
         gwas: gwas results in hail.Table
-        
+
         """
         pheno_list = [snps_mt.ldrs[i] for i in range(self.n_ldrs)]
         covar_list = [snps_mt.covar[i] for i in range(self.n_covar)]
 
         gwas = hl.linear_regression_rows(
-            y=pheno_list, x=snps_mt.GT.n_alt_alleles(),
-            covariates=covar_list, pass_through=[snps_mt.rsid, snps_mt.info.n_called]
+            y=pheno_list,
+            x=snps_mt.GT.n_alt_alleles(),
+            covariates=covar_list,
+            pass_through=[snps_mt.rsid, snps_mt.info.n_called],
         )
 
-        gwas = gwas.annotate(chr=gwas.locus.contig,
-                            pos=gwas.locus.position,
-                            ref_allele=gwas.alleles[0],
-                            alt_allele=gwas.alleles[1])
-        gwas = gwas.key_by() 
-        gwas = gwas.drop(*['locus', 'alleles', 'y_transpose_x', 'sum_x'])
+        gwas = gwas.annotate(
+            chr=gwas.locus.contig,
+            pos=gwas.locus.position,
+            ref_allele=gwas.alleles[0],
+            alt_allele=gwas.alleles[1],
+        )
+        gwas = gwas.key_by()
+        gwas = gwas.drop(*["locus", "alleles", "y_transpose_x", "sum_x"])
         # gwas = gwas.drop(*['locus', 'alleles', 'n'])
-        gwas = gwas.select('chr', 'pos', 'rsid', 'ref_allele', 'alt_allele',
-                        'n_called', 'beta', 'standard_error', 't_stat',
-                        'p_value')
+        gwas = gwas.select(
+            "chr",
+            "pos",
+            "rsid",
+            "ref_allele",
+            "alt_allele",
+            "n_called",
+            "beta",
+            "standard_error",
+            "t_stat",
+            "p_value",
+        )
 
         return gwas
 
-    
+
 def run(args, log):
     # check input and configure hail
-    chr, start, end, temp_path, geno_ref = check_input(args, log)
+    chr, start, end = check_input(args, log)
+    init_hail(args.spark_conf, args.grch37, log)
 
     # read LDRs and covariates
-    log.info(f'Read LDRs from {args.ldrs}')
+    log.info(f"Read LDRs from {args.ldrs}")
     ldrs = ds.Dataset(args.ldrs)
-    log.info(f'{ldrs.data.shape[1]} LDRs and {ldrs.data.shape[0]} subjects.')
+    log.info(f"{ldrs.data.shape[1]} LDRs and {ldrs.data.shape[0]} subjects.")
     if args.n_ldrs is not None:
         if ldrs.data.shape[1] < args.n_ldrs:
-            raise ValueError(f'the number of LDRs is less than --n-ldrs')
+            raise ValueError(f"the number of LDRs is less than --n-ldrs")
         else:
-            log.info(f'Keep the top {args.n_ldrs} LDRs.')        
-        ldrs.data = ldrs.data.iloc[:, :args.n_ldrs]
+            log.info(f"Keep the top {args.n_ldrs} LDRs.")
+        ldrs.data = ldrs.data.iloc[:, : args.n_ldrs]
 
-    log.info(f'Read covariates from {args.covar}')
+    log.info(f"Read covariates from {args.covar}")
     covar = ds.Covar(args.covar, args.cat_covar_list)
 
     try:
@@ -211,43 +199,57 @@ def run(args, log):
             loco_preds.select_ldr(args.n_ldrs)
             if loco_preds.n_ldrs != ldrs.data.shape[1]:
                 raise ValueError(
-                (
-                    "inconsistent dimension in LDRs and LDR LOCO predictions. "
-                    "Try to use --n-ldrs"
+                    (
+                        "inconsistent dimension in LDRs and LDR LOCO predictions. "
+                        "Try to use --n-ldrs"
+                    )
                 )
+            common_ids = ds.get_common_idxs(
+                ldrs.data.index,
+                covar.data.index,
+                loco_preds.ids,
+                args.keep,
+                single_id=True,
             )
-            common_ids = ds.get_common_idxs(ldrs.data.index, covar.data.index, loco_preds.ids, args.keep, single_id=True)
         else:
             # keep subjects
-            common_ids = ds.get_common_idxs(ldrs.data.index, covar.data.index, args.keep, single_id=True)
+            common_ids = ds.get_common_idxs(
+                ldrs.data.index, covar.data.index, args.keep, single_id=True
+            )
 
         # read genotype data
-        init_hail(args.spark_conf, geno_ref)
-
         if args.bfile is not None:
-            log.info(f'Read bfile from {args.bfile}')
-            gprocessor = GProcessor.import_plink(args.bfile, geno_ref,
-                                                variant_type=args.variant_type, 
-                                                maf_min=args.maf_min, maf_max=args.maf_max)
+            log.info(f"Read bfile from {args.bfile}")
+            gprocessor = GProcessor.import_plink(
+                args.bfile,
+                args.grch37,
+                variant_type=args.variant_type,
+                maf_min=args.maf_min,
+                maf_max=args.maf_max,
+            )
         elif args.geno_mt is not None:
-            log.info(f'Read genotype data from {args.geno_mt}')
-            gprocessor = GProcessor.read_matrix_table(args.geno_mt, geno_ref,
-                                                    variant_type=args.variant_type, 
-                                                    maf_min=args.maf_min, maf_max=args.maf_max)
-    
+            log.info(f"Read genotype data from {args.geno_mt}")
+            gprocessor = GProcessor.read_matrix_table(
+                args.geno_mt,
+                args.grch37,
+                variant_type=args.variant_type,
+                maf_min=args.maf_min,
+                maf_max=args.maf_max,
+            )
+
         log.info(f"Processing genetic data ...")
         gprocessor.extract_snps(args.extract)
         gprocessor.extract_idvs(common_ids)
-        gprocessor.do_processing(mode='gwas')
+        gprocessor.do_processing(mode="gwas")
         if chr is not None and start is not None:
             # TODO: add more options
             gprocessor.extract_gene(chr=chr, start=start, end=end)
-        
+
+        temp_path = get_temp_path()
         if not args.not_save_genotype_data:
-            log.info(f'Save preprocessed genotype data to {temp_path}')
             gprocessor.save_interim_data(temp_path)
         gprocessor.check_valid()
-    
+
         # extract common subjects and align data
         snps_mt_ids = gprocessor.subject_id()
         ldrs.to_single_index()
@@ -260,8 +262,10 @@ def run(args, log):
             loco_preds.keep(snps_mt_ids)
         else:
             loco_preds = None
-        log.info(f'{len(snps_mt_ids)} common subjects in the data.')
-        log.info(f"{covar.data.shape[1]} fixed effects in the covariates (including the intercept).")
+        log.info(f"{len(snps_mt_ids)} common subjects in the data.")
+        log.info(
+            f"{covar.data.shape[1]} fixed effects in the covariates (including the intercept)."
+        )
 
         # gwas
         gwas = DoGWAS(gprocessor, ldrs, covar, temp_path, loco_preds)
@@ -270,14 +274,15 @@ def run(args, log):
         gwas.gwas.export(f"{args.out}.txt.bgz")
         log.info(f"Save GWAS results to {args.out}.txt.bgz")
     finally:
-        # if os.path.exists(temp_path):
-        #     shutil.rmtree(temp_path)
-        #     log.info(f'Removed preprocessed genotype data at {temp_path}')
-        if os.path.exists(f'{temp_path}_covar.txt'):
-            os.remove(f'{temp_path}_covar.txt')
-            log.info(f'Removed temporary covariate data at {temp_path}_covar.txt')
-        if os.path.exists(f'{temp_path}_ldr.txt'):
-            os.remove(f'{temp_path}_ldr.txt')
-            log.info(f'Removed temporary LDR data at {temp_path}_ldr.txt')
-        if args.loco_preds is not None:
-            loco_preds.close()
+        if "temp_path" in locals():
+            if os.path.exists(temp_path):
+                shutil.rmtree(temp_path, ignore_errors=True)
+                log.info(f"Removed preprocessed genotype data at {temp_path}")
+            if os.path.exists(f"{temp_path}_covar.txt"):
+                os.remove(f"{temp_path}_covar.txt")
+                log.info(f"Removed temporary covariate data at {temp_path}_covar.txt")
+            if os.path.exists(f"{temp_path}_ldr.txt"):
+                os.remove(f"{temp_path}_ldr.txt")
+                log.info(f"Removed temporary LDR data at {temp_path}_ldr.txt")
+            if args.loco_preds is not None:
+                loco_preds.close()

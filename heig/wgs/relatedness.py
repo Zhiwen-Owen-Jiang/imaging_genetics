@@ -9,7 +9,7 @@ from collections import defaultdict
 from sklearn.model_selection import KFold
 from scipy.linalg import cho_solve, cho_factor
 import heig.input.dataset as ds
-from heig.wgs.utils import GProcessor, init_hail
+from heig.wgs.utils import GProcessor, init_hail, get_temp_path
 from hail.linalg import BlockMatrix
 
 
@@ -60,13 +60,18 @@ class Relatedness:
         self.shrinkage_level1 = self.n_params * n_blocks * shrinkage_
         self.kf = KFold(n_splits=5, shuffle=True, random_state=42)
 
-        self.inner_covar_inv = np.linalg.inv(np.dot(covar.T, covar)) # (X'X)^{-1}, (p, p)
-        self.resid_ldrs = ldrs - np.dot(np.dot(covar, self.inner_covar_inv), 
-                                        np.dot(covar.T, ldrs)) # \Xi - X(X'X)^{-1}X'\Xi, (n, r)
+        self.inner_covar_inv = np.linalg.inv(
+            np.dot(covar.T, covar)
+        )  # (X'X)^{-1}, (p, p)
+        self.resid_ldrs = ldrs - np.dot(
+            np.dot(covar, self.inner_covar_inv), np.dot(covar.T, ldrs)
+        )  # \Xi - X(X'X)^{-1}X'\Xi, (n, r)
         self.resid_ldrs_std = np.std(self.resid_ldrs, axis=0)
-        self.resid_ldrs /= self.resid_ldrs_std # scale to var 1 for heritability definition
+        self.resid_ldrs /= (
+            self.resid_ldrs_std
+        )  # scale to var 1 for heritability definition
         self.covar = covar
-        
+
     @staticmethod
     def _ridge_prediction(XtX, alpha, Xty, x_test):
         """
@@ -78,7 +83,7 @@ class Relatedness:
         alpha: tuning parameter
         Xty: X'y
         x_test: test data
-        
+
         """
         A = XtX + np.eye(XtX.shape[1]) * alpha
         c, lower = cho_factor(A)
@@ -100,25 +105,34 @@ class Relatedness:
         level0_preds: a (r by n by 5) array of predictions
 
         """
-        level0_preds = np.zeros((self.r, self.n, len(self.shrinkage_level0)), dtype=np.float32)
+        level0_preds = np.zeros(
+            (self.r, self.n, len(self.shrinkage_level0)), dtype=np.float32
+        )
 
-        block_covar = np.dot(block.T, self.covar) # Z'X, (m, p)
-        resid_block = block - np.dot(np.dot(self.covar, self.inner_covar_inv), 
-                                     block_covar.T) # (I-M)Z = Z-X(X'X)^{-1}X'Z, (n, m)
+        block_covar = np.dot(block.T, self.covar)  # Z'X, (m, p)
+        resid_block = block - np.dot(
+            np.dot(self.covar, self.inner_covar_inv), block_covar.T
+        )  # (I-M)Z = Z-X(X'X)^{-1}X'Z, (n, m)
         resid_block = resid_block / np.std(resid_block, axis=0)
-        proj_inner_block = np.dot(resid_block.T, resid_block) # Z'(I-M)Z, (m, m)
-        proj_block_ldrs = np.dot(resid_block.T, self.resid_ldrs) # Z'(I-M)\Xi, (m, r)
+        proj_inner_block = np.dot(resid_block.T, resid_block)  # Z'(I-M)Z, (m, m)
+        proj_block_ldrs = np.dot(resid_block.T, self.resid_ldrs)  # Z'(I-M)\Xi, (m, r)
 
         for _, test_idxs in self.kf.split(range(self.n)):
-            proj_inner_block_ = proj_inner_block - np.dot(resid_block[test_idxs].T, resid_block[test_idxs])
-            proj_block_ldrs_ = proj_block_ldrs - np.dot(resid_block[test_idxs].T, self.resid_ldrs[test_idxs])
+            proj_inner_block_ = proj_inner_block - np.dot(
+                resid_block[test_idxs].T, resid_block[test_idxs]
+            )
+            proj_block_ldrs_ = proj_block_ldrs - np.dot(
+                resid_block[test_idxs].T, self.resid_ldrs[test_idxs]
+            )
             for i, param in enumerate(self.shrinkage_level0):
                 # preds = np.dot(
                 #     resid_block[test_idxs],
-                #     np.dot(np.linalg.inv(proj_inner_block_ + np.eye(proj_inner_block_.shape[1]) * param), 
+                #     np.dot(np.linalg.inv(proj_inner_block_ + np.eye(proj_inner_block_.shape[1]) * param),
                 #         proj_block_ldrs_)
                 # ) # (I-M)Z (Z'(I-M)Z+\lambdaI)^{-1} Z'(I-M)\Xi, (n, r)
-                preds = self._ridge_prediction(proj_inner_block_, param, proj_block_ldrs_, resid_block[test_idxs])
+                preds = self._ridge_prediction(
+                    proj_inner_block_, param, proj_block_ldrs_, resid_block[test_idxs]
+                )
                 level0_preds[:, test_idxs, i] = preds.T
 
         return level0_preds
@@ -139,19 +153,21 @@ class Relatedness:
         """
         best_params = np.zeros(self.r, dtype=np.float32)
         chr_preds = np.zeros((self.r, self.n, len(chr_idxs)), dtype=np.float32)
-        
+
         ## get column idxs for each CHR after reshaping
         reshaped_idxs = self._get_reshaped_idxs(chr_idxs)
 
         ## this can do in parallel
-        for j in tqdm(range(self.r), desc=f'{self.r} LDRs'):
-            best_params[j] = self._level1_ridge_ldr(level0_preds_reader[j], self.resid_ldrs[:, j])
+        for j in tqdm(range(self.r), desc=f"{self.r} LDRs"):
+            best_params[j] = self._level1_ridge_ldr(
+                level0_preds_reader[j], self.resid_ldrs[:, j]
+            )
             chr_preds[j] = self._chr_preds_ldr(
-                best_params[j], 
-                level0_preds_reader[j], 
-                self.resid_ldrs[:, j], 
+                best_params[j],
+                level0_preds_reader[j],
+                self.resid_ldrs[:, j],
                 self.resid_ldrs_std[j],
-                reshaped_idxs
+                reshaped_idxs,
             )
 
         return chr_preds
@@ -167,18 +183,20 @@ class Relatedness:
         Returns:
         ---------
         reshaped_idxs: a dictionary of chromosome: [predictor idxs]
-        
+
         """
         reshaped_idxs = dict()
         for chr, idxs in chr_idxs.items():
             chr = int(chr)
             reshaped_idxs_chr = list()
             for idx in idxs:
-                reshaped_idxs_chr.extend(range(idx, self.n_params * self.n_blocks, self.n_blocks))
+                reshaped_idxs_chr.extend(
+                    range(idx, self.n_params * self.n_blocks, self.n_blocks)
+                )
             reshaped_idxs[chr] = reshaped_idxs_chr
-        
+
         return reshaped_idxs
-    
+
     def _level1_ridge_ldr(self, level0_preds, ldr):
         """
         Using cross-validation to select the optimal parameter for each ldr.
@@ -200,7 +218,7 @@ class Relatedness:
         ## overall results
         inner_level0_preds = np.dot(level0_preds.T, level0_preds)
         level0_preds_ldr = np.dot(level0_preds.T, ldr)
-        
+
         ## cross validation
         for i, (_, test_idxs) in enumerate(self.kf.split(range(self.n))):
             test_x = level0_preds[test_idxs]
@@ -208,11 +226,13 @@ class Relatedness:
             inner_train_x = inner_level0_preds - np.dot(test_x.T, test_x)
             train_xy = level0_preds_ldr - np.dot(test_x.T, test_y)
             for j, param in enumerate(self.shrinkage_level1):
-                # preditors = np.dot(np.linalg.inv(inner_train_x + np.eye(inner_train_x.shape[1]) * param), 
+                # preditors = np.dot(np.linalg.inv(inner_train_x + np.eye(inner_train_x.shape[1]) * param),
                 #                    train_xy)
                 # predictions = np.dot(test_x, preditors)
-                predictions = self._ridge_prediction(inner_train_x, param, train_xy, test_x)
-                mse[i, j] = np.sum((test_y - predictions) ** 2) # squared L2 norm
+                predictions = self._ridge_prediction(
+                    inner_train_x, param, train_xy, test_x
+                )
+                mse[i, j] = np.sum((test_y - predictions) ** 2)  # squared L2 norm
         mse = np.sum(mse, axis=0) / self.n
         min_idx = np.argmin(mse)
         best_param = self.shrinkage_level1[min_idx]
@@ -227,7 +247,7 @@ class Relatedness:
         ------------
         best_param: the optimal parameter
         level0_preds: n by n_params by n_blocks matrix for ldr j
-        ldr: resid ldr 
+        ldr: resid ldr
         ldr_std: std of resid ldr
         reshaped_idxs: a dictionary of chromosome: [idxs in reshaped predictors]
 
@@ -252,12 +272,19 @@ class Relatedness:
             loco_preds_ldr = preds_ldr[mask]
             # loco_preditors = np.dot(
             #     np.linalg.inv(
-            #     inner_loco_level0_preds + np.eye(inner_loco_level0_preds.shape[1]) * best_param), 
+            #     inner_loco_level0_preds + np.eye(inner_loco_level0_preds.shape[1]) * best_param),
             #     loco_preds_ldr
             #     )
             # loco_prediction = np.dot(level0_preds[:, mask], loco_preditors)
-            loco_prediction = self._ridge_prediction(inner_loco_level0_preds, best_param, loco_preds_ldr, level0_preds[:, mask])
-            loco_predictions[:, chr-1] = loco_prediction * ldr_std # recover to original scale
+            loco_prediction = self._ridge_prediction(
+                inner_loco_level0_preds,
+                best_param,
+                loco_preds_ldr,
+                level0_preds[:, mask],
+            )
+            loco_predictions[:, chr - 1] = (
+                loco_prediction * ldr_std
+            )  # recover to original scale
 
         return loco_predictions
 
@@ -267,8 +294,9 @@ class GenoBlocks:
     Splitting the genome into blocks based on
     1. Pre-defined LD blocks, or
     2. equal-size blocks (REGENIE)
-    
+
     """
+
     def __init__(self, snps_mt, partition=None, block_size=1000):
         """
         Parameters:
@@ -276,8 +304,8 @@ class GenoBlocks:
         snps_mt: genotype data in MatrixTable
         partition: a pd.DataFrame of genome partition file with columns (without header)
             0: chr, 1: start, 2: end
-        block_size: block size (if equal-size block) 
-        
+        block_size: block size (if equal-size block)
+
         """
         self.snps_mt = snps_mt
         self.partition = partition
@@ -300,13 +328,13 @@ class GenoBlocks:
 
         """
         if self.partition is None:
-            raise ValueError('input a genome partition file by --partition')
-        
+            raise ValueError("input a genome partition file by --partition")
+
         n_unique_chrs = len(set(self.partition[0]))
         if n_unique_chrs > 22:
-            raise ValueError('sex chromosomes are not supported')
+            raise ValueError("sex chromosomes are not supported")
         if n_unique_chrs < 22:
-            raise ValueError('genotype data including all autosomes is required')
+            raise ValueError("genotype data including all autosomes is required")
 
         if self.partition.shape[0] > 200:
             merged_partition = self._merge_ld_blocks()
@@ -317,14 +345,14 @@ class GenoBlocks:
         overall_block_idx = 0
         for _, block in merged_partition.iterrows():
             contig = str(block[0])
-            if hl.default_reference == 'GRCh38':
-                contig = 'chr' + contig
+            if hl.default_reference == "GRCh38":
+                contig = "chr" + contig
             start = block[1]
             end = block[2]
             block_mt = self.snps_mt.filter_rows(
-                (self.snps_mt.locus.contig == contig) & 
-                (self.snps_mt.locus.position >= start) & 
-                (self.snps_mt.locus.position < end)
+                (self.snps_mt.locus.contig == contig)
+                & (self.snps_mt.locus.position >= start)
+                & (self.snps_mt.locus.position < end)
             )
             blocks.append(block_mt)
             chr_idxs[block[0]].append(overall_block_idx)
@@ -339,7 +367,7 @@ class GenoBlocks:
         Returns:
         ---------
         merged_partition: a pd.DataFrame of merged partition
-        
+
         """
         ## merge blocks by CHR
         n_blocks = self.partition.shape[0]
@@ -350,7 +378,7 @@ class GenoBlocks:
             idx = chr_blocks.index
             idx_to_extract.append(idx[0])
             if n_chr_blocks >= n_to_merge:
-                idx_to_extract += list(idx[n_to_merge: : n_to_merge])
+                idx_to_extract += list(idx[n_to_merge::n_to_merge])
             if idx[-1] not in idx_to_extract:
                 idx_to_extract.append(idx[-1])
         merged_partition = self.partition.loc[idx_to_extract].copy()
@@ -372,23 +400,27 @@ class GenoBlocks:
         ---------
         blocks: a list of blocks in MatrixTable
         chr_idxs: a dictionary of chromosome: [block idxs]
-        
+
         """
         blocks = []
         chr_idxs = defaultdict(list)
         overall_block_idx = 0
-        chrs = set(self.snps_mt.aggregate_rows(hl.agg.collect(self.snps_mt.locus.contig))) # slow
-        
+        chrs = set(
+            self.snps_mt.aggregate_rows(hl.agg.collect(self.snps_mt.locus.contig))
+        )  # slow
+
         if len(chrs) > 22:
-            raise ValueError('sex chromosomes are not supported')
+            raise ValueError("sex chromosomes are not supported")
         if len(chrs) < 22:
-            raise ValueError('genotype data including all autosomes is required')
+            raise ValueError("genotype data including all autosomes is required")
 
         for chr in chrs:
             snps_mt_chr = self.snps_mt.filter_rows(self.snps_mt.locus.contig == chr)
             snps_mt_chr = snps_mt_chr.add_row_index()
             n_variants = snps_mt_chr.count_rows()
-            n_blocks = (n_variants // self.block_size) + int(n_variants % self.block_size > 0)
+            n_blocks = (n_variants // self.block_size) + int(
+                n_variants % self.block_size > 0
+            )
             block_size_chr = n_variants // n_blocks
 
             for block_idx in range(n_blocks):
@@ -410,16 +442,17 @@ class GenoBlocks:
 class LOCOpreds:
     """
     Reading LOCO LDR predictions
-    
+
     """
+
     def __init__(self, file_path):
-        self.file = h5py.File(file_path, 'r')
-        self.preds = self.file['ldr_loco_preds']
-        ids = self.file['id'][:]
+        self.file = h5py.File(file_path, "r")
+        self.preds = self.file["ldr_loco_preds"]
+        ids = self.file["id"][:]
         self.ids = pd.MultiIndex.from_arrays(ids.astype(str).T, names=["FID", "IID"])
         self.id_idxs = np.arange(len(self.ids))
         self.n_ldrs = self.preds.shape[0]
-        
+
     def close(self):
         self.file.close()
 
@@ -428,7 +461,7 @@ class LOCOpreds:
             if n_ldrs <= self.preds.shape[0]:
                 self.n_ldrs = n_ldrs
             else:
-                raise ValueError('--n-ldrs is greater than #LDRs in LOCO predictions')
+                raise ValueError("--n-ldrs is greater than #LDRs in LOCO predictions")
 
     def keep(self, keep_idvs):
         """
@@ -441,96 +474,89 @@ class LOCOpreds:
         Returns:
         ---------
         self.id_idxs: numeric indices of subjects
-        
+
         """
-        keep_idvs = pd.MultiIndex.from_arrays([keep_idvs, keep_idvs], names=['FID', 'IID'])
-        common_ids = ds.get_common_idxs(keep_idvs, self.ids).get_level_values('IID')
-        ids_df = pd.DataFrame({'id': self.id_idxs}, index=self.ids.get_level_values('IID'))
+        keep_idvs = pd.MultiIndex.from_arrays(
+            [keep_idvs, keep_idvs], names=["FID", "IID"]
+        )
+        common_ids = ds.get_common_idxs(keep_idvs, self.ids).get_level_values("IID")
+        ids_df = pd.DataFrame(
+            {"id": self.id_idxs}, index=self.ids.get_level_values("IID")
+        )
         ids_df = ids_df.loc[common_ids]
-        self.id_idxs = ids_df['id'].values
+        self.id_idxs = ids_df["id"].values
 
     def data_reader(self, chr):
         """
         Reading LDR predictions for a chromosome
-        
+
         """
-        loco_preds_chr = self.preds[:self.n_ldrs, :, chr-1].T # (n, r)
+        loco_preds_chr = self.preds[: self.n_ldrs, :, chr - 1].T  # (n, r)
         return loco_preds_chr[self.id_idxs]
 
 
 def check_input(args, log):
     # required arguments
     if args.bfile is None and args.geno_mt is None:
-        raise ValueError('--bfile or --geno-mt is required.')
+        raise ValueError("--bfile or --geno-mt is required.")
     if args.covar is None:
-        raise ValueError('--covar is required.')
+        raise ValueError("--covar is required.")
     if args.ldrs is None:
-        raise ValueError('--ldrs is required.')
+        raise ValueError("--ldrs is required.")
     if args.spark_conf is None:
-        raise ValueError('--spark-conf is required')
+        raise ValueError("--spark-conf is required")
 
     if args.bsize is not None and args.bsize < 1000:
-        raise ValueError('--bsize should be no less than 1000.')
+        raise ValueError("--bsize should be no less than 1000.")
     elif args.bsize is None:
         args.bsize = 1000
-    
-    temp_path = 'temp'
-    i = 0
-    while os.path.exists(temp_path + str(i)):
-        i += 1
-    temp_path += str(i)
-        
-    if args.grch37 is None or not args.grch37:
-        geno_ref = 'GRCh38'
-    else:
-        geno_ref = 'GRCh37'
-    log.info(f'Set {geno_ref} as the reference genome.')
-
-    return temp_path, geno_ref
 
 
 def run(args, log):
     # check input and configure hail
-    temp_path, geno_ref = check_input(args, log)
+    check_input(args, log)
+    init_hail(args.spark_conf, args.grch37, log)
 
     # read LDRs and covariates
-    log.info(f'Read LDRs from {args.ldrs}')
+    log.info(f"Read LDRs from {args.ldrs}")
     ldrs = ds.Dataset(args.ldrs)
-    log.info(f'{ldrs.data.shape[1]} LDRs and {ldrs.data.shape[0]} subjects.')
+    log.info(f"{ldrs.data.shape[1]} LDRs and {ldrs.data.shape[0]} subjects.")
     if args.n_ldrs is not None:
-        ldrs.data = ldrs.data.iloc[:, :args.n_ldrs]
+        ldrs.data = ldrs.data.iloc[:, : args.n_ldrs]
         if ldrs.data.shape[1] > args.n_ldrs:
-            log.info(f'WARNING: --n-ldrs greater than #LDRs, use all LDRs.')
+            log.info(f"WARNING: --n-ldrs greater than #LDRs, use all LDRs.")
         else:
-            log.info(f'Keep the top {args.n_ldrs} LDRs.')        
+            log.info(f"Keep the top {args.n_ldrs} LDRs.")
 
-    log.info(f'Read covariates from {args.covar}')
+    log.info(f"Read covariates from {args.covar}")
     covar = ds.Covar(args.covar, args.cat_covar_list)
 
     # keep common subjects
-    common_ids = ds.get_common_idxs(ldrs.data.index, covar.data.index, args.keep, single_id=True)
+    common_ids = ds.get_common_idxs(
+        ldrs.data.index, covar.data.index, args.keep, single_id=True
+    )
 
     # read genotype data
-    init_hail(args.spark_conf, geno_ref)
-
     if args.bfile is not None:
-        log.info(f'Read bfile from {args.bfile}')
-        gprocessor = GProcessor.import_plink(args.bfile, geno_ref, 
-                                            maf_min=args.maf_min)
+        log.info(f"Read bfile from {args.bfile}")
+        gprocessor = GProcessor.import_plink(
+            args.bfile, args.grch37, maf_min=args.maf_min
+        )
     elif args.geno_mt is not None:
-        log.info(f'Read genotype data from {args.geno_mt}')
-        gprocessor = GProcessor.read_matrix_table(args.geno_mt, geno_ref,
-                                                  maf_min=args.maf_min)
+        log.info(f"Read genotype data from {args.geno_mt}")
+        gprocessor = GProcessor.read_matrix_table(
+            args.geno_mt, args.grch37, maf_min=args.maf_min
+        )
     log.info(f"Processing genetic data ...")
     gprocessor.extract_snps(args.extract)
     gprocessor.extract_idvs(common_ids)
-    gprocessor.do_processing(mode='gwas')
+    gprocessor.do_processing(mode="gwas")
 
-    if not args.not_save_genotype_data:
-        log.info(f'Save preprocessed genotype data to {temp_path}')
-        gprocessor.save_interim_data(temp_path)
-    
     try:
+        temp_path = get_temp_path()
+        if not args.not_save_genotype_data:
+            gprocessor.save_interim_data(temp_path)
+
         # get common subjects
         gprocessor.check_valid()
         snps_mt_ids = gprocessor.subject_id()
@@ -539,19 +565,21 @@ def run(args, log):
         ldrs.keep(snps_mt_ids)
         covar.keep(snps_mt_ids)
         covar.cat_covar_intercept()
-        log.info(f'{len(snps_mt_ids)} common subjects in the data.')
-        log.info(f"{covar.data.shape[1]} fixed effects in the covariates (including the intercept).")
+        log.info(f"{len(snps_mt_ids)} common subjects in the data.")
+        log.info(
+            f"{covar.data.shape[1]} fixed effects in the covariates (including the intercept)."
+        )
 
         # split the genome into blocks
         if args.partition is not None:
             genome_part = ds.read_geno_part(args.partition)
             log.info(f"{genome_part.shape[0]} genome blocks to partition ...")
             if genome_part.shape[0] > 200:
-                log.info(f'Merge into ~200 blocks.')
+                log.info(f"Merge into ~200 blocks.")
         else:
             genome_part = None
             log.info(f"Partition the genome into blocks of size ~{args.bsize} ...")
-        
+
         geno_block = GenoBlocks(gprocessor.snps_mt, genome_part, args.bsize)
         blocks, chr_idxs = geno_block.blocks, geno_block.chr_idxs
 
@@ -562,37 +590,48 @@ def run(args, log):
             n_variants, n_blocks, np.array(ldrs.data), np.array(covar.data)
         )
 
-        log.info(f'Doing level0 ridge regression ...')
-        l0_pred_file = f'{args.out}_l0_pred_temp.h5'
-        with h5py.File(l0_pred_file, 'w') as file:
-            dset = file.create_dataset('level0_preds',
-                                        (ldrs.data.shape[1],
-                                        ldrs.data.shape[0],
-                                        len(relatedness_remover.shrinkage_level0),
-                                        n_blocks),
-                                        dtype='float32')
-            for i, block in enumerate(tqdm(blocks, desc=f'{n_blocks} blocks')):
-                block = BlockMatrix.from_entry_expr(block.GT.n_alt_alleles(), mean_impute=True) # (m, n)
+        log.info(f"Doing level0 ridge regression ...")
+        l0_pred_file = f"{args.out}_l0_pred_temp.h5"
+        with h5py.File(l0_pred_file, "w") as file:
+            dset = file.create_dataset(
+                "level0_preds",
+                (
+                    ldrs.data.shape[1],
+                    ldrs.data.shape[0],
+                    len(relatedness_remover.shrinkage_level0),
+                    n_blocks,
+                ),
+                dtype="float32",
+            )
+            for i, block in enumerate(tqdm(blocks, desc=f"{n_blocks} blocks")):
+                block = BlockMatrix.from_entry_expr(
+                    block.GT.n_alt_alleles(), mean_impute=True
+                )  # (m, n)
                 block = block.to_numpy().T
                 block_level0_preds = relatedness_remover.level0_ridge_block(block)
                 dset[:, :, :, i] = block_level0_preds
-        log.info(f'Save level0 ridge predictions to a temporary file {l0_pred_file}')
+        log.info(f"Save level0 ridge predictions to a temporary file {l0_pred_file}")
 
         # load level 0 predictions by each ldr and do level 1 ridge prediction
-        with h5py.File(l0_pred_file, 'r') as file:
-            log.info(f'Doing level1 ridge regression ...')
-            level0_preds_reader = file['level0_preds']
+        with h5py.File(l0_pred_file, "r") as file:
+            log.info(f"Doing level1 ridge regression ...")
+            level0_preds_reader = file["level0_preds"]
             chr_preds = relatedness_remover.level1_ridge(level0_preds_reader, chr_idxs)
 
-        with h5py.File(f'{args.out}_ldr_loco_preds.h5', 'w') as file:
-            file.create_dataset('ldr_loco_preds', data=chr_preds, dtype='float32')
-            file.create_dataset("id", data=np.array([snps_mt_ids, snps_mt_ids], dtype="S10").T)
-        log.info(f'Save level1 loco ridge predictions to {args.out}_ldr_loco_preds.h5')
+        with h5py.File(f"{args.out}_ldr_loco_preds.h5", "w") as file:
+            file.create_dataset("ldr_loco_preds", data=chr_preds, dtype="float32")
+            file.create_dataset(
+                "id", data=np.array([snps_mt_ids, snps_mt_ids], dtype="S10").T
+            )
+        log.info(f"Save level1 loco ridge predictions to {args.out}_ldr_loco_preds.h5")
+
     finally:
-        pass
-        # if os.path.exists(temp_path):
-        #     shutil.rmtree(temp_path)
-        #     log.info(f'Removed preprocessed genotype data at {temp_path}')
-        # if os.path.exists(l0_pred_file):
-        #     shutil.rmtree(l0_pred_file)
-        #     log.info(f'Removed level0 ridge predictions to a temporary file at {l0_pred_file}')
+        if "temp_path" in locals():
+            if os.path.exists(temp_path):
+                shutil.rmtree(temp_path, ignore_errors=True)
+                log.info(f"Removed preprocessed genotype data at {temp_path}")
+            if os.path.exists(l0_pred_file):
+                os.remove(l0_pred_file)
+                log.info(
+                    f"Removed level0 ridge predictions to a temporary file at {l0_pred_file}"
+                )

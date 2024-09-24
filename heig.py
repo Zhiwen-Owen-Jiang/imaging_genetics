@@ -289,8 +289,8 @@ common_parser.add_argument(
     "--spark-conf",
     help=(
         "Spark configuration file. "
-        "Supported modules: --relatedness, --gwas, --coding, "
-        "--noncoding, --slidingwindow, --vcf2mt."
+        "Supported modules: --relatedness, --gwas, --wgs-coding, "
+        "--wgs-noncoding, --wgs-sliding-window, --annot-vcf."
     ),
 ),
 common_parser.add_argument(
@@ -652,6 +652,7 @@ def check_accepted_args(module, args, log):
             "favor_db",
             "keep",
             "extract",
+            "spark_conf"
         },
         "wgs_null": {
             "wgs_null",
@@ -681,6 +682,7 @@ def check_accepted_args(module, args, log):
             "range",
             "voxel",
             "not_save_genotype_data",
+            "spark_conf"
         },
         "wgs_sliding_window": {
             "wgs_sliding_window",
@@ -699,6 +701,7 @@ def check_accepted_args(module, args, log):
             "range",
             "voxel",
             "not_save_genotype_data",
+            "spark_conf"
         },
         "relatedness": {
             "relatedness",
@@ -755,6 +758,7 @@ def process_args(args, log):
     ds.check_existence(args.partition)
     ds.check_existence(args.ldrs)
     ds.check_existence(args.geno_mt)
+    ds.check_existence(args.null_model)
 
     if args.n_ldrs is not None and args.n_ldrs <= 0:
         raise ValueError("--n-ldrs must be greater than 0")
@@ -794,6 +798,8 @@ def process_args(args, log):
     if args.maf_min is not None:
         if args.maf_min > 0.5 or args.maf_min < 0:
             raise ValueError("--maf-min must be greater than 0 and less than 0.5")
+    else:
+        args.maf_min = 0 # >
 
 
 def main(args, log):
