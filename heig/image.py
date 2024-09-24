@@ -239,16 +239,24 @@ def save_images(out_dir, images, coord, id):
 
 def check_input(args):
     ## --image-txt + --coord or --image-dir + --image-suffix is required
+    if (
+        args.image_dir is None
+        and args.image_suffix is None
+        and args.image_txt is None
+        and args.coord_txt is None
+    ):
+        raise ValueError(
+            "--image-txt + --coord-txt or --image-dir + --image-suffix is required"
+        )
+
     if args.image_txt is not None and args.coord_txt is None:
         raise ValueError("--coord-txt is required")
+    elif args.image_txt is None and args.coord_txt is not None:
+        raise ValueError("--image-txt is required")
     elif args.image_dir is not None and args.image_suffix is None:
         raise ValueError("--image-suffix is required")
     elif args.image_dir is None and args.image_suffix is not None:
         raise ValueError("--image-dir is required")
-    elif args.image_dir is None and args.image_suffix is None:
-        raise ValueError(
-            "--image-txt + --coord-txt or --image-dir + --image-suffix is required"
-        )
 
     ds.check_existence(args.image_txt)
     ds.check_existence(args.coord_txt)
