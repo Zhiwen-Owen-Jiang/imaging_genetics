@@ -90,10 +90,10 @@ def get_2d_matrix(n_voxels, tril, gc=True):
 data = np.load('SFO_heri_gc_gc.npz')
 gc = get_2d_matrix(193, data['gc'], gc=True) # in total 193 voxels
 se = get_2d_matrix(193, data['se'], gc=False) # in total 193 voxels
-print(f'Mean GC: {np.round(np.nanmean(matrix), 4)}')
-print(f'Median GC: {np.round(np.nanmedian(matrix), 4)}')
-print(f'Min GC: {np.round(np.nanmin(matrix), 4)}')
-print(f'SD GC: {np.round(np.nanstd(matrix), 4)}')
+print(f'Mean GC: {np.round(np.nanmean(gc), 4)}')
+print(f'Median GC: {np.round(np.nanmedian(gc), 4)}')
+print(f'Min GC: {np.round(np.nanmin(gc), 4)}')
+print(f'SD GC: {np.round(np.nanstd(gc), 4)}')
 print(f'SE GC: {np.round(np.nanmean(se), 4)}')
 ```
 
