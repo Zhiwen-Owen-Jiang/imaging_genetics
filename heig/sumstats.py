@@ -709,8 +709,6 @@ class GWASY2(ProcessGWAS):
 
     def _create_dataset(self, n_snps):
         with h5py.File(f"{self.out_dir}.sumstats", "w") as file:
-            file.create_dataset("beta", shape=(0,), dtype="float32")
-            file.create_dataset("z", shape=(n_snps, self.n_gwas_files), dtype="float32")
             file.attrs["n_snps"] = n_snps
             file.attrs["n_gwas"] = self.n_gwas_files
             file.attrs["n_blocks"] = 1
