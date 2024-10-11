@@ -273,7 +273,7 @@ def run(args, log):
 
         # save gwas results
         gwas.gwas.export(f"{args.out}.txt.bgz")
-        log.info(f"Save GWAS results to {args.out}.txt.bgz")
+        log.info(f"\nSave GWAS results to {args.out}.txt.bgz")
     finally:
         if "temp_path" in locals():
             if os.path.exists(temp_path):

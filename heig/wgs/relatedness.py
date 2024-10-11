@@ -1,6 +1,7 @@
 import os
 import h5py
 import shutil
+import logging
 import numpy as np
 import pandas as pd
 import hail as hl
@@ -438,6 +439,7 @@ class LOCOpreds:
         self.ids = pd.MultiIndex.from_arrays(ids.astype(str).T, names=["FID", "IID"])
         self.id_idxs = np.arange(len(self.ids))
         self.n_ldrs = self.preds.shape[0]
+        self.logger = logging.getLogger(__name__)
 
     def close(self):
         self.file.close()
@@ -446,6 +448,7 @@ class LOCOpreds:
         if n_ldrs is not None:
             if n_ldrs <= self.preds.shape[0]:
                 self.n_ldrs = n_ldrs
+                self.logger.info(f"Keep the top {n_ldrs} LDR LOCO predictions.")
             else:
                 raise ValueError("--n-ldrs is greater than #LDRs in LOCO predictions")
 
@@ -609,15 +612,15 @@ def run(args, log):
             file.create_dataset(
                 "id", data=np.array([snps_mt_ids, snps_mt_ids], dtype="S10").T
             )
-        log.info(f"Save level1 loco ridge predictions to {args.out}_ldr_loco_preds.h5")
+        log.info(f"\nSave level1 loco ridge predictions to {args.out}_ldr_loco_preds.h5")
 
     finally:
         if "temp_path" in locals():
             if os.path.exists(temp_path):
                 shutil.rmtree(temp_path, ignore_errors=True)
-                log.info(f"Removed preprocessed genotype data at {temp_path}")
+                log.info(f"Removed preprocessed genotype data at {temp_path}") # has some bug
             if os.path.exists(l0_pred_file):
                 os.remove(l0_pred_file)
                 log.info(
-                    f"Removed level0 ridge predictions to a temporary file at {l0_pred_file}"
+                    f"Removed level0 ridge predictions at {l0_pred_file}"
                 )

@@ -300,7 +300,7 @@ def check_input(args, log):
 
     if args.variant_category is None:
         variant_category = ["all"]
-        log.info(f"Set --variant-category as default 'all'")
+        log.info(f"Set --variant-category as default 'all'.")
     else:
         variant_category = list()
         args.variant_category = [x.lower() for x in args.variant_category.split(",")]
@@ -398,7 +398,8 @@ def run(args, log):
             variant_type=args.variant_type,
             maf_min=args.maf_min,
             maf_max=args.maf_max,
-        )
+            mac_thresh=args.mac_thresh
+        ) # TODO: add hwe and call rate here
 
         # do preprocessing
         log.info(f"Processing genotype data ...")
@@ -420,7 +421,8 @@ def run(args, log):
         null_model.remove_dependent_columns()
         log.info(f"{len(snps_mt_ids)} common subjects in the data.")
         log.info(
-            f"{null_model.covar.shape[1]} fixed effects in the covariates after removing redundant effects.\n"
+            (f"{null_model.covar.shape[1]} fixed effects in the covariates (including the intercept) "
+             "after removing redundant effects.\n")
         )
 
         if args.loco_preds is not None:

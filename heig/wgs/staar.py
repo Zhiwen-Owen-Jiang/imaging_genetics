@@ -103,8 +103,9 @@ class VariantSetTest:
             weights_dict["acatv(1,25)"] = (w1 / w3) ** 2
             weights_dict["acatv(1,1)"] = (w2 / w3) ** 2
         else:
-            annot_rank = 1 - 10 ** (-annot / 10)
-            annot_rank = annot_rank.T
+            # annot_rank = np.abs(1 - 10 ** (-annot / 10))
+            # annot_rank = annot_rank.T
+            annot_rank = annot.T
             weights_dict["skat(1,25)"] = self._combine_weights(w1, np.sqrt(annot_rank))
             weights_dict["skat(1,1)"] = self._combine_weights(w2, np.sqrt(annot_rank))
             weights_dict["burden(1,25)"] = self._combine_weights(w1, annot_rank)

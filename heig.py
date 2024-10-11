@@ -52,8 +52,8 @@ voxelgwas_parser = parser.add_argument_group(
 gwas_parser = parser.add_argument_group(
     title="Arguments specific to doing genome-wide association analysis"
 )
-annot_vcf_parser = parser.add_argument_group(
-    title="Arguments specific to annotating VCF files"
+annot_parser = parser.add_argument_group(
+    title="Arguments specific to annotating genotype files"
 )
 wgs_null_parser = parser.add_argument_group(
     title="Arguments specific to the null model of whole genome sequencing analysis"
@@ -92,8 +92,8 @@ voxelgwas_parser.add_argument(
 gwas_parser.add_argument(
     "--gwas", action="store_true", help="Genome-wide association analysis."
 )
-annot_vcf_parser.add_argument(
-    "--annot-vcf", action="store_true", help="Annotating VCF files."
+annot_parser.add_argument(
+    "--annot", action="store_true", help="Annotating genotype files."
 )
 wgs_null_parser.add_argument(
     "--wgs-null",
@@ -251,7 +251,7 @@ common_parser.add_argument(
     action="store_true",
     help=(
         "Using reference genome GRCh37. Otherwise using GRCh38. "
-        "Supported modules: --gwas, --annot-vcf, --wgs-sliding-window, "
+        "Supported modules: --gwas, --annot, --wgs-sliding-window, "
         "--relatedness"
     ),
 )
@@ -290,7 +290,7 @@ common_parser.add_argument(
     help=(
         "Spark configuration file. "
         "Supported modules: --relatedness, --gwas, --wgs-coding, "
-        "--wgs-noncoding, --wgs-sliding-window, --annot-vcf."
+        "--wgs-noncoding, --wgs-sliding-window, --annot."
     ),
 ),
 common_parser.add_argument(
@@ -478,8 +478,8 @@ voxelgwas_parser.add_argument(
 )
 
 # arguments for vcf2mt.py
-annot_vcf_parser.add_argument("--vcf", help="Direcotory to preprocessed VCF file.")
-annot_vcf_parser.add_argument(
+annot_parser.add_argument("--vcf", help="Direcotory to preprocessed VCF file.")
+annot_parser.add_argument(
     "--favor-db", help="Directory to unzipped FAVOR annotation files."
 )
 
@@ -644,11 +644,12 @@ def check_accepted_args(module, args, log):
             "spark_conf",
             "not_save_genotype_data",
         },
-        "annot_vcf": {
-            "annot_vcf",
+        "annot": {
+            "annot",
             "out",
             "grch37",
             "vcf",
+            "bfile",
             "favor_db",
             "keep",
             "extract",
@@ -815,7 +816,7 @@ def main(args, log):
         + args.sumstats
         + args.voxel_gwas
         + args.gwas
-        + args.annot_vcf
+        + args.annot
         + args.wgs_null
         + args.wgs_coding
         + args.wgs_sliding_window
@@ -826,7 +827,7 @@ def main(args, log):
             (
                 "you must raise one and only one of following flags for doing analysis: "
                 "--heri-gc, --read-image, --fpca, --make-ldr, --ld-matrix, --sumstats, "
-                "--voxel-gwas, --gwas, --annot-vcf, --wgs-null, --wgs-coding, "
+                "--voxel-gwas, --gwas, --annot, --wgs-null, --wgs-coding, "
                 "--wgs-sliding-window, --relatedness"
             )
         )
@@ -855,8 +856,8 @@ def main(args, log):
     elif args.gwas:
         check_accepted_args('gwas', args, log)
         import heig.wgs.gwas as module
-    elif args.annot_vcf:
-        check_accepted_args('annot_vcf', args, log)
+    elif args.annot:
+        check_accepted_args('annot', args, log)
         import heig.wgs.vcf2mt as module
     elif args.wgs_null:
         check_accepted_args('wgs_null', args, log)
