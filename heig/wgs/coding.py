@@ -164,7 +164,7 @@ def single_gene_analysis(
                     [
                         [getattr(row, col) for col in coding.annot_cols]
                         for row in annot_phred
-                    ]
+                    ], dtype=np.float32
                 )
             else:
                 phred_cate = None
@@ -396,9 +396,11 @@ def run(args, log):
             args.geno_mt,
             grch37=args.grch37,
             variant_type=args.variant_type,
+            hwe=args.hwe,
             maf_min=args.maf_min,
             maf_max=args.maf_max,
-            mac_thresh=args.mac_thresh
+            mac_thresh=args.mac_thresh,
+            call_rate=args.call_rate,
         ) # TODO: add hwe and call rate here
 
         # do preprocessing

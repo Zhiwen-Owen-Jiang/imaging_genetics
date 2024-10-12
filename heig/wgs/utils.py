@@ -107,7 +107,7 @@ class GProcessor:
         "wgs": {
             "defaults": {
                 "geno_ref": "GRCh38",
-                "variant_type": "variant",
+                "variant_type": "snv",
                 "maf_max": 0.01,
                 "maf_min": 0,
                 "mac_thresh": 10,
@@ -136,9 +136,9 @@ class GProcessor:
         "geno_ref": "Reference genome",
         "maf_min": "Minimum MAF (>)",
         "maf_max": "Maximum MAF (<=)",
-        "mac_thresh": "MAC threshold for very rare variants",
-        "call_rate": "Call rate",
-        "hwe": "HWE p-value threshold",
+        "mac_thresh": "MAC threshold to annotate very rare variants (<=)",
+        "call_rate": "Call rate (>=)",
+        "hwe": "HWE p-value (>=)",
     }
 
     def __init__(
@@ -392,7 +392,7 @@ class GProcessor:
 
     def _extract_call_rate(self):
         """
-        Extracting variants with a call rate > call_rate
+        Extracting variants with a call rate >= call_rate
 
         """
         self.snps_mt = self.snps_mt.filter_rows(

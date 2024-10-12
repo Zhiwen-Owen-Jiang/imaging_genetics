@@ -48,7 +48,7 @@ class VariantSetTest:
             self.n - self.p
         )  # (N, )
 
-    def input_vset(self, vset, maf, is_rare, annotation_pred=None):
+    def input_vset(self, vset, maf, is_rare, annotation_pred=None, annot_transform=True):
         """
         Inputing variant set and computing half scores and covariance matrix
 
@@ -60,6 +60,7 @@ class VariantSetTest:
         maf: (m, ) np.array of MAF
         is_rare: (m, ) np.array boolean index indicating MAC < mac_threshold
         annotation_pred: (m, q) np.array of functional annotation or None
+        annot_transform: if transforming FAVOR annotations to rank
 
         """
         self.maf = maf
@@ -74,16 +75,17 @@ class VariantSetTest:
         self.half_ldr_score = half_ldr_score.to_numpy()  #  (m, r)
         self.half_score = np.dot(self.half_ldr_score, self.bases.T)  # (m, N)
         self.cov_mat = cov_mat.to_numpy()
-        self.weights = self._get_weights(annotation_pred)
+        self.weights = self._get_weights(annotation_pred, annot_transform)
         self.n_variants = self.half_ldr_score.shape[0]
 
-    def _get_weights(self, annot=None):
+    def _get_weights(self, annot=None, annot_transform=True):
         """
         Vertically stacking weights, i.e., each row is a (m, ) vector
 
         Parameters:
         ------------
         annot: (m, q) array, m is #variants, q is #functional weights
+        annot_transform: if transforming FAVOR annotations to rank
 
         Returns:
         ---------
@@ -103,18 +105,20 @@ class VariantSetTest:
             weights_dict["acatv(1,25)"] = (w1 / w3) ** 2
             weights_dict["acatv(1,1)"] = (w2 / w3) ** 2
         else:
-            # annot_rank = np.abs(1 - 10 ** (-annot / 10))
-            # annot_rank = annot_rank.T
-            annot_rank = annot.T
-            weights_dict["skat(1,25)"] = self._combine_weights(w1, np.sqrt(annot_rank))
-            weights_dict["skat(1,1)"] = self._combine_weights(w2, np.sqrt(annot_rank))
-            weights_dict["burden(1,25)"] = self._combine_weights(w1, annot_rank)
-            weights_dict["burden(1,1)"] = self._combine_weights(w2, annot_rank)
+            if (annot <= 0).any():
+                raise ValueError('annotation weights must be greater than 0')
+            if annot_transform:
+                annot = 1 - 10 ** (-annot / 10)
+            annot = annot.T
+            weights_dict["skat(1,25)"] = self._combine_weights(w1, np.sqrt(annot))
+            weights_dict["skat(1,1)"] = self._combine_weights(w2, np.sqrt(annot))
+            weights_dict["burden(1,25)"] = self._combine_weights(w1, annot)
+            weights_dict["burden(1,1)"] = self._combine_weights(w2, annot)
             weights_dict["acatv(1,25)"] = self._combine_weights(
-                (w1 / w3) ** 2, annot_rank
+                (w1 / w3) ** 2, annot
             )
             weights_dict["acatv(1,1)"] = self._combine_weights(
-                (w2 / w3) ** 2, annot_rank
+                (w2 / w3) ** 2, annot
             )
 
         return weights_dict

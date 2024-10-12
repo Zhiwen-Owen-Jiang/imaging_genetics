@@ -300,6 +300,34 @@ common_parser.add_argument(
         "Supported modules: --gwas, --coding, "
         "--noncoding, --slidingwindow."
     ),
+),
+common_parser.add_argument(
+    "--mac-thresh",
+    help=(
+        "A minor allele count threshold. "
+        "Variants with a MAC less than the threshold "
+        "will be marked as a rare variants in WGS ACAT-V analysis. "
+        "Default is 10. "
+        "Supported modules: --annot, --coding. " # TODO: add to more modules
+    ),
+),
+common_parser.add_argument(
+    "--call-rate",
+    help=(
+        "A genotype call rate threshold, equivalent to 1 - missing rate. "
+        "Variants with a call rate less than the threshold "
+        "will be removed."
+        "Supported modules: --annot, --coding. " # TODO: add to more modules
+    ),
+),
+common_parser.add_argument(
+    "--hwe",
+    help=(
+        "A HWE p-value threshold. "
+        "Variants with a HWE p-value less than the threshold "
+        "will be removed."
+        "Supported modules: --annot, --coding. " # TODO: add to more modules
+    ),
 )
 
 
@@ -480,11 +508,25 @@ voxelgwas_parser.add_argument(
 # arguments for vcf2mt.py
 annot_parser.add_argument("--vcf", help="Direcotory to preprocessed VCF file.")
 annot_parser.add_argument(
-    "--favor-db", help="Directory to unzipped FAVOR annotation files."
+    "--favor-annot", 
+    help=(
+        "Directory to unzipped FAVOR annotation files. "
+        "For multiple files, using * to match any string of characters. "
+        "E.g., favor_db/chr*.csv"
+    ),
 )
-
-# arguments for gwas.py
-
+annot_parser.add_argument(
+    "--general-annot", 
+    help=(
+        "Directory to general annotation files. "
+        "Following the file format of FAVOR database, "
+        "columns `chromosome`, `position`, `ref_vcf`, and `alt_vcf` are required. "
+        "Columns must be separated by comma, and missing values are not allowed. "
+        "Use double quote marks `\"`"
+        "For multiple files, using * to match any string of characters. "
+        "E.g., chr*.csv"
+    ),
+)
 
 # arguments for coding.py
 wgs_coding_parser.add_argument("--null-model", help="Directory to null model.")
@@ -509,11 +551,6 @@ wgs_coding_parser.add_argument(
     "--maf-max",
     type=float,
     help="Maximum minor allele frequency for screening SNPs. Default: 0.01",
-)
-wgs_coding_parser.add_argument(
-    "--mac-thresh",
-    type=int,
-    help="Minimum minor allele count for distinguishing very rare variants. Default: 10.",
 )
 wgs_coding_parser.add_argument(
     "--use-annotation-weights", action="store_true", help="If using annotation weights."
@@ -650,10 +687,15 @@ def check_accepted_args(module, args, log):
             "grch37",
             "vcf",
             "bfile",
-            "favor_db",
+            "favor_annot",
+            "general_annot",
             "keep",
             "extract",
-            "spark_conf"
+            "spark_conf",
+            "hwe",
+            "call_rate",
+            "maf_min",
+            "maf_max"
         },
         "wgs_null": {
             "wgs_null",
@@ -683,7 +725,10 @@ def check_accepted_args(module, args, log):
             "range",
             "voxel",
             "not_save_genotype_data",
-            "spark_conf"
+            "spark_conf",
+            "hwe",
+            "call_rate",
+            "mac_thresh"
         },
         "wgs_sliding_window": {
             "wgs_sliding_window",
