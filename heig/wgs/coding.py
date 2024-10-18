@@ -164,7 +164,7 @@ def single_gene_analysis(
                     [
                         [getattr(row, col) for col in coding.annot_cols]
                         for row in annot_phred
-                    ], dtype=np.float32
+                    ]
                 )
             else:
                 phred_cate = None
@@ -257,7 +257,7 @@ def format_output(cate_pvalues, chr, start, end, n_variants, voxels, variant_cat
     n_variants: #variants of the category
     voxels: zero-based voxel idxs of the image
     variant_category: which category of variants to analyze,
-        one of ('all', 'plof', 'plof_ds', 'missense', 'disruptive_missense',
+        one of ('plof', 'plof_ds', 'missense', 'disruptive_missense',
         'synonymous', 'ptv', 'ptv_ds')
 
     Returns:
@@ -285,8 +285,6 @@ def check_input(args, log):
         raise ValueError("--geno-mt is required")
     if args.null_model is None:
         raise ValueError("--null-model is required")
-    if args.range is None:
-        raise ValueError("--range is required")
 
     if args.variant_type is None:
         args.variant_type = "snv"
@@ -352,7 +350,10 @@ def check_input(args, log):
         log.info(f"Set --use-annotation-weights as False")
 
     # process arguments
-    start_chr, start_pos, end_pos = process_range(args.range)
+    if args.range is not None:
+        start_chr, start_pos, end_pos = process_range(args.range)
+    else:
+        start_chr, start_pos, end_pos =  None, None, None
 
     return start_chr, start_pos, end_pos, variant_category
 
@@ -360,7 +361,7 @@ def check_input(args, log):
 def run(args, log):
     # checking if input is valid
     chr, start, end, variant_category = check_input(args, log)
-    init_hail(args.spark_conf, args.grch37, log)
+    init_hail(args.spark_conf, args.grch37, args.out, log)
 
     # reading data and selecting voxels and LDRs
     log.info(f"Read null model from {args.null_model}")
@@ -411,12 +412,14 @@ def run(args, log):
         gprocessor.extract_gene(chr=chr, start=start, end=end)
 
         # save processsed data for faster analysis
-        temp_path = get_temp_path()
         if not args.not_save_genotype_data:
+            temp_path = get_temp_path()
             log.info(f"Save preprocessed genotype data to {temp_path}")
             gprocessor.save_interim_data(temp_path)
 
         gprocessor.check_valid()
+        if chr is None:
+            chr, start, end = gprocessor.extract_range()
         # extract and align subjects with the genotype data
         snps_mt_ids = gprocessor.subject_id()
         null_model.keep(snps_mt_ids)

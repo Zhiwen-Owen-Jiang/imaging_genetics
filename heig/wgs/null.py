@@ -19,7 +19,7 @@ def check_input(args):
 
 class NullModel:
     """
-    Reading null model
+    Reading and processing null model
 
     """
 
@@ -41,6 +41,8 @@ class NullModel:
         if n_ldrs is not None:
             if n_ldrs <= self.n_ldrs:
                 self.n_ldrs = n_ldrs
+                self.resid_ldr = self.resid_ldr[:, :n_ldrs]
+                self.bases = self.bases[:, :n_ldrs]
                 self.logger.info(f"Keep the top {n_ldrs} LDRs and bases.")
             else:
                 raise ValueError("--n-ldrs is greater than #LDRs in null model")
@@ -49,6 +51,7 @@ class NullModel:
         if voxel_idxs is not None:
             if np.max(voxel_idxs) < self.n_voxels:
                 self.voxel_idxs = voxel_idxs
+                self.bases = self.bases[voxel_idxs]
                 self.logger.info(f"{len(voxel_idxs)} voxels included.")
             else:
                 raise ValueError("--voxel index (one-based) out of range")

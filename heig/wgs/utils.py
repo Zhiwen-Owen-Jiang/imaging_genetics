@@ -63,7 +63,7 @@ Annotation_name = [
 ]
 
 
-def init_hail(spark_conf_file, grch37, log):
+def init_hail(spark_conf_file, grch37, out, log):
     """
     Initializing hail
 
@@ -71,6 +71,7 @@ def init_hail(spark_conf_file, grch37, log):
     ------------
     spark_conf_file: spark configuration in json format
     grch37: if the reference genome is GRCh37
+    out: output directory
     log: a logger
 
     """
@@ -83,7 +84,8 @@ def init_hail(spark_conf_file, grch37, log):
         geno_ref = "GRCh38"
     log.info(f"Set {geno_ref} as the reference genome.")
 
-    hl.init(quiet=True, spark_conf=spark_conf)
+    tmpdir = out + 'tmp'
+    hl.init(quiet=True, spark_conf=spark_conf, local_tmpdir=tmpdir)
     hl.default_reference = geno_ref
 
 
@@ -212,6 +214,7 @@ class GProcessor:
         if mode == "wgs":
             self.logger.info("Removed variants with missing alternative alleles.")
             self.logger.info("Extracted variants with PASS in FILTER.")
+            self.logger.info("Flipped alleles for those with a MAF > 0.5.")
         self.logger.info("---------------------\n")
 
         for method in methods:
@@ -485,6 +488,8 @@ class GProcessor:
         gene_name: gene name, if specified, start and end will be ignored
 
         """
+        if chr is None:
+            return
         chr = str(chr)
         if self.geno_ref == "GRCh38":
             chr = "chr" + chr
@@ -530,6 +535,25 @@ class GProcessor:
             keep_idvs = keep_idvs.get_level_values("IID").tolist()
         keep_idvs = hl.literal(set(keep_idvs))
         self.snps_mt = self.snps_mt.filter_cols(keep_idvs.contains(self.snps_mt.s))
+        
+    def extract_range(self):
+        result = self.snps_mt.aggregate_rows(hl.struct(
+            chr=hl.agg.take(self.snps_mt.locus.contig, 1)[0],
+            min_pos=hl.agg.min(self.snps_mt.locus.position),
+            max_pos=hl.agg.max(self.snps_mt.locus.position)
+        ))
+
+        # Save the results into variables
+        chr = result.chr
+        min_pos = result.min_pos
+        max_pos = result.max_pos
+
+        if self.geno_ref == "GRCh38":
+            chr = int(chr.replace("chr", ""))
+        else:
+            chr = int(chr)
+
+        return chr, min_pos, max_pos
 
 
 # def get_common_ids(ids, snps_mt_ids=None, keep_idvs=None):

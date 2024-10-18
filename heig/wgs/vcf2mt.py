@@ -90,7 +90,7 @@ class AnnotationFAVOR(Annotation):
     }
 
     def __init__(self, annot, grch37):
-        super.__init__(annot, grch37)
+        super().__init__(annot, grch37)
 
         self._drop_rename()
         # self._convert_datatype()
@@ -155,7 +155,7 @@ class AnnotationFAVOR(Annotation):
             1 - 10 ** (-self.annot.apc_local_nucleotide_diversity / 10)
         )
         self.annot = self.annot.annotate(
-            cadd_phred=hl.coalesce(self.annot.cadd_phred, 0),
+            cadd_phred=hl.coalesce(self.annot.cadd_phred, '0'),
             apc_local_nucleotide_diversity2=annot_local_div,
         )
 
@@ -171,15 +171,15 @@ def check_input(args, log):
 
     # required files must exist
     ds.check_existence(args.vcf)
-    ds.check_existence(args.favor_annot)
-    ds.check_existence(args.general_annot)
+    # ds.check_existence(args.favor_annot)
+    # ds.check_existence(args.general_annot)
     # args.favor_annot = os.path.join(args.favor_annot, "chr*.csv")
 
 
 def run(args, log):
     # check input and init
     check_input(args, log)
-    init_hail(args.spark_conf, args.grch37, log)
+    init_hail(args.spark_conf, args.grch37, args.out, log)
 
     # convert VCF to MatrixTable
     if args.bfile is not None:

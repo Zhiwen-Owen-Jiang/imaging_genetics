@@ -62,10 +62,13 @@ wgs_coding_parser = parser.add_argument_group(
     title="Arguments specific to whole genome sequencing analysis for coding variants"
 )
 wgs_sliding_window_parser = parser.add_argument_group(
-    title="Arguments specific to  whole genome sequencing analysis using sliding windows"
+    title="Arguments specific to whole genome sequencing analysis using sliding windows"
 )
 relatedness_parser = parser.add_argument_group(
     title="Arguments specific to removing genetic relatedness in LDRs"
+)
+wgs_general_annot_parser = parser.add_argument_group(
+    title="Arguments specific to whole genome sequencing analysis using general annotations"
 )
 
 
@@ -112,6 +115,10 @@ wgs_sliding_window_parser.add_argument(
 )
 relatedness_parser.add_argument(
     "--relatedness", action="store_true", help="Removing genetic relatedness in LDRs."
+)
+wgs_general_annot_parser.add_argument(
+    "--wgs", action="store_true", 
+    help="Whole genome sequencing analysis using general annotations."
 )
 
 # common arguments
@@ -303,6 +310,7 @@ common_parser.add_argument(
 ),
 common_parser.add_argument(
     "--mac-thresh",
+    type=int,
     help=(
         "A minor allele count threshold. "
         "Variants with a MAC less than the threshold "
@@ -313,6 +321,7 @@ common_parser.add_argument(
 ),
 common_parser.add_argument(
     "--call-rate",
+    type=float,
     help=(
         "A genotype call rate threshold, equivalent to 1 - missing rate. "
         "Variants with a call rate less than the threshold "
@@ -322,6 +331,7 @@ common_parser.add_argument(
 ),
 common_parser.add_argument(
     "--hwe",
+    type=float,
     help=(
         "A HWE p-value threshold. "
         "Variants with a HWE p-value less than the threshold "
@@ -558,7 +568,12 @@ wgs_coding_parser.add_argument(
 
 # arguments for slidingwindow.py
 wgs_sliding_window_parser.add_argument(
-    "--window-length", type=int, help="Fix window length. Default: 2000"
+    "--window-length", type=int, help="Fix window length. Default: 2000."
+)
+
+# arguments for general_annot.py
+wgs_general_annot_parser.add_argument(
+    "--annot-name", help="Annotation to use. Multiple annotations should be separated by comma."
 )
 
 # arguments for relatedness.py
@@ -719,9 +734,34 @@ def check_accepted_args(module, args, log):
             "maf_min",
             "mac_thresh",
             "use_annotation_weights",
+            "grch37",
+            "loco_preds",
             "n_ldrs",
             "keep",
             "extract",
+            "range",
+            "voxel",
+            "not_save_genotype_data",
+            "spark_conf",
+            "hwe",
+            "call_rate",
+            "mac_thresh"
+        },
+        "wgs": {
+            "wgs",
+            "out",
+            "geno_mt",
+            "null_model",
+            "variant_type",
+            "annot_name",
+            "maf_max",
+            "maf_min",
+            "mac_thresh",
+            "n_ldrs",
+            "keep",
+            "extract",
+            "grch37",
+            "loco_preds",
             "range",
             "voxel",
             "not_save_genotype_data",
@@ -865,6 +905,7 @@ def main(args, log):
         + args.wgs_null
         + args.wgs_coding
         + args.wgs_sliding_window
+        + args.wgs
         + args.relatedness
         != 1
     ):
@@ -873,7 +914,7 @@ def main(args, log):
                 "you must raise one and only one of following flags for doing analysis: "
                 "--heri-gc, --read-image, --fpca, --make-ldr, --ld-matrix, --sumstats, "
                 "--voxel-gwas, --gwas, --annot, --wgs-null, --wgs-coding, "
-                "--wgs-sliding-window, --relatedness"
+                "--wgs-sliding-window, --wgs, --relatedness"
             )
         )
 
@@ -913,6 +954,9 @@ def main(args, log):
     elif args.wgs_sliding_window:
         check_accepted_args('wgs_sliding_window', args, log)
         import heig.wgs.slidingwindow as module
+    elif args.wgs:
+        check_accepted_args('wgs', args, log)
+        import heig.wgs.general_annot as module
     elif args.relatedness:
         check_accepted_args('relatedness', args, log)
         import heig.wgs.relatedness as module

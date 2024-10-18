@@ -17,6 +17,7 @@ from hail.linalg import BlockMatrix
 """
 TODO: 
 1. support parallel
+2. update all inv() to cholesky
 
 """
 
@@ -484,7 +485,7 @@ class LOCOpreds:
         return loco_preds_chr[self.id_idxs]
 
 
-def check_input(args, log):
+def check_input(args):
     # required arguments
     if args.bfile is None and args.geno_mt is None:
         raise ValueError("--bfile or --geno-mt is required.")
@@ -503,8 +504,8 @@ def check_input(args, log):
 
 def run(args, log):
     # check input and configure hail
-    check_input(args, log)
-    init_hail(args.spark_conf, args.grch37, log)
+    check_input(args)
+    init_hail(args.spark_conf, args.grch37, args.out, log)
 
     # read LDRs and covariates
     log.info(f"Read LDRs from {args.ldrs}")
@@ -617,7 +618,7 @@ def run(args, log):
     finally:
         if "temp_path" in locals():
             if os.path.exists(temp_path):
-                shutil.rmtree(temp_path, ignore_errors=True)
+                shutil.rmtree(temp_path)
                 log.info(f"Removed preprocessed genotype data at {temp_path}") # has some bug
             if os.path.exists(l0_pred_file):
                 os.remove(l0_pred_file)

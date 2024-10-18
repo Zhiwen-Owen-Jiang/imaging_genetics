@@ -176,7 +176,7 @@ class DoGWAS:
 def run(args, log):
     # check input and configure hail
     chr, start, end = check_input(args, log)
-    init_hail(args.spark_conf, args.grch37, log)
+    init_hail(args.spark_conf, args.grch37, args.out, log)
 
     # read LDRs and covariates
     log.info(f"Read LDRs from {args.ldrs}")
@@ -277,7 +277,7 @@ def run(args, log):
     finally:
         if "temp_path" in locals():
             if os.path.exists(temp_path):
-                shutil.rmtree(temp_path, ignore_errors=True)
+                shutil.rmtree(temp_path)
                 log.info(f"Removed preprocessed genotype data at {temp_path}")
             if os.path.exists(f"{temp_path}_covar.txt"):
                 os.remove(f"{temp_path}_covar.txt")

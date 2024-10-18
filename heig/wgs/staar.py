@@ -54,7 +54,7 @@ class VariantSetTest:
 
         Parameters:
         ------------
-        vset: (n, m) BlockMatrix with alleles flipped and variants filtered.
+        vset: (m, n) BlockMatrix with alleles flipped and variants filtered.
             It should include only variants of a specific category or in a small window,
             not the entire gene. Otherwise, there might be OOM issue.
         maf: (m, ) np.array of MAF
@@ -72,8 +72,8 @@ class VariantSetTest:
             inner_vset - vset_covar @ self.inner_covar_inv @ vset_covar.T
         )  # Z'(I-M)Z, (m, m)
 
-        self.half_ldr_score = half_ldr_score.to_numpy()  #  (m, r)
-        self.half_score = np.dot(self.half_ldr_score, self.bases.T)  # (m, N)
+        self.half_ldr_score = half_ldr_score.to_numpy()  # Z'(I-M)\Xi, (m, r)
+        self.half_score = np.dot(self.half_ldr_score, self.bases.T)  # Z'(I-M)Y, (m, N)
         self.cov_mat = cov_mat.to_numpy()
         self.weights = self._get_weights(annotation_pred, annot_transform)
         self.n_variants = self.half_ldr_score.shape[0]
