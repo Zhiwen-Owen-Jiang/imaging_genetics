@@ -14,3 +14,4 @@ dependencies:
  - numexpr=2.10.0
  - tqdm=4.66.4
  - pyarrow=17.0.0
+ - filelock=3.15.4
