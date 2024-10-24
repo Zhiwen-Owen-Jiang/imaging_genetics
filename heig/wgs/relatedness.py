@@ -1,17 +1,21 @@
 import os
+import time
 import h5py
 import shutil
 import logging
+import concurrent.futures
 import numpy as np
 import pandas as pd
 import hail as hl
 from tqdm import tqdm
 from collections import defaultdict
+from functools import partial
 from sklearn.model_selection import KFold
 from scipy.linalg import cho_solve, cho_factor
 import heig.input.dataset as ds
 from heig.wgs.utils import GProcessor, init_hail, get_temp_path
 from hail.linalg import BlockMatrix
+from heig.utils import inv
 
 
 """
@@ -54,17 +58,18 @@ class Relatedness:
         ## these may come from the null model
         self.n, self.r = ldrs.shape
         self.n_blocks = n_blocks
-
-        shrinkage = np.array([0.01, 0.25, 0.5, 0.75, 0.99])
-        shrinkage_ = (1 - shrinkage) / shrinkage
-        self.n_params = len(shrinkage)
-        self.shrinkage_level0 = n_snps * shrinkage_
-        self.shrinkage_level1 = self.n_params * n_blocks * shrinkage_
         self.kf = KFold(n_splits=5, shuffle=True, random_state=42)
 
-        self.inner_covar_inv = np.linalg.inv(
-            np.dot(covar.T, covar)
-        )  # (X'X)^{-1}, (p, p)
+        shrinkage0 = np.array([0.1, 0.5, 0.9])
+        shrinkage0_ = (1 - shrinkage0) / shrinkage0
+        self.n_params = len(shrinkage0)
+        self.shrinkage_level0 = n_snps * shrinkage0_
+
+        shrinkage1 = np.array([0.01, 0.25, 0.5, 0.75, 0.99])
+        shrinkage1_ = (1 - shrinkage1) / shrinkage1
+        self.shrinkage_level1 = len(shrinkage1) * n_blocks * shrinkage1_
+
+        self.inner_covar_inv = inv(np.dot(covar.T, covar))  # (X'X)^{-1}, (p, p)
         self.resid_ldrs = ldrs - np.dot(
             np.dot(covar, self.inner_covar_inv), np.dot(covar.T, ldrs)
         )  # \Xi - X(X'X)^{-1}X'\Xi, (n, r)
@@ -93,7 +98,7 @@ class Relatedness:
         y_pred = np.dot(x_test, ridge_beta)
         return y_pred
 
-    def level0_ridge_block(self, block):
+    def level0_ridge_block(self, block, threads):
         """
         Computing level 0 ridge prediction for a genotype block.
         Missing values in each block have been imputed.
@@ -101,6 +106,7 @@ class Relatedness:
         Parameters:
         ------------
         block: m by n matrix of a genotype block
+        threads: number of threads
 
         Returns:
         ---------
@@ -119,22 +125,50 @@ class Relatedness:
         proj_inner_block = np.dot(resid_block.T, resid_block)  # Z'(I-M)Z, (m, m)
         proj_block_ldrs = np.dot(resid_block.T, self.resid_ldrs)  # Z'(I-M)\Xi, (m, r)
 
-        for _, test_idxs in self.kf.split(range(self.n)):
-            proj_inner_block_ = proj_inner_block - np.dot(
-                resid_block[test_idxs].T, resid_block[test_idxs]
-            )
-            proj_block_ldrs_ = proj_block_ldrs - np.dot(
-                resid_block[test_idxs].T, self.resid_ldrs[test_idxs]
-            )
-            for i, param in enumerate(self.shrinkage_level0):
-                preds = self._ridge_prediction(
-                    proj_inner_block_, param, proj_block_ldrs_, resid_block[test_idxs]
-                )
-                level0_preds[:, test_idxs, i] = preds.T
+        futures = []
+        partial_function = partial(
+            self._level0_ridge_block, 
+            level0_preds, 
+            resid_block, 
+            proj_inner_block, 
+            proj_block_ldrs
+        ) 
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+            for _, test_idxs in self.kf.split(range(self.n)):
+                futures.append(executor.submit(partial_function, test_idxs))
+            
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    future.result()
+                except Exception as exc:
+                    self.logger.info(f"Generated an exception: {exc}.")
 
         return level0_preds
+    
+    def _level0_ridge_block(self, level0_preds, resid_block, proj_inner_block, proj_block_ldrs, test_idxs):
+        """
+        Computing level 0 ridge prediction for a genotype block with a group of subjects held out
 
-    def level1_ridge(self, level0_preds_reader, chr_idxs):
+        """
+        _level0_preds = np.zeros(
+            (self.r, len(test_idxs), len(self.shrinkage_level0)), dtype=np.float32
+        )
+        proj_inner_block_ = proj_inner_block - np.dot(
+            resid_block[test_idxs].T, resid_block[test_idxs]
+        )
+        proj_block_ldrs_ = proj_block_ldrs - np.dot(
+            resid_block[test_idxs].T, self.resid_ldrs[test_idxs]
+        )
+        for i, param in enumerate(self.shrinkage_level0):
+            preds = self._ridge_prediction(
+                proj_inner_block_, param, proj_block_ldrs_, resid_block[test_idxs]
+            )
+            # level0_preds[:, test_idxs, i] = preds.T
+            _level0_preds[:, :, i] = preds.T
+        level0_preds[:, test_idxs, :] = _level0_preds
+
+    def level1_ridge(self, level0_preds_reader, chr_idxs, threads):
         """
         Computing level 1 ridge predictions.
 
@@ -142,6 +176,7 @@ class Relatedness:
         ------------
         level0_preds_reader: a h5 data reader and each time read a (n by n_params by n_blocks) array into memory
         chr_idxs: a dictionary of chromosome: [blocks idxs]
+        threads: number of threads
 
         Returns:
         ---------
@@ -154,20 +189,40 @@ class Relatedness:
         ## get column idxs for each CHR after reshaping
         reshaped_idxs = self._get_reshaped_idxs(chr_idxs)
 
-        ## this can do in parallel
-        for j in tqdm(range(self.r), desc=f"{self.r} LDRs"):
-            best_params[j] = self._level1_ridge_ldr(
-                level0_preds_reader[j], self.resid_ldrs[:, j]
-            )
-            chr_preds[j] = self._chr_preds_ldr(
-                best_params[j],
-                level0_preds_reader[j],
-                self.resid_ldrs[:, j],
-                self.resid_ldrs_std[j],
-                reshaped_idxs,
-            )
+        partial_function = partial(
+            self._level1_ridge, 
+            level0_preds_reader, 
+            best_params, 
+            chr_preds, 
+            reshaped_idxs
+        ) 
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+            futures = [executor.submit(partial_function, j) for j in range(self.r)]
+            
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    future.result()
+                except Exception as exc:
+                    self.logger.info(f"Generated an exception: {exc}.")
 
         return chr_preds
+    
+    def _level1_ridge(self, level0_preds_reader, best_params, chr_preds, reshaped_idxs, j):
+        """
+        Computing level 1 ridge predictions for a LDR
+        
+        """
+        best_params[j] = self._level1_ridge_ldr(
+                level0_preds_reader[j], self.resid_ldrs[:, j]
+        )
+        chr_preds[j] = self._chr_preds_ldr(
+            best_params[j],
+            level0_preds_reader[j],
+            self.resid_ldrs[:, j],
+            self.resid_ldrs_std[j],
+            reshaped_idxs,
+        )
 
     def _get_reshaped_idxs(self, chr_idxs):
         """
@@ -594,11 +649,14 @@ def run(args, log):
                 dtype="float32",
             )
             for i, block in enumerate(tqdm(blocks, desc=f"{n_blocks} blocks")):
+                start_time = time.time()
                 block = BlockMatrix.from_entry_expr(
                     block.GT.n_alt_alleles(), mean_impute=True
                 )  # (m, n)
-                block = block.to_numpy().T
-                block_level0_preds = relatedness_remover.level0_ridge_block(block)
+                block = block.to_numpy().astype(np.float32).T
+                end_time = time.time()
+                log.info(f'{end_time-start_time}')
+                block_level0_preds = relatedness_remover.level0_ridge_block(block, args.threads)
                 dset[:, :, :, i] = block_level0_preds
         log.info(f"Save level0 ridge predictions to a temporary file {l0_pred_file}")
 
@@ -606,8 +664,8 @@ def run(args, log):
         with h5py.File(l0_pred_file, "r") as file:
             log.info(f"Doing level1 ridge regression ...")
             level0_preds_reader = file["level0_preds"]
-            chr_preds = relatedness_remover.level1_ridge(level0_preds_reader, chr_idxs)
-
+            chr_preds = relatedness_remover.level1_ridge(level0_preds_reader, chr_idxs, args.threads)
+            
         with h5py.File(f"{args.out}_ldr_loco_preds.h5", "w") as file:
             file.create_dataset("ldr_loco_preds", data=chr_preds, dtype="float32")
             file.create_dataset(

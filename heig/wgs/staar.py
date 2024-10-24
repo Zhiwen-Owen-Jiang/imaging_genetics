@@ -4,6 +4,7 @@ from functools import reduce
 from scipy.stats import chi2, cauchy, beta
 from heig.wgs.pvalue import saddle
 from hail.linalg import BlockMatrix
+from heig.utils import inv
 
 
 """
@@ -38,7 +39,7 @@ class VariantSetTest:
         self.resid_ldr = BlockMatrix.from_numpy(resid_ldr)
 
         # null model
-        inner_covar_inv = np.linalg.inv(np.dot(covar.T, covar))
+        inner_covar_inv = inv(np.dot(covar.T, covar))
         self.inner_covar_inv = BlockMatrix.from_numpy(
             inner_covar_inv
         )  # (X'X)^{-1}, (p, p)

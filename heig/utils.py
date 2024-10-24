@@ -2,6 +2,8 @@ import gzip
 import bz2
 import logging
 from functools import reduce
+import numpy as np
+from scipy.linalg import cho_solve, cho_factor
 
 
 def GetLogger(logpath):
@@ -95,3 +97,14 @@ def find_loc(num_list, target):
         else:
             l = mid + 1
     return r
+
+
+def inv(A):
+    """
+    Computing inverse for a symmetric and positive-definite matrix
+    
+    """
+    cho_factors = cho_factor(A)
+    A_inv = cho_solve(cho_factors, np.eye(A.shape[0]))
+    
+    return A_inv

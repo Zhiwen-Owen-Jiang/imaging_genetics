@@ -1,9 +1,10 @@
 import os
 import json
+import logging
 import hail as hl
 import numpy as np
 import pandas as pd
-import logging
+
 
 
 __all__ = [

@@ -803,7 +803,8 @@ def check_accepted_args(module, args, log):
             "geno_mt",
             "not_save_genotype_data",
             "bsize",
-            "spark_conf"
+            "spark_conf",
+            "threads"
         },  # more arguments to add
     }
 

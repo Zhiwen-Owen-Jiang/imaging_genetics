@@ -1,5 +1,6 @@
 import numpy as np
 import concurrent.futures
+from heig.utils import inv
 
 
 class LDSC:
@@ -110,7 +111,7 @@ class LDSC:
         # compute total WLS (update twice)
         for _ in range(2):
             xwx_total, xwy_total = self._wls(y, X, weights)
-            coef_total = np.dot(np.linalg.inv(xwx_total), xwy_total)
+            coef_total = np.dot(inv(xwx_total), xwy_total)
             weights = self._update_weights(
                 coef_total, n, ld_rank, w_ldscore, weights_part1
             )
@@ -120,7 +121,7 @@ class LDSC:
         for block in merged_blocks:
             begin, end = self._block_range(block, block_ranges)
             xwx_i, xwy_i = self._wls(y[begin:end], X[begin:end], weights[begin:end])
-            coef = np.dot(np.linalg.inv(xwx_total - xwx_i), xwy_total - xwy_i)
+            coef = np.dot(inv(xwx_total - xwx_i), xwy_total - xwy_i)
             lobo_ldsc.append(coef[0])
         lobo_ldsc = np.array(lobo_ldsc)
 

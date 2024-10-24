@@ -7,7 +7,7 @@ import concurrent.futures
 import scipy.sparse as sp
 from tqdm import tqdm
 from functools import partial
-from numpy.linalg import inv
+from heig.utils import inv
 from scipy.sparse import csc_matrix, csr_matrix, dok_matrix, hstack
 from sklearn.decomposition import IncrementalPCA
 from scipy.interpolate import make_interp_spline

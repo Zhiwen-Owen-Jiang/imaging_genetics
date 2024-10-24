@@ -5,6 +5,7 @@ import pandas as pd
 import heig.input.dataset as ds
 from collections import defaultdict
 from heig.fpca import image_reader
+from heig.utils import inv
 
 
 def projection_ldr(ldr, covar):
@@ -27,7 +28,7 @@ def projection_ldr(ldr, covar):
     n = ldr.shape[0]
     inner_ldr = np.dot(ldr.T, ldr)
     inner_covar = np.dot(covar.T, covar)
-    inner_covar_inv = np.linalg.inv(inner_covar)
+    inner_covar_inv = inv(inner_covar)
     ldr_covar = np.dot(ldr.T, covar)
     part2 = np.dot(np.dot(ldr_covar, inner_covar_inv), ldr_covar.T)
     ldr_cov = (inner_ldr - part2) / n
