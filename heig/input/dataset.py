@@ -9,24 +9,33 @@ from heig import utils
 
 
 class Dataset:
-    def __init__(self, dir):
+    def __init__(self, dir, all_num_cols=False):
         """
         Read a dataset and do preprocessing
 
         Parameters:
         ------------
         dir: diretory to the dataset
+        all_num_cols: if all columns are numbers (except for FID and IID)
 
         """
         self.logger = logging.getLogger(__name__)
         openfunc, compression = utils.check_compression(dir)
-        self._check_header(openfunc, compression, dir)
+        cols = self._check_header(openfunc, compression, dir)
+
+        if not all_num_cols:
+            dtype_dict = {"FID": str, "IID": str}
+        else:
+            dtype_dict = {col: 'float32' for col in cols}
+            dtype_dict["FID"] = str
+            dtype_dict["IID"] = str
+
         self.data = pd.read_csv(
             dir,
             sep="\s+",
             compression=compression,
             na_values=[-9, "NONE", "."],
-            dtype={"FID": str, "IID": str},
+            dtype=dtype_dict,
         )
 
         n_sub = len(self.data)
@@ -60,6 +69,8 @@ class Dataset:
             raise ValueError("the first two column names must be FID and IID")
         if len(header) != len(set(header)):
             raise ValueError("duplicated column names are not allowed")
+        
+        return header[:2]
 
     def _remove_na_inf(self):
         """
@@ -274,14 +285,19 @@ def read_keep(keep_files):
         if os.path.getsize(keep_file) == 0:
             continue
         _, compression = utils.check_compression(keep_file)
-        keep_idvs = pd.read_csv(
-            keep_file,
-            sep="\s+",
-            header=None,
-            usecols=[0, 1],
-            dtype={0: str, 1: str},
-            compression=compression,
-        )
+
+        try:
+            keep_idvs = pd.read_csv(
+                keep_file,
+                sep="\s+",
+                header=None,
+                usecols=[0, 1],
+                dtype={0: str, 1: str},
+                compression=compression,
+            )
+        except ValueError:
+            raise ValueError('two columns FID and IID are required')
+        
         keep_idvs = pd.MultiIndex.from_arrays(
             [keep_idvs[0], keep_idvs[1]], names=["FID", "IID"]
         )

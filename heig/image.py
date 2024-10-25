@@ -281,7 +281,7 @@ def run(args, log):
     # read images
     out_dir = f"{args.out}_images.h5"
     if args.image_txt is not None:
-        images = ds.Dataset(args.image_txt)
+        images = ds.Dataset(args.image_txt, all_num_cols=True)
         log.info(
             (
                 f"{images.data.shape[0]} subjects and {images.data.shape[1]} "
