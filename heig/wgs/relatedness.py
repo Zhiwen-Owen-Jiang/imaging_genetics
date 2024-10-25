@@ -18,14 +18,6 @@ from hail.linalg import BlockMatrix
 from heig.utils import inv
 
 
-"""
-TODO: 
-1. support parallel
-2. update all inv() to cholesky
-
-"""
-
-
 class Relatedness:
     """
     Remove genetic relatedness by ridge regression.
@@ -340,7 +332,7 @@ class GenoBlocks:
 
     """
 
-    def __init__(self, snps_mt, partition=None, block_size=1000):
+    def __init__(self, snps_mt, partition=None, block_size=5000):
         """
         Parameters:
         ------------
@@ -362,7 +354,7 @@ class GenoBlocks:
     def _split_ld_blocks(self):
         """
         Splitting the genotype data into pre-defined LD blocks
-        Merging into ~200 blocks
+        Merging into ~100 blocks
 
         Returns:
         ---------
@@ -379,7 +371,7 @@ class GenoBlocks:
         if n_unique_chrs < 22:
             raise ValueError("genotype data including all autosomes is required")
 
-        if self.partition.shape[0] > 200:
+        if self.partition.shape[0] > 100:
             merged_partition = self._merge_ld_blocks()
         else:
             merged_partition = self.partition
@@ -405,7 +397,7 @@ class GenoBlocks:
 
     def _merge_ld_blocks(self):
         """
-        Merging small LD blocks to ~200 blocks
+        Merging small LD blocks to ~100 blocks
 
         Returns:
         ---------
@@ -414,7 +406,7 @@ class GenoBlocks:
         """
         ## merge blocks by CHR
         n_blocks = self.partition.shape[0]
-        n_to_merge = n_blocks // 200
+        n_to_merge = n_blocks // 100
         idx_to_extract = []
         for _, chr_blocks in self.partition.groupby(0):
             n_chr_blocks = chr_blocks.shape[0]
@@ -554,7 +546,7 @@ def check_input(args):
     if args.bsize is not None and args.bsize < 1000:
         raise ValueError("--bsize should be no less than 1000.")
     elif args.bsize is None:
-        args.bsize = 1000
+        args.bsize = 5000
 
 
 def run(args, log):

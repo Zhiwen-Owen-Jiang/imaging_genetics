@@ -555,6 +555,10 @@ class GProcessor:
             chr = int(chr)
 
         return chr, min_pos, max_pos
+    
+    def write_locus(self, output_path):
+        locus = self.snps_mt.rows().select('locus')
+        locus.write(f'{output_path}_locus_info.ht', overwrite=True)
 
 
 # def get_common_ids(ids, snps_mt_ids=None, keep_idvs=None):
