@@ -168,7 +168,7 @@ def run(args, log):
 
         start_idx, end_idx = 0, 0
         rec_corr = defaultdict(lambda: np.zeros(len(id_idxs)))
-        alt_n_ldrs_list = [int(n_ldrs * prop) for prop in (0.6, 0.7, 0.8, 0.9, 1)]
+        alt_n_ldrs_list = [int(n_ldrs * prop) for prop in (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1)]
 
         log.info(f"Constructing {n_ldrs} LDRs ...")
         with concurrent.futures.ThreadPoolExecutor(

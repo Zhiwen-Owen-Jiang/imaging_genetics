@@ -46,6 +46,11 @@ class Dataset:
         self.data = self.data.set_index(["FID", "IID"])
         self.data = self.data.sort_index()
 
+        if all_num_cols:
+            n_sub = len(self.data)
+            self.data = self.data[np.std(self.data, axis=1) != 0]
+            self.logger.info(f"Removed {n_sub - len(self.data)} subjects with zero variance.")
+
     def _check_header(self, openfunc, compression, dir):
         """
         The dataset must have a header: FID, IID, ...

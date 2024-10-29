@@ -571,9 +571,7 @@ def check_input(args, log):
         raise ValueError("--bw-opt should be positive")
 
     temp_path = os.path.join(os.path.dirname(args.out), "temp_sparse_sm_weight")
-    i = 0
-    while os.path.exists(temp_path + str(i)):
-        i += 1
+    i = np.random.choice(1000000, 1)[0] 
     temp_path += str(i)
 
     return temp_path
