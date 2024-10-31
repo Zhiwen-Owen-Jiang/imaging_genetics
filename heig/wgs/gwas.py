@@ -1,4 +1,5 @@
 import os
+import time
 import shutil
 import logging
 import hail as hl
@@ -31,9 +32,10 @@ def check_input(args, log):
         log.info("WARNING: --bfile is ignored if --geno-mt is provided")
         args.bfile = None
 
-    if args.variant_type is None:
-        args.variant_type = "variant"
-    else:
+    # if args.variant_type is None:
+    #     args.variant_type = "variant"
+    # else:
+    if args.variant_type is not None:
         args.variant_type = args.variant_type.lower()
         if args.variant_type not in {"snv", "variant", "indel"}:
             raise ValueError(
@@ -277,8 +279,16 @@ def run(args, log):
     finally:
         if "temp_path" in locals():
             if os.path.exists(temp_path):
-                shutil.rmtree(temp_path)
-                log.info(f"Removed preprocessed genotype data at {temp_path}")
+                for _ in range(3):
+                    try:
+                        shutil.rmtree(temp_path)
+                        log.info(f"Removed preprocessed genotype data at {temp_path}")
+                        break
+                    except OSError as e:
+                        if e.errno == 39:  # Directory not empty
+                            time.sleep(0.1)
+                        else:
+                            raise
             if os.path.exists(f"{temp_path}_covar.txt"):
                 os.remove(f"{temp_path}_covar.txt")
                 log.info(f"Removed temporary covariate data at {temp_path}_covar.txt")

@@ -70,6 +70,8 @@ class Relatedness:
             self.resid_ldrs_std
         )  # scale to var 1 for heritability definition
         self.covar = covar
+        
+        self.logger = logging.getLogger(__name__)
 
     @staticmethod
     def _ridge_prediction(XtX, alpha, Xty, x_test):
@@ -668,8 +670,16 @@ def run(args, log):
     finally:
         if "temp_path" in locals():
             if os.path.exists(temp_path):
-                shutil.rmtree(temp_path)
-                log.info(f"Removed preprocessed genotype data at {temp_path}") # has some bug
+                for _ in range(3):
+                    try:
+                        shutil.rmtree(temp_path)
+                        log.info(f"Removed preprocessed genotype data at {temp_path}")
+                        break
+                    except OSError as e:
+                        if e.errno == 39:  # Directory not empty
+                            time.sleep(0.1)
+                        else:
+                            raise
             if os.path.exists(l0_pred_file):
                 os.remove(l0_pred_file)
                 log.info(

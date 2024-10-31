@@ -93,7 +93,8 @@ def init_hail(spark_conf_file, grch37, out, log):
 class GProcessor:
     MODE = {
         "gwas": {
-            "defaults": {"maf_min": 0, "maf_max": 0.5},
+            # "defaults": {"maf_min": 0, "maf_max": 0.5},
+            "defaults": {},
             "methods": [
                 "_extract_variant_type",
                 "_extract_maf",
@@ -557,7 +558,7 @@ class GProcessor:
         return chr, min_pos, max_pos
     
     def write_locus(self, output_path):
-        locus = self.snps_mt.rows().select('locus')
+        locus = self.snps_mt.rows().select(*['locus', 'alleles'])
         locus.write(f'{output_path}_locus_info.ht', overwrite=True)
 
 

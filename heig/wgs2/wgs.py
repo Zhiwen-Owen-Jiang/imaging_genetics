@@ -20,6 +20,9 @@ Generate WGS summary statistics:
 
 Allow to input a chromosome and save the summary statistics
 
+TODO:
+1. support extract
+
 """
 
 
@@ -29,7 +32,7 @@ class ProcessWGS:
 
     """
 
-    def __init__(self, bases, resid_ldr, covar, maf, is_rare, geno_ref, output_dir, chr, loco_preds=None):
+    def __init__(self, bases, resid_ldr, covar, maf, is_rare, grch37, chr, loco_preds=None):
         """
         Parameters:
         ------------
@@ -38,13 +41,17 @@ class ProcessWGS:
         covar: (n, p) np.array, the same as those used to do projection
         maf: (m, ) np.array, minor allele frequency
         is_rare: (m, ) np.array, if the minor allele count less than a threshold
-        geno_ref: genome reference
-        output_dir: a directory to save summary statistics
+        grch37: if genome reference is GRCh37
         chr: include which chr
         loco_preds: a LOCOpreds instance of loco predictions
             loco_preds.data_reader(j) returns loco preds for chrj with matched subjects
 
         """
+        if grch37:
+            self.geno_ref = "GRCh37"
+        else:
+            self.geno_ref = "GRCh38"
+    
         # adjust for relatedness
         if loco_preds is not None:
             resid_ldr -= loco_preds.data_reader(chr) # (I-M)\Xi, (n, r)
@@ -55,26 +62,18 @@ class ProcessWGS:
             covar.shape[0] - covar.shape[1]
         )  # (N, ), save once
 
-        # X = UDV'
+        # X = UDV', X'(X'X)^{-1/2} = UV'
         covar_U, _, covar_Vt = np.linalg.svd(covar, full_matrices=False)
-        covar_V = covar_Vt.T # V, (n, p), save once
 
         self.resid_ldr = BlockMatrix.from_numpy(resid_ldr)
         self.var = var
-        self.covar_U = BlockMatrix.from_numpy(covar_U)
-        self.covar_V = covar_V
-        self.output_dir = output_dir
+        self.half_covar_proj = BlockMatrix.from_numpy(np.dot(covar_U, covar_Vt).astype(np.float32))
+        self.bases = bases
+        self.maf = maf
+        self.is_rare = is_rare
+        self.chr = chr
+        self.n_subs = covar.shape[0]
         
-        with h5py.File(f"{self.output_dir}_misc.h5", 'w') as file:
-            file.create_dataset('bases', data=bases, dtype='float32')
-            file.create_dataset('var', data=self.var, dtype='float32')
-            file.create_dataset('covar_V', data=self.covar_V, dtype='float32')
-            file.create_dataset('maf', data=maf, dtype='float32')
-            file.create_dataset('is_rare', data=is_rare)
-            file.attrs['chr'] = chr
-            file.attrs['n_subs'] = covar.shape[0]
-            file.attrs['geno_ref'] = geno_ref
-
     def sumstats(self, vset):
         """
         Computing and writing summary statistics for rare variants
@@ -85,17 +84,32 @@ class ProcessWGS:
 
         """
         # half ldr score
-        half_ldr_score = vset @ self.resid_ldr # Z'(I-M)\Xi, (m, r)
-        half_ldr_score.write(f"{self.output_dir}_half_ldr_score.bm")
+        self.half_ldr_score = vset @ self.resid_ldr # Z'(I-M)\Xi, (m, r)
 
         # Z'Z
         inner_vset = vset @ vset.T  # Z'Z, sparse matrix (m, m)
-        inner_vset = inner_vset.sparsify_band(-500000, 500000) # band size 500k
-        inner_vset.write(f"{self.output_dir}_inner_vset.bm")
+        self.inner_vset = inner_vset.sparsify_band(-500000, 500000) # band size 500k
 
         # Z'X(X'X)^{-1/2} = Z'UV', where X = UDV'
-        vset_U = vset @ self.covar_U # Z'U, (m, p)
-        vset_U.write(f"{self.output_dir}_vset_U.bm")
+        self.vset_half_covar_proj = vset @ self.half_covar_proj # Z'UV', (m, p)
+
+    def save(self, output_dir):
+        """
+        Saving summary statistics
+        
+        """
+        with h5py.File(f"{output_dir}_misc.h5", 'w') as file:
+            file.create_dataset('bases', data=self.bases, dtype='float32')
+            file.create_dataset('var', data=self.var, dtype='float32')
+            file.create_dataset('maf', data=self.maf, dtype='float32')
+            file.create_dataset('is_rare', data=self.is_rare)
+            file.attrs['chr'] = self.chr
+            file.attrs['n_subs'] = self.n_subs
+            file.attrs['geno_ref'] = self.geno_ref
+
+        self.half_ldr_score.write(f"{output_dir}_half_ldr_score.bm")
+        self.inner_vset.write(f"{output_dir}_inner_vset.bm")
+        self.vset_half_covar_proj.write(f"{output_dir}_vset_half_covar_proj.bm")
 
 
 class WGS:
@@ -107,12 +121,11 @@ class WGS:
     def __init__(self, prefix):
         self.half_ldr_score = BlockMatrix.read(f"{prefix}_half_ldr_score.bm") # (m, r)
         self.inner_vset = BlockMatrix.read(f"{prefix}_inner_vset.bm") # (m, m)
-        self.vset_U = BlockMatrix.read(f"{prefix}_vset_U.bm") # (m, p)
+        self.vset_half_covar_proj = BlockMatrix.read(f"{prefix}_vset_half_covar_proj.bm") # (m, p)
 
         with h5py.File(f"{self.output_dir}_misc.h5", 'r') as file:
             self.bases = file['bases'][:]
             self.var = file['var'][:]
-            self.covar_V = file['covar_V'][:]
             self.maf = file['maf'][:]
             self.is_rare = file['is_rare'][:]
             self.geno_ref = file.attrs['geno_ref']
@@ -142,9 +155,9 @@ class WGS:
 
         half_ldr_score = self.half_ldr_score.filter_rows(variant_idxs)
         inner_vset = self.inner_vset.filter(variant_idxs, variant_idxs)
-        vset_U = self.vset_U.filter_rows(variant_idxs)
+        vset_half_covar_proj = self.vset_half_covar_proj.filter_rows(variant_idxs)
 
-        return half_ldr_score, inner_vset, vset_U
+        return half_ldr_score, inner_vset, vset_half_covar_proj
 
     def extract_snps(self, keep_snps):
         """
@@ -207,8 +220,8 @@ def prepare_vset(snps_mt):
 
 def check_input(args, log):
     # required arguments
-    if args.geno_mt is None:
-        raise ValueError("--geno-mt is required")
+    if args.geno_mt is None and args.vcf is None and args.bfile is None:
+        raise ValueError("one of --geno-mt, --vcf, or --bfile is required")
     if args.null_model is None:
         raise ValueError("--null-model is required")
 
@@ -283,21 +296,33 @@ def run(args, log):
             common_ids = ds.get_common_idxs(null_model.ids, args.keep, single_id=True)
 
         # read genotype data
-        log.info(f"Reading genotype data from {args.geno_mt}")
-        gprocessor = GProcessor.read_matrix_table(
-            args.geno_mt,
-            grch37=args.grch37,
-            variant_type=args.variant_type,
-            hwe=args.hwe,
-            maf_min=args.maf_min,
-            maf_max=args.maf_max,
-            mac_thresh=args.mac_thresh,
-            call_rate=args.call_rate,
-        )
+        if args.geno_mt is not None:
+            log.info(f"Read genotype data from {args.geno_mt}")
+            read_func = GProcessor.read_matrix_table
+            data_path = args.geno_mt
+        elif args.bfile is not None:
+            log.info(f"Read bfile from {args.bfile}")
+            read_func = GProcessor.import_plink
+            data_path = args.bfile
+        elif args.vcf is not None:
+            log.info(f"Read VCF from {args.vcf}")
+            read_func = GProcessor.import_vcf
+            data_path = args.vcf
 
+        gprocessor = read_func(
+                data_path,
+                grch37=args.grch37,
+                variant_type=args.variant_type,
+                hwe=args.hwe,
+                maf_min=args.maf_min,
+                maf_max=args.maf_max,
+                mac_thresh=args.mac_thresh,
+                call_rate=args.call_rate,
+        )
+    
         # do preprocessing
         log.info(f"Processing genotype data ...")
-        gprocessor.extract_snps(args.extract)
+        # gprocessor.extract_snps(args.extract)
         gprocessor.extract_idvs(common_ids)
         gprocessor.do_processing(mode="wgs")
         gprocessor.extract_gene(chr=chr, start=start, end=end)
@@ -305,7 +330,6 @@ def run(args, log):
         # save processsed data for faster analysis
         if not args.not_save_genotype_data:
             temp_path = get_temp_path()
-            log.info(f"Save preprocessed genotype data to {temp_path}")
             gprocessor.save_interim_data(temp_path)
 
         gprocessor.check_valid()
@@ -329,9 +353,10 @@ def run(args, log):
         log.info('Computing summary statistics ...\n')
         maf, is_rare, vset = prepare_vset(gprocessor.snps_mt)
         process_wgs = ProcessWGS(null_model.bases, null_model.resid_ldr, 
-                                 null_model.covar, maf, is_rare, 
-                                 args.out, chr, loco_preds)
+                                 null_model.covar, maf, is_rare, args.grch37,
+                                 chr, loco_preds)
         process_wgs.sumstats(vset)
+        process_wgs.save(args.out)
         gprocessor.write_locus(args.out)
 
         log.info((f'Save summary statistics to\n'

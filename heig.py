@@ -70,7 +70,9 @@ relatedness_parser = parser.add_argument_group(
 wgs_general_annot_parser = parser.add_argument_group(
     title="Arguments specific to whole genome sequencing analysis using general annotations"
 )
-
+wgs_sumstats_parser = parser.add_argument_group(
+    title="Arguments specific to generating whole genome sequencing analysis summary statistics"
+)
 
 # module arguments
 herigc_parser.add_argument(
@@ -119,6 +121,10 @@ relatedness_parser.add_argument(
 wgs_general_annot_parser.add_argument(
     "--wgs", action="store_true", 
     help="Whole genome sequencing analysis using general annotations."
+)
+wgs_sumstats_parser.add_argument(
+    "--wgs-sumstats", action="store_true", 
+    help="Generating whole genome sequencing analysis summary statistics."
 )
 
 # common arguments
@@ -806,6 +812,30 @@ def check_accepted_args(module, args, log):
             "spark_conf",
             "threads"
         },  # more arguments to add
+        "wgs_sumstats": {
+            "wgs_sumstats",
+            "out",
+            "geno_mt",
+            "bfile",
+            "vcf",
+            "null_model",
+            "variant_type",
+            "maf_max",
+            "maf_min",
+            "mac_thresh",
+            "grch37",
+            "loco_preds",
+            "n_ldrs",
+            "keep",
+            "extract",
+            "range",
+            "voxel",
+            "not_save_genotype_data",
+            "spark_conf",
+            "hwe",
+            "call_rate",
+            "mac_thresh"
+        },
     }
 
     ignored_args = []
@@ -820,7 +850,7 @@ def check_accepted_args(module, args, log):
         ignored_args = [f"--{arg.replace('_', '-')}" for arg in ignored_args]
         ignored_args_str = ", ".join(ignored_args)
         log.info(
-            f"WARNING: {ignored_args_str} are ignored by --{module.replace('_', '-')}."
+            f"WARNING: {ignored_args_str} ignored by --{module.replace('_', '-')}."
         )
 
 
@@ -885,8 +915,8 @@ def process_args(args, log):
     if args.maf_min is not None:
         if args.maf_min > 0.5 or args.maf_min < 0:
             raise ValueError("--maf-min must be greater than 0 and less than 0.5")
-    else:
-        args.maf_min = 0 # >
+    # else:
+    #     args.maf_min = 0 # >
 
 
 def main(args, log):
@@ -908,6 +938,7 @@ def main(args, log):
         + args.wgs_sliding_window
         + args.wgs
         + args.relatedness
+        + args.wgs_sumstats
         != 1
     ):
         raise ValueError(
@@ -915,7 +946,7 @@ def main(args, log):
                 "you must raise one and only one of following flags for doing analysis: "
                 "--heri-gc, --read-image, --fpca, --make-ldr, --ld-matrix, --sumstats, "
                 "--voxel-gwas, --gwas, --annot, --wgs-null, --wgs-coding, "
-                "--wgs-sliding-window, --wgs, --relatedness"
+                "--wgs-sliding-window, --wgs, --relatedness, --wgs-sumstats"
             )
         )
 
@@ -961,6 +992,9 @@ def main(args, log):
     elif args.relatedness:
         check_accepted_args('relatedness', args, log)
         import heig.wgs.relatedness as module
+    elif args.wgs_sumstats:
+        check_accepted_args('wgs_sumstats', args, log)
+        import heig.wgs2.wgs as module
 
     process_args(args, log)
     module.run(args, log)
