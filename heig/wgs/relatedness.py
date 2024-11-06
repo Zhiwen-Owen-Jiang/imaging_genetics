@@ -488,19 +488,23 @@ class LOCOpreds:
         ids = self.file["id"][:]
         self.ids = pd.MultiIndex.from_arrays(ids.astype(str).T, names=["FID", "IID"])
         self.id_idxs = np.arange(len(self.ids))
-        self.n_ldrs = self.preds.shape[0]
+        self.ldr_col = (0, self.preds.shape[0])
         self.logger = logging.getLogger(__name__)
 
     def close(self):
         self.file.close()
 
-    def select_ldrs(self, n_ldrs=None):
-        if n_ldrs is not None:
-            if n_ldrs <= self.preds.shape[0]:
-                self.n_ldrs = n_ldrs
-                self.logger.info(f"Keep the top {n_ldrs} LDR LOCO predictions.")
+    def select_ldrs(self, ldr_col=None):
+        """
+        ldr_col: a list of sorted and consecutive zero-based LDR index
+        
+        """
+        if ldr_col is not None:
+            if ldr_col[1] <= self.preds.shape[0]:
+                self.ldr_col = ldr_col
+                self.logger.info(f"Keep LDR{ldr_col[0]+1} to LDR{ldr_col[1]} LOCO predictions.")
             else:
-                raise ValueError("--n-ldrs is greater than #LDRs in LOCO predictions")
+                raise ValueError(f"{ldr_col[1]} is greater than #LDRs in LOCO predictions")
 
     def keep(self, keep_idvs):
         """
@@ -530,7 +534,7 @@ class LOCOpreds:
         Reading LDR predictions for a chromosome
 
         """
-        loco_preds_chr = self.preds[: self.n_ldrs, :, chr - 1].T  # (n, r)
+        loco_preds_chr = self.preds[self.ldr_col[0]: self.ldr_col[1], :, chr - 1].T  # (n, r)
         return loco_preds_chr[self.id_idxs]
 
 

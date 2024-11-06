@@ -20,6 +20,41 @@ TODO: consider providing more preprocessing options? such as --chr
 """
 
 
+def parse_ldr_col(ldr_col):
+    """
+    Parsing string for LDR indices
+
+    Parameters:
+    ------------
+    ldr_col: a string of one-based LDR column indices
+
+    Returns:
+    ---------
+    res: a tuple of min and max (not included) zero-based indices
+    
+    """
+    ldr_col = ldr_col.split(',')
+    res = list()
+
+    for col in ldr_col:
+        if ":" in col:
+            start, end = [int(x) for x in col.split(':')]
+            if start > end:
+                raise ValueError(f'{col} is invalid')
+            res += list(range(start-1, end))
+        else:
+            res.append(int(col)-1)
+
+    res = sorted(list(set(res)))
+    if res[-1] - res[0] + 1 != len(res):
+        ValueError('it is very rare that columns in --ldr-col are not consective for LDR GWAS')
+    if res[0] < 0:
+        ValueError('the min index less than 1')
+    res = (res[0], res[-1]+1)
+
+    return res
+
+
 def check_input(args, log):
     # required arguments
     if args.ldrs is None:
@@ -31,6 +66,14 @@ def check_input(args, log):
     elif args.bfile is not None and args.geno_mt is not None:
         log.info("WARNING: --bfile is ignored if --geno-mt is provided")
         args.bfile = None
+        
+    if args.ldr_col is not None:
+        args.ldr_col = parse_ldr_col(args.ldr_col)
+        if args.n_ldrs is not None:
+            log.info('WARNING: both --ldr-col and --n-ldrs are provided. Ignore --n-ldrs.')
+    elif args.n_ldrs is not None:
+        args.ldr_col = (0, args.n_ldrs)
+    args.n_ldrs = None
 
     # if args.variant_type is None:
     #     args.variant_type = "variant"
@@ -172,6 +215,24 @@ class DoGWAS:
             "p_value",
         )
 
+        # gwas = self._post_process(gwas)
+
+        return gwas
+    
+    def _post_process(self, gwas):
+        """
+        Removing SNPs with any missing or infinity values.
+        This step is originally done in sumstats.py.
+        However, pandas is not convenient to handle nested array.
+        
+        """
+        gwas = gwas.filter(
+            ~(hl.any(lambda x: hl.is_missing(x) | hl.is_infinite(x), gwas.beta) |
+            hl.any(lambda x: hl.is_missing(x) | hl.is_infinite(x), gwas.standard_error) |
+            hl.any(lambda x: hl.is_missing(x) | hl.is_infinite(x), gwas.t_stat) |
+            hl.any(lambda x: hl.is_missing(x) | hl.is_infinite(x), gwas.p_value))
+        )
+
         return gwas
 
 
@@ -184,12 +245,12 @@ def run(args, log):
     log.info(f"Read LDRs from {args.ldrs}")
     ldrs = ds.Dataset(args.ldrs)
     log.info(f"{ldrs.data.shape[1]} LDRs and {ldrs.data.shape[0]} subjects.")
-    if args.n_ldrs is not None:
-        if ldrs.data.shape[1] < args.n_ldrs:
-            raise ValueError(f"the number of LDRs is less than --n-ldrs")
+    if args.ldr_col is not None:
+        if ldrs.data.shape[1] < args.ldr_col[1]:
+            raise ValueError(f"--ldr-col or --n-ldrs out of index")
         else:
-            log.info(f"Keep the top {args.n_ldrs} LDRs.")
-        ldrs.data = ldrs.data.iloc[:, : args.n_ldrs]
+            log.info(f"keep LDR{args.ldr_col[0]+1} to LDR{args.ldr_col[1]}.")
+        ldrs.data = ldrs.data.iloc[:, args.ldr_col[0]: args.ldr_col[1]]
 
     log.info(f"Read covariates from {args.covar}")
     covar = ds.Covar(args.covar, args.cat_covar_list)
@@ -199,12 +260,12 @@ def run(args, log):
         if args.loco_preds is not None:
             log.info(f'Read LOCO predictions from {args.loco_preds}')
             loco_preds = LOCOpreds(args.loco_preds)
-            loco_preds.select_ldrs(args.n_ldrs)
-            if loco_preds.n_ldrs != ldrs.data.shape[1]:
+            loco_preds.select_ldrs(args.ldr_col)
+            if loco_preds.ldr_col[1] - loco_preds.ldr_col[0] != ldrs.data.shape[1]:
                 raise ValueError(
                     (
                         "inconsistent dimension in LDRs and LDR LOCO predictions. "
-                        "Try to use --n-ldrs"
+                        "Try to use --n-ldrs or --ldr-col"
                     )
                 )
             common_ids = ds.get_common_idxs(
@@ -274,8 +335,9 @@ def run(args, log):
         gwas = DoGWAS(gprocessor, ldrs, covar, temp_path, loco_preds)
 
         # save gwas results
-        gwas.gwas.export(f"{args.out}.txt.bgz")
-        log.info(f"\nSave GWAS results to {args.out}.txt.bgz")
+        # gwas.gwas.export(f"{args.out}.txt.bgz")
+        gwas.gwas.to_spark.write.parquet(f"{args.out}.parquet")
+        log.info(f"\nSave GWAS results to {args.out}.parquet")
     finally:
         if "temp_path" in locals():
             if os.path.exists(temp_path):

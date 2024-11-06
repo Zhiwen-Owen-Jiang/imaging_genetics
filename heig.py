@@ -584,7 +584,12 @@ wgs_general_annot_parser.add_argument(
 
 # arguments for relatedness.py
 relatedness_parser.add_argument(
-    "--bsize", type=int, help="Block size of genotype blocks. Default: 1000."
+    "--bsize", type=int, help="Block size of genotype blocks. Default: 5000."
+)
+
+# arguments for gwas.py
+gwas_parser.add_argument(
+    "--ldr-col", help="One-based LDR indices. E.g., `3,4,5,6` and `3:6`, must be consecutive"
 )
 
 
@@ -690,6 +695,7 @@ def check_accepted_args(module, args, log):
         "gwas": {
             "out",
             "gwas",
+            "ldr_col",
             "ldrs",
             "n_ldrs",
             "grch37",
