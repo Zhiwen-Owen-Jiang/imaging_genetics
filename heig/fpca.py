@@ -8,7 +8,7 @@ import scipy.sparse as sp
 from tqdm import tqdm
 from functools import partial
 from heig.utils import inv
-from scipy.sparse import csc_matrix, csr_matrix, dok_matrix, hstack
+from scipy.sparse import csc_matrix, csr_matrix, dok_matrix, hstack, eye
 from sklearn.decomposition import IncrementalPCA
 from scipy.interpolate import make_interp_spline
 import heig.input.dataset as ds
@@ -261,7 +261,7 @@ def image_reader(images, id_idxs):
 
 
 def do_kernel_smoothing(
-    raw_image_dir, sm_image_dir, keep_idvs, bw_opt, threads, temp_path, log
+    raw_image_dir, sm_image_dir, keep_idvs, bw_opt, threads, temp_path, skip_smoothing, log
 ):
     """
     A wrapper function for doing kernel smoothing.
@@ -274,6 +274,7 @@ def do_kernel_smoothing(
     bw_opt (1, ): a scalar of optimal bandwidth
     threads: number of threads
     temp_path: temporay directory to save a sparse smoothing matrix
+    skip_smoothing: if skip kernel smoothing
     log: a logger
 
     Returns:
@@ -286,9 +287,10 @@ def do_kernel_smoothing(
         coord = file["coord"][:]
         ids = file["id"][:]
         ids = pd.MultiIndex.from_arrays(ids.astype(str).T, names=["FID", "IID"])
+        n_voxels = coord.shape[0]
 
         log.info(
-            f"{len(ids)} subjects and {coord.shape[0]} voxels (vertices) read from {raw_image_dir}"
+            f"{len(ids)} subjects and {n_voxels} voxels (vertices) read from {raw_image_dir}"
         )
 
         if keep_idvs is not None:
@@ -297,9 +299,12 @@ def do_kernel_smoothing(
             common_ids = ids
         id_idxs = np.arange(len(ids))[ids.isin(common_ids)]
         log.info(f"Using {len(id_idxs)} subjects.")
+        n_subjects = len(id_idxs)
 
         ks = LocalLinear(images, coord, id_idxs)
-        if bw_opt is None:
+        if skip_smoothing:
+            sparse_sm_weight = eye(n_voxels, format='csr')
+        elif bw_opt is None:
             log.info("\nDoing kernel smoothing ...")
             bw_list = ks.bw_cand()
             log.info(f"Selecting the optimal bandwidth from\n{np.round(bw_list, 3)}.")
@@ -309,13 +314,11 @@ def do_kernel_smoothing(
             log.info(f"Doing kernel smoothing using the optimal bandwidth.")
             sparse_sm_weight = ks.smoother(bw_opt, threads)
 
-        n_voxels = images.shape[1]
-        n_subjects = len(id_idxs)
         if sparse_sm_weight is not None:
             subject_wise_mean = np.zeros(n_voxels, dtype=np.float32)
             with h5py.File(sm_image_dir, "w") as h5f:
                 sm_images = h5f.create_dataset(
-                    "sm_images", shape=(n_subjects, n_voxels), dtype="float32"
+                    "images", shape=(n_subjects, n_voxels), dtype="float32"
                 )
                 start_idx, end_idx = 0, 0
                 for images_ in image_reader(images, id_idxs):
@@ -444,7 +447,7 @@ def do_fpca(sm_image_dir, subject_wise_mean, args, log):
 
     """
     with h5py.File(sm_image_dir, "r") as file:
-        sm_images = file["sm_images"]
+        sm_images = file["images"]
         n_subjects, n_voxels = sm_images.shape
 
         # setup parameters
@@ -567,6 +570,9 @@ def check_input(args, log):
     if args.all_pc and args.n_ldrs is not None:
         log.info("--all-pc is ignored as --n-ldrs specified.")
         args.all_pc = False
+    if args.skip_smoothing:
+        log.info("Skip kernel smoothing.")
+        args.bw_opt = None
     if args.bw_opt is not None and args.bw_opt <= 0:
         raise ValueError("--bw-opt should be positive")
 
@@ -591,6 +597,7 @@ def run(args, log):
             args.bw_opt,
             args.threads,
             temp_path,
+            args.skip_smoothing,
             log,
         )
 
