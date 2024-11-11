@@ -15,7 +15,9 @@ from heig.wgs.utils import (
 
 
 """
-TODO: consider providing more preprocessing options? such as --chr
+TODO: 
+1. consider providing more preprocessing options? such as --chr
+2. provide maf/info in gwas results
 
 """
 
@@ -214,8 +216,8 @@ class DoGWAS:
             "t_stat",
             "p_value",
         )
-
-        # gwas = self._post_process(gwas)
+        
+        gwas = self._post_process(gwas)
 
         return gwas
     
@@ -223,7 +225,7 @@ class DoGWAS:
         """
         Removing SNPs with any missing or infinity values.
         This step is originally done in sumstats.py.
-        However, pandas is not convenient to handle nested array.
+        However, pandas is not convenient to handle nested arrays.
         
         """
         gwas = gwas.filter(
@@ -234,6 +236,14 @@ class DoGWAS:
         )
 
         return gwas
+    
+    def save(self, out_path):
+        """
+        Saving GWAS results as a parquet file
+
+        """
+        self.gwas = self.gwas.to_spark()
+        self.gwas.write.mode("overwrite").parquet(f"{out_path}.parquet")
 
 
 def run(args, log):
@@ -336,7 +346,8 @@ def run(args, log):
 
         # save gwas results
         # gwas.gwas.export(f"{args.out}.txt.bgz")
-        gwas.gwas.to_spark.write.parquet(f"{args.out}.parquet")
+        # gwas.gwas.to_spark.write.parquet(f"{args.out}.parquet")
+        gwas.save(args.out)
         log.info(f"\nSave GWAS results to {args.out}.parquet")
     finally:
         if "temp_path" in locals():

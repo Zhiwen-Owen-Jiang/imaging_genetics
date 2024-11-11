@@ -30,6 +30,7 @@ def check_input(args, log):
         args.a2_col = 'ref_allele'
         args.effect_col = 'beta,0'
         args.se_col = 'standard_error'
+        args.z_col = 't_stat'
         args.maf_col = None
         args.info_col = None
         args.maf_min = None
@@ -386,7 +387,7 @@ class ProcessGWAS(ABC):
 
         return gwas_data
 
-    def _prune_snps(self, gwas):
+    def _prune_snps(self, gwas, is_heig=False):
         """
         Pruning SNPs according to
         1) any missing values in required columns
@@ -399,6 +400,7 @@ class ProcessGWAS(ABC):
         Parameters:
         ------------
         gwas: a pd.DataFrame of summary statistics with required columns
+        is_heig: if it is HEIG GWAS
 
         Returns:
         ---------
@@ -413,11 +415,12 @@ class ProcessGWAS(ABC):
         n_snps = self._check_remaining_snps(gwas)
 
         # increased a little memory
-        gwas = gwas.loc[~gwas.isin([np.inf, -np.inf, np.nan]).any(axis=1)]
-        self.logger.info(
-            f"Removed {n_snps - gwas.shape[0]} SNPs with any missing or infinite values."
-        )
-        n_snps = self._check_remaining_snps(gwas)
+        if not is_heig:
+            gwas = gwas.loc[~gwas.isin([np.inf, -np.inf, np.nan]).any(axis=1)]
+            self.logger.info(
+                f"Removed {n_snps - gwas.shape[0]} SNPs with any missing or infinite values."
+            )
+            n_snps = self._check_remaining_snps(gwas)
 
         not_strand_ambiguous = [
             (
@@ -486,6 +489,9 @@ class ProcessGWAS(ABC):
         delimiter: delimiter of gwas files
 
         """
+        if gwas_file.endswith('parquet'):
+            return None, None
+        
         openfunc, compression = utils.check_compression(gwas_file)
 
         with openfunc(gwas_file, "r") as file:
@@ -850,10 +856,9 @@ class GWASHEIG(GWASLDR):
                     chunks=(chunk_size, last_z.shape[1]),
                     )
 
-
     def process(self, threads):
         """
-        Processing LDR GWAS summary statistics. BETA and SE are required columns.
+        Processing LDR GWAS summary statistics.
 
         """
         self.logger.info(
@@ -886,7 +891,7 @@ class GWASHEIG(GWASLDR):
         valid_snp_idxs = np.ones(gwas_data.shape[0], dtype=bool)
 
         self.logger.info(f"Pruning SNPs for the first GWAS file ...")
-        gwas_data = self._prune_snps(gwas_data)
+        gwas_data = self._prune_snps(gwas_data, is_heig=True)
         final_snps_list = gwas_data["SNP"]
         valid_snp_idxs = (
             valid_snp_idxs & orig_snps_list["SNP"].isin(final_snps_list).values
@@ -897,6 +902,36 @@ class GWASHEIG(GWASLDR):
         self._create_dataset(gwas_data.shape[0])
 
         return is_valid_snp, snpinfo
+
+    def _read_gwas(self, gwas_file):
+        """
+        Reading HEIG GWAS file from parquet, only SNP info
+
+        """
+        gwas_data = pd.read_parquet(
+            gwas_file,
+            columns=["chr", "pos", "rsid", "ref_allele", "alt_allele", "n_called"],
+            engine="pyarrow",
+        )
+        gwas_data = gwas_data.rename(self.cols_map2, axis=1)
+        gwas_data["A1"] = gwas_data["A1"].str.upper().astype("category")
+        gwas_data["A2"] = gwas_data["A2"].str.upper().astype("category")
+
+        return gwas_data
+
+    def _read_gwas_effct(self, gwas_file):
+        """
+        Reading effects and z scores from HEIG GWAS results
+
+        """
+        gwas_data = pd.read_parquet(
+            gwas_file,
+            columns=["beta", "t_stat"],
+            engine="pyarrow",
+        )
+        gwas_data = gwas_data.rename(self.cols_map2, axis=1)
+
+        return gwas_data
 
     def _read_save(self, is_valid_snp, gwas_file, is_last_file, threads):
         """
@@ -912,16 +947,9 @@ class GWASHEIG(GWASLDR):
         """
         gwas_data = self._read_gwas_effct(gwas_file)
         gwas_data = gwas_data.loc[is_valid_snp]
-        beta_array = self._string_to_float(gwas_data, "EFFECT", threads)
-        se_array = self._string_to_float(gwas_data, "SE", threads)
-        z_array = beta_array / se_array
+        beta_array = np.array(list(gwas_data['EFFECT']))
+        z_array = np.array(list(gwas_data['Z']))
         self._save_sumstats(beta_array, z_array, is_last_file)
-
-    @staticmethod
-    def _string_to_float(gwas, stat, threads):
-        with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
-            results = list(executor.map(ast.literal_eval, gwas[stat]))
-        return np.array(results, dtype=np.float32)
 
 
 def run(args, log):
