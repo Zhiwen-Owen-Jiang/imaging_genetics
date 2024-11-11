@@ -449,6 +449,13 @@ fpca_parser.add_argument(
         "for 3D images"
     ),
 )
+fpca_parser.add_argument(
+    "--skip-smoothing",
+    action='store_true',
+    help=(
+        "Skip kernel smoothing. "
+    ),
+)
 
 # arguments for ldmatrix.py
 makeld_parser.add_argument(
@@ -633,6 +640,7 @@ def check_accepted_args(module, args, log):
             "n_ldrs",
             "keep",
             "bw_opt",
+            "skip_smoothing",
             "threads",
         },
         "make_ldr": {
