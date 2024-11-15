@@ -55,7 +55,11 @@ class LDSC:
                 )
 
                 for future in concurrent.futures.as_completed(futures):
-                    future.result()
+                    try:
+                        future.result()
+                    except Exception as exc:
+                        executor.shutdown(wait=False)
+                        raise RuntimeError(f"Computation terminated due to error: {exc}")
 
     def ldsc(
         self,

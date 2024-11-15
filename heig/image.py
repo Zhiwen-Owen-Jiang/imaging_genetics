@@ -69,8 +69,8 @@ class ImageReader(ABC):
                 try:
                     future.result()
                 except Exception as exc:
-                    self.logger.info(f"Generated an exception: {exc}.")
-                    break
+                    executor.shutdown(wait=False)
+                    raise RuntimeError(f"Computation terminated due to error: {exc}")
 
         self.logger.info("Done.")
         if os.path.exists(f"{self.out_dir}.lock"):
@@ -117,11 +117,13 @@ class NIFTIReader(ImageReader):
             img = nib.load(img_file)
             data = img.get_fdata()
             data = data[tuple(self.coord.T)]
+            if np.std(data) == 0:
+                raise ValueError(f"{img_file} is an invalid image with variance 0")
             return data
-        except:
-            raise ValueError(
-                "cannot read the image, did you provide a wrong NIFTI image?"
-            )
+        except Exception as e:
+            if isinstance(e, ValueError):
+                raise
+            raise RuntimeError(f"cannot read {img_file}, did you provide a wrong NIFTI image?")
 
 
 class CIFTIReader(ImageReader):
@@ -142,11 +144,13 @@ class CIFTIReader(ImageReader):
         try:
             img = nib.load(img_file)
             data = img.get_fdata()[0]
+            if np.std(data) == 0:
+                raise ValueError(f"{img_file} is an invalid image with variance 0")
             return data
-        except:
-            raise ValueError(
-                "cannot read the image, did you provide a wrong CIFTI image?"
-            )
+        except Exception as e:
+            if isinstance(e, ValueError):
+                raise
+            raise RuntimeError(f"cannot read {img_file}, did you provide a wrong CIFTI image?")
 
 
 class FreeSurferReader(ImageReader):
@@ -166,11 +170,15 @@ class FreeSurferReader(ImageReader):
     def _read_image(self, img_file):
         try:
             data = nib.freesurfer.read_morph_data(img_file)
+            if np.std(data) == 0:
+                raise ValueError(f"{img_file} is an invalid image with variance 0")
             return data
-        except:
-            raise ValueError(
+        except Exception as e:
+            if isinstance(e, ValueError):
+                raise
+            raise RuntimeError(
                 (
-                    "cannot read the image, did you provide a wrong "
+                    f"cannot read {img_file}, did you provide a wrong "
                     "FreeSurfer morphometry data file?"
                 )
             )

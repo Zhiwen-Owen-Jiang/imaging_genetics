@@ -193,7 +193,11 @@ def run(args, log):
                 )
 
             for future in concurrent.futures.as_completed(futures):
-                future.result()
+                try:
+                    future.result()
+                except Exception as exc:
+                    executor.shutdown(wait=False)
+                    raise RuntimeError(f"Computation terminated due to error: {exc}")
 
         for alt_n_ldrs, corr in rec_corr.items():
             rec_corr[alt_n_ldrs] = round(np.mean(corr), 2)
