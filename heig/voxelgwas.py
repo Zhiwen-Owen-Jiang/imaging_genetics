@@ -69,7 +69,11 @@ class VGWAS:
                 i += batch_size
 
             for future in concurrent.futures.as_completed(futures):
-                future.result()
+                try:
+                    future.result()
+                except Exception as exc:
+                    executor.shutdown(wait=False)
+                    raise RuntimeError(f"Computation terminated due to error: {exc}")
 
         ztz_inv /= n_ldrs
         ztz_inv = ztz_inv.reshape(-1, 1)
@@ -135,7 +139,11 @@ class VGWAS:
                 i += batch_size
 
             for future in concurrent.futures.as_completed(futures):
-                future.result()
+                try:
+                    future.result()
+                except Exception as exc:
+                    executor.shutdown(wait=False)
+                    raise RuntimeError(f"Computation terminated due to error: {exc}")
 
         return voxel_beta
 
@@ -290,7 +298,6 @@ def process_voxels(
                     with open(outpath, "a") as file:
                         file.write(results_dict.pop(next_write_i))
                 next_write_i += 1
-
 
 def check_input(args, log):
     # required arguments

@@ -674,7 +674,8 @@ class GWASLDR(ProcessGWAS):
                 try:
                     future.result()
                 except Exception as exc:
-                    self.logger.info(f"Generated an exception: {exc}.")
+                    executor.shutdown(wait=False)
+                    raise RuntimeError(f"Computation terminated due to error: {exc}")
 
         if os.path.exists(f"{self.out_dir}.sumstats.lock"):
             os.remove(f"{self.out_dir}.sumstats.lock")

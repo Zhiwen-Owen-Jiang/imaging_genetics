@@ -187,9 +187,13 @@ class LocalLinear(KernelSmooth):
             }
 
             for future in concurrent.futures.as_completed(futures):
-                idx = futures[future]
-                sm_weight, large_weight_idxs = future.result()
-                sparse_sm_weight[idx, large_weight_idxs] = sm_weight
+                try:
+                    idx = futures[future]
+                    sm_weight, large_weight_idxs = future.result()
+                    sparse_sm_weight[idx, large_weight_idxs] = sm_weight
+                except Exception as exc:
+                    executor.shutdown(wait=False)
+                    raise RuntimeError(f"Computation terminated due to error: {exc}")
 
         nonzero_weights = np.sum(sparse_sm_weight != 0, axis=0)
         if np.mean(nonzero_weights) > self.N // 10:

@@ -258,7 +258,11 @@ class OneSample(Estimation):
                 )
 
             for future in concurrent.futures.as_completed(futures):
-                future.result()
+                try:
+                    future.result()
+                except Exception as exc:
+                    executor.shutdown(wait=False)
+                    raise RuntimeError(f"Computation terminated due to error: {exc}")
 
         return ld_rank, ldr_gene_cov
 
@@ -306,10 +310,14 @@ class OneSample(Estimation):
                     )
 
                 for future in concurrent.futures.as_completed(futures):
-                    gene_cor_sum, gene_cor_min, gene_cor_se_sum = future.result()
-                    mean_gene_cor += gene_cor_sum
-                    mean_gene_cor_se += gene_cor_se_sum
-                    min_gene_cor = np.min((min_gene_cor, gene_cor_min))
+                    try:
+                        gene_cor_sum, gene_cor_min, gene_cor_se_sum = future.result()
+                        mean_gene_cor += gene_cor_sum
+                        mean_gene_cor_se += gene_cor_se_sum
+                        min_gene_cor = np.min((min_gene_cor, gene_cor_min))
+                    except Exception as exc:
+                        executor.shutdown(wait=False)
+                        raise RuntimeError(f"Computation terminated due to error: {exc}")
 
         mean_gene_cor /= self.N**2
         mean_gene_cor_se /= self.N**2
@@ -562,7 +570,11 @@ class TwoSample(Estimation):
                 )
 
             for future in concurrent.futures.as_completed(futures):
-                future.result()
+                try:
+                    future.result()
+                except Exception as exc:
+                    executor.shutdown(wait=False)
+                    raise RuntimeError(f"Computation terminated due to error: {exc}")
 
         return (
             ld_block_rank,
@@ -642,7 +654,11 @@ class TwoSample(Estimation):
                 )
 
             for future in concurrent.futures.as_completed(futures):
-                future.result()
+                try:
+                    future.result()
+                except Exception as exc:
+                    executor.shutdown(wait=False)
+                    raise RuntimeError(f"Computation terminated due to error: {exc}")    
 
         return image_lobo_heri
 
