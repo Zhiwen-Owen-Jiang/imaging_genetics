@@ -461,4 +461,5 @@ def run(args, log):
         log.info(f"\nSave the output to {outpath}")
 
     finally:
-        ldr_gwas.close()
+        if 'ldr_gwas' in locals():
+            ldr_gwas.close()
