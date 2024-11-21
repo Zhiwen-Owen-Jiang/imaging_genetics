@@ -70,6 +70,10 @@ class ImageReader(ABC):
                     future.result()
                 except Exception as exc:
                     executor.shutdown(wait=False)
+                    if os.path.exists(f"{self.out_dir}.lock"):
+                        os.remove(f"{self.out_dir}.lock")
+                    if os.path.exists(self.out_dir):
+                        os.remove(self.out_dir)
                     raise RuntimeError(f"Computation terminated due to error: {exc}")
 
         self.logger.info("Done.")

@@ -455,7 +455,7 @@ def do_fpca(sm_image_dir, subject_wise_mean, args, log):
         n_subjects, n_voxels = sm_images.shape
 
         # setup parameters
-        log.info(f"\nDoing functional PCA ...")
+        log.info("\nDoing PCA ...")
         fpca = FPCA(n_subjects, n_voxels, args.all_pc, args.n_ldrs)
 
         # incremental PCA
