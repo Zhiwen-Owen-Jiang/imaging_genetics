@@ -1,0 +1,11 @@
+site_name: HEIG
+theme:
+  name: mkdocs
+copyright: "HEIG is licensed under <a href='https://github.com/Zhiwen-Owen-Jiang/heig/blob/pub/LICENSE'>GNU General Public License v3.0"
+
+nav:
+  - Home: index.md
+  - Install: install.md
+  - Options: options.md
+  - Tutorial: tutorial.md
+  - F.A.Q.: faq.md
