@@ -191,7 +191,6 @@ class Test_image_manager(unittest.TestCase):
         to_keep_id = pd.MultiIndex.from_tuples([['s1000', 's1000']],
                                                  names=["FID", "IID"])
         image_manager.keep_and_remove(keep_idvs=to_keep_id, remove_idvs=None)
-        image_manager.extract_id_idxs()
         image_manager.save(os.path.join(self.folder, 'dir1_keep_images.h5'))
 
         with h5py.File(os.path.join(self.folder, 'dir1_keep_images.h5'), 'r') as file:
@@ -208,7 +207,6 @@ class Test_image_manager(unittest.TestCase):
         to_remove_id = pd.MultiIndex.from_tuples([['s1000', 's1000']],
                                                  names=["FID", "IID"])
         image_manager.keep_and_remove(keep_idvs=None, remove_idvs=to_remove_id)
-        image_manager.extract_id_idxs()
         image_manager.save(os.path.join(self.folder, 'dir1_remove_images.h5'))
 
         with h5py.File(os.path.join(self.folder, 'dir1_remove_images.h5'), 'r') as file:
@@ -226,7 +224,6 @@ class Test_image_manager(unittest.TestCase):
                                                   ['s1010', 's1010']],
                                                  names=["FID", "IID"])
         image_manager.keep_and_remove(keep_idvs=None, remove_idvs=to_remove_id)
-        image_manager.extract_id_idxs()
         image_manager.save(os.path.join(self.folder, 'dir1_remove_images.h5'))
 
         with h5py.File(os.path.join(self.folder, 'dir1_remove_images.h5'), 'r') as file:
@@ -241,7 +238,6 @@ class Test_image_manager(unittest.TestCase):
     def test_doing_nothing(self):
         image_manager = ImageManager(os.path.join(self.folder, 'dir3_images.h5'))
         image_manager.keep_and_remove()
-        image_manager.extract_id_idxs()
         image_manager.save(os.path.join(self.folder, 'dir3_doing_nothing_images.h5'))
 
         with h5py.File(os.path.join(self.folder, 'dir3_doing_nothing_images.h5'), 'r') as file:

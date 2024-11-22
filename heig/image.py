@@ -276,7 +276,7 @@ class ImageManager:
         ids = self.file["id"][:]
         self.ids = pd.MultiIndex.from_arrays(ids.astype(str).T, names=["FID", "IID"])
         self.n_sub, self.n_voxels = self.images.shape
-        self.id_idxs = None
+        self.id_idxs = np.arange(len(self.ids))
         self.extracted_ids = self.ids
         self.logger = logging.getLogger(__name__)
         self.logger.info(f"{self.n_sub} subjects and {self.n_voxels} voxels in {image_file}")
@@ -292,8 +292,6 @@ class ImageManager:
         check_empty: if check the current image set is empty
 
         """
-        if self.id_idxs is not None:
-            raise RuntimeError("keep_and_remove() must be called before extract_id_idxs()")
         if keep_idvs is not None:
             self.extracted_ids = ds.get_common_idxs(self.extracted_ids, keep_idvs)
         if remove_idvs is not None:
@@ -301,11 +299,6 @@ class ImageManager:
         if check_empty and len(self.extracted_ids) == 0:
             raise ValueError("no subject remaining after --keep and/or --remove")
         
-    def extract_id_idxs(self):
-        """
-        Extracting id indices after keep_and_remove()
-        
-        """
         self.n_sub = len(self.extracted_ids)
         self.id_idxs = np.arange(len(self.ids))[self.ids.isin(self.extracted_ids)]
         
@@ -314,9 +307,6 @@ class ImageManager:
         Reading imaging data in chunks as a generator, each chunk is ~5 GB
 
         """
-        if self.id_idxs is None:
-            raise RuntimeError('extract_id_idxs() must be called before image_reader()')
-        
         memory_use = self.n_sub * self.n_voxels * np.dtype(np.float32).itemsize / (1024**3)
         if memory_use <= 5:
             batch_size = self.n_sub
@@ -336,9 +326,6 @@ class ImageManager:
         out_dir: directory of output
         
         """
-        if self.id_idxs is None:
-            raise RuntimeError('extract_id_idxs() must be called before save()')
-        
         self.logger.info(f"{self.n_sub} subjects in the output image file.")
         try:
             with h5py.File(out_dir, "w") as output:
@@ -387,7 +374,6 @@ def merge_images(image_files, out_dir, log, keep_idvs=None, remove_idvs=None):
 
         for image_manager in image_managers:
             image_manager.keep_and_remove(keep_idvs=all_ids, remove_idvs=None, check_empty=False)
-            image_manager.extract_id_idxs()
         
         with h5py.File(out_dir, "w") as output:
             dset = output.create_dataset("images", shape=(len(all_ids), image_managers[0].n_voxels), dtype="float32")
@@ -497,7 +483,6 @@ def run(args, log):
             log.info(f"Processing {args.image}")
             image_manager = ImageManager(args.image)
             image_manager.keep_and_remove(args.keep, args.remove)
-            image_manager.extract_id_idxs()
             image_manager.save(out_dir)
         except:
             if os.path.exists(out_dir):
