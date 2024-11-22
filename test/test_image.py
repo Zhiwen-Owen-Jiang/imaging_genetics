@@ -64,7 +64,7 @@ class Test_get_image_list(unittest.TestCase):
         assert_index_equal(true_ids, ids)
         self.assertEqual(true_img_list, img_list)
 
-    def test_keep(self):
+    def test_keep_and_remove(self):
         true_ids = pd.MultiIndex.from_arrays([('s1000', 's1001'), 
                                               ('s1000', 's1001')],
                                              names=['FID', 'IID'])
@@ -73,13 +73,33 @@ class Test_get_image_list(unittest.TestCase):
                         ]
         true_img_list = [os.path.join(self.folder, x) for x in true_img_list]
 
-        keep_indivs = pd.MultiIndex.from_arrays([('s1000', 's1001'), 
+        keep_idvs = pd.MultiIndex.from_arrays([('s1000', 's1001'), 
                                               ('s1000', 's1001')],
                                              names=['FID', 'IID'])
         ids, img_list = get_image_list([os.path.join(self.folder, 'image_dir1'), 
                                         os.path.join(self.folder, 'image_dir2')],
                                        ['_example_image.nii.gz', '_example_image.nii.gz'],
-                                       log, keep_indivs)
+                                       log, keep_idvs)
+        assert_index_equal(true_ids, ids)
+        self.assertEqual(true_img_list, img_list)
+
+        remove_idvs = pd.MultiIndex.from_arrays([('s1002', 's1003', 's1004', 's1005'), 
+                                                 ('s1002', 's1003', 's1004', 's1005')],
+                                                 names=['FID', 'IID'])
+        ids, img_list = get_image_list([os.path.join(self.folder, 'image_dir1'), 
+                                        os.path.join(self.folder, 'image_dir2')],
+                                       ['_example_image.nii.gz', '_example_image.nii.gz'],
+                                       log, remove_idvs=remove_idvs)
+        assert_index_equal(true_ids, ids)
+        self.assertEqual(true_img_list, img_list)
+        
+        keep_idvs = pd.MultiIndex.from_arrays([('s1000', 's1001', 's1002'), 
+                                              ('s1000', 's1001', 's1002')],
+                                             names=['FID', 'IID'])
+        ids, img_list = get_image_list([os.path.join(self.folder, 'image_dir1'), 
+                                        os.path.join(self.folder, 'image_dir2')],
+                                       ['_example_image.nii.gz', '_example_image.nii.gz'],
+                                       log, keep_idvs=keep_idvs, remove_idvs=remove_idvs)
         assert_index_equal(true_ids, ids)
         self.assertEqual(true_img_list, img_list)
 
@@ -203,7 +223,7 @@ class Test_image_manager(unittest.TestCase):
                                                  ['s1001', 's1001'],
                                                  ['s1004', 's1004']],
                                                  names=["FID", "IID"])
-        image_manager.keep(to_keep_ids)
+        image_manager.keep_and_remove(to_keep_ids, remove_idvs=None)
         image_manager.merge()
         image_manager.save(os.path.join(self.folder, 'dir12_keep_images.h5'))
 
@@ -220,7 +240,7 @@ class Test_image_manager(unittest.TestCase):
         image_manager = ImageManager([os.path.join(self.folder, 'dir1_images.h5')])
         to_remove_id = pd.MultiIndex.from_tuples([['s1000', 's1000']],
                                                  names=["FID", "IID"])
-        image_manager.remove(to_remove_id)
+        image_manager.keep_and_remove(keep_idvs=None, remove_idvs=to_remove_id)
         image_manager.merge()
         image_manager.save(os.path.join(self.folder, 'dir1_remove_images.h5'))
 
@@ -242,8 +262,7 @@ class Test_image_manager(unittest.TestCase):
                                                  names=["FID", "IID"])
         to_remove_id = pd.MultiIndex.from_tuples([['s1000', 's1000']],
                                                  names=["FID", "IID"])
-        image_manager.keep(to_keep_ids)
-        image_manager.remove(to_remove_id)
+        image_manager.keep_and_remove(to_keep_ids, to_remove_id)
         image_manager.merge()
         image_manager.save(os.path.join(self.folder, 'dir12_keep_remove_images.h5'))
 
@@ -262,14 +281,14 @@ class Test_image_manager(unittest.TestCase):
         to_keep_ids = pd.MultiIndex.from_tuples([['s1010', 's1010']],
                                                  names=["FID", "IID"])
         with self.assertRaises(ValueError):
-            image_manager.keep(to_keep_ids)
+            image_manager.keep_and_remove(to_keep_ids, remove_idvs=None)
 
     def test_remove_nonexist(self):
         image_manager = ImageManager([os.path.join(self.folder, 'dir1_images.h5')])
         to_remove_id = pd.MultiIndex.from_tuples([['s1000', 's1000'],
                                                   ['s1010', 's1010']],
                                                  names=["FID", "IID"])
-        image_manager.remove(to_remove_id)
+        image_manager.keep_and_remove(keep_idvs=None, remove_idvs=to_remove_id)
         image_manager.merge()
         image_manager.save(os.path.join(self.folder, 'dir1_remove_images.h5'))
 

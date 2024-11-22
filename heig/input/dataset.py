@@ -88,17 +88,21 @@ class Dataset:
             f"Removed {sum(bad_idxs)} row(s) with missing or infinite values."
         )
 
-    def keep(self, idx):
+    def keep_and_remove(self, keep_idx=None, remove_idx=None):
         """
-        Extracting rows using indices (not boolean)
+        Extracting and removing rows using indices (not boolean)
         the resulting dataset should have the same order as the indices
 
         Parameters:
         ------------
-        idx: indices of the data
+        idx: indices of the data (may be None)
 
         """
-        self.data = self.data.loc[idx]
+        if keep_idx is not None:
+            common_idxs = get_common_idxs(self.data.index, keep_idx)
+            self.data = self.data.loc[common_idxs]
+        if remove_idx is not None:
+            self.data = self.data[~self.data.index.isin(remove_idx)]
         if len(self.data) == 0:
             raise ValueError("no data left")
 
@@ -109,6 +113,9 @@ class Dataset:
         """
         self.data = self.data.reset_index(level=0, drop=True)
         # self.data.reset_index(inplace=True)
+        
+    def get_ids(self):
+        return self.data.index
 
 
 class Covar(Dataset):
@@ -236,7 +243,6 @@ def get_common_idxs(*idx_list, single_id=False):
         raise ValueError("no valid index provided")
     if len(common_idxs) == 0:
         raise ValueError("no common index exists")
-
     if single_id:
         common_idxs = common_idxs.get_level_values("IID").tolist()
 
@@ -268,7 +274,8 @@ def get_union_idxs(*idx_list, single_id=False):
                 union_idxs = idx.copy()
             else:
                 union_idxs = union_idxs.union(idx, sort=False)
-
+    if union_idxs is None:
+        raise ValueError("no valid index provided")
     if single_id:
         union_idxs = union_idxs.get_level_values("IID").tolist()
 

@@ -188,7 +188,7 @@ class FreeSurferReader(ImageReader):
             )
 
 
-def get_image_list(img_dirs, suffixes, log, keep_idvs=None):
+def get_image_list(img_dirs, suffixes, log, keep_idvs=None, remove_idvs=None):
     """
     Getting file path of images from multiple directories.
 
@@ -198,6 +198,7 @@ def get_image_list(img_dirs, suffixes, log, keep_idvs=None):
     suffixes: a list of suffixes of images
     log: a logger
     keep_idvs: a pd.MultiIndex instance of IDs (FID, IID)
+    remove_idvs: a pd.MultiIndex instance of IDs (FID, IID)
 
     Returns:
     ---------
@@ -214,10 +215,11 @@ def get_image_list(img_dirs, suffixes, log, keep_idvs=None):
             if img_file.endswith(suffix) and (
                 (keep_idvs is not None and img_id in keep_idvs) or (keep_idvs is None)
             ):
-                if img_id in img_files:
-                    n_dup += 1
-                else:
-                    img_files[img_id] = os.path.join(img_dir, img_file)
+                if (remove_idvs is not None and img_id not in remove_idvs) or (remove_idvs is None):
+                    if img_id in img_files:
+                        n_dup += 1
+                    else:
+                        img_files[img_id] = os.path.join(img_dir, img_file)
     img_files = dict(sorted(img_files.items()))
     ids = pd.MultiIndex.from_arrays(
         [img_files.keys(), img_files.keys()], names=["FID", "IID"]
@@ -309,39 +311,24 @@ class ImageManager:
             id_idxs = np.arange(len(image_file_id))[image_file_id.isin(self.all_ids)]
             self.id_idxs_list.append(id_idxs)
 
-    def keep(self, keep_idvs):
+    def keep_and_remove(self, keep_idvs, remove_idvs):
         """
-        Keeping subjects
+        Keeping and removing subjects
 
         Parameters:
         ------------
         keep_idvs: subject indices in pd.MultiIndex to keep 
-        
-        """
-        if keep_idvs is not None:
-            if self.n_sub is not None:
-                raise RuntimeError("keep() must be called before merge()")
-            
-            self.all_ids = ds.get_common_idxs(*[self.all_ids, keep_idvs])
-            if len(self.all_ids) == 0:
-                raise ValueError("no common subjects in these image files")
-        
-    def remove(self, remove_idvs):
-        """
-        Removing subjects
-
-        Parameters:
-        ------------
         remove_idvs: subject indices in pd.MultiIndex to remove
         
         """
+        if self.n_sub is not None:
+            raise RuntimeError("keep_and_remove() must be called before merge()")
+        if keep_idvs is not None:
+            self.all_ids = ds.get_common_idxs(self.all_ids, keep_idvs)
         if remove_idvs is not None:
-            if self.n_sub is not None:
-                raise RuntimeError("remove() must be called before merge()")
-
             self.all_ids = ds.remove_idxs(self.all_ids, remove_idvs)
-            if len(self.all_ids) == 0:
-                raise ValueError("no subjects remaining after --remove")
+        if len(self.all_ids) == 0:
+            raise ValueError("no subject remaining after --keep and --remove")
         
     def image_reader(self, images, id_idxs, image_ids):
         """
@@ -468,12 +455,11 @@ def run(args, log):
                 f"voxels (vertices) read from {args.image_txt}"
             )
         )
-        if args.keep is not None:
-            common_ids = ds.get_common_idxs(images.data.index, args.keep)
-            images.keep(common_ids)
-            log.info(f"Keep {images.data.shape[0]} subjects.")
-        ids = images.data.index
+        
+        images.keep_and_remove(args.keep, args.remove)
+        ids = images.get_ids()
         images = np.array(images.data, dtype=np.float32)
+        log.info(f"Keep {images.shape[0]} subjects.")
 
         coord = pd.read_csv(args.coord_txt, sep="\s+", header=None)
         log.info(f"Read coordinates from {args.coord_txt}")
@@ -489,14 +475,13 @@ def run(args, log):
         else:
             log.info(f"Processing image file {args.image_list[0]}")
         image_manager = ImageManager(args.image_list)
-        image_manager.keep(args.keep)
-        image_manager.remove(args.remove)
+        image_manager.keep_and_remove(args.keep, args.remove)
         image_manager.merge()
         image_manager.save(out_dir)
 
     else:
         ids, img_files = get_image_list(
-            args.image_dir, args.image_suffix, log, args.keep
+            args.image_dir, args.image_suffix, log, args.keep, args.remove
         )
         if len(img_files) == 0:
             raise ValueError(
