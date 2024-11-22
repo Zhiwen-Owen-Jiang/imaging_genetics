@@ -557,10 +557,13 @@ def check_accepted_args(module, args, log):
             "out",
             "read_image",
             "keep",
+            "remove",
             "image_txt",
             "coord_txt",
             "image_dir",
             "image_suffix",
+            "image",
+            "image_list",
             "coord_dir",
             "threads",
         },
@@ -766,17 +769,17 @@ def process_args(args, log):
     if args.keep is not None:
         args.keep = split_files(args.keep)
         args.keep = ds.read_keep(args.keep)
-        log.info(f"{len(args.keep)} subjects in --keep.")
+        log.info(f"{len(args.keep)} subjects in --keep (logical and).")
 
     if args.remove is not None:
         args.remove = split_files(args.remove)
         args.remove = ds.read_remove(args.remove)
-        log.info(f"{len(args.remove)} subjects in --remove.")
+        log.info(f"{len(args.remove)} subjects in --remove (logical or).")
 
     if args.extract is not None:
         args.extract = split_files(args.extract)
         args.extract = ds.read_extract(args.extract)
-        log.info(f"{len(args.extract)} SNPs in --extract.")
+        log.info(f"{len(args.extract)} SNPs in --extract (logical and).")
 
     if args.voxel is not None:
         try:

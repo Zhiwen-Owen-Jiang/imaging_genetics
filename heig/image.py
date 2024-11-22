@@ -226,7 +226,7 @@ def get_image_list(img_dirs, suffixes, log, keep_idvs=None, remove_idvs=None):
     )
     img_files_list = list(img_files.values())
     if n_dup > 0:
-        log.info(f"WARNING: {n_dup} duplicated subject(s). Keep the first appeared one.")
+        log.info(f"WARNING: {n_dup} duplicated subject(s). Keep the first one.")
 
     return ids, img_files_list
 
@@ -298,7 +298,7 @@ class ImageManager:
             n_all_sub = sum(len(ids) for ids in self.image_file_ids)
             n_unique_sub = len(self.all_ids)
             self.logger.info((f"{n_unique_sub} unique subjects in these image files. "
-                              f"{n_all_sub - n_unique_sub} subjects are duplicated, keeping the first appeared one."))
+                              f"{n_all_sub - n_unique_sub} duplicated subject(s). Keep the first one."))
 
     def merge(self):
         """
@@ -369,30 +369,36 @@ class ImageManager:
         if self.id_idxs_list is None or self.n_sub == 0:
             raise RuntimeError('merge() must be called before save()')
         
-        self.logger.info(f"{self.n_sub} subjects in merged image file.")
-        with h5py.File(out_dir, "w") as output:
-            dset = output.create_dataset("images", shape=(self.n_sub, self.n_voxels), dtype="float32")
-            output.create_dataset("coord", data=self.coord)
-            dset.attrs["id"] = "id"
-            dset.attrs["coord"] = "coord"
+        self.logger.info(f"{self.n_sub} subjects in the output image file.")
+        try:
+            with h5py.File(out_dir, "w") as output:
+                dset = output.create_dataset("images", shape=(self.n_sub, self.n_voxels), dtype="float32")
+                output.create_dataset("coord", data=self.coord)
+                dset.attrs["id"] = "id"
+                dset.attrs["coord"] = "coord"
 
-            ids_read = None
-            start, end = 0, 0
-            for id_idxs, image_ids, image_file in zip(self.id_idxs_list, self.image_file_ids, self.image_files):  
-                if len(id_idxs) > 0:
-                    with h5py.File(image_file, "r") as file:
-                        images = file["images"]
-                        for images_, image_ids_ in self.image_reader(images, id_idxs, image_ids):
-                            if ids_read is not None:
-                                images_ = images_[~(image_ids_.isin(ids_read))]
-                                ids_read = ids_read.union(image_ids_, sort=False)
-                            else:
-                                ids_read = image_ids_
-                            start = end
-                            end += images_.shape[0]
-                            dset[start: end] = images_
+                ids_read = None
+                start, end = 0, 0
+                for id_idxs, image_ids, image_file in zip(self.id_idxs_list, self.image_file_ids, self.image_files):  
+                    if len(id_idxs) > 0:
+                        with h5py.File(image_file, "r") as file:
+                            images = file["images"]
+                            for images_, image_ids_ in self.image_reader(images, id_idxs, image_ids):
+                                if ids_read is not None:
+                                    images_ = images_[~(image_ids_.isin(ids_read))]
+                                    ids_read = ids_read.union(image_ids_, sort=False)
+                                else:
+                                    ids_read = image_ids_
+                                start = end
+                                end += images_.shape[0]
+                                dset[start: end] = images_
 
-            output.create_dataset("id", data=np.array(ids_read.tolist(), dtype="S10"))
+                output.create_dataset("id", data=np.array(ids_read.tolist(), dtype="S10"))
+        except Exception:
+            if os.path.exists(out_dir):
+                os.remove(out_dir)
+            raise
+            
 
 def check_input(args):
     if (
@@ -471,7 +477,7 @@ def run(args, log):
 
     elif args.image_list is not None:
         if len(args.image_list) > 1:
-            log.info(f"Merging image files from {args.image_list}")
+            log.info(f"Merging image files {args.image_list}")
         else:
             log.info(f"Processing image file {args.image_list[0]}")
         image_manager = ImageManager(args.image_list)
