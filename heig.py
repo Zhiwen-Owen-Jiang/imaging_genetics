@@ -574,6 +574,7 @@ def check_accepted_args(module, args, log):
             "all_pc",
             "n_ldrs",
             "keep",
+            "remove",
             "bw_opt",
             "skip_smoothing",
             "threads",

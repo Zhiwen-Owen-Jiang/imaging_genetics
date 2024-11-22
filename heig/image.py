@@ -264,11 +264,6 @@ class ImageManager:
         ------------
         image_file: a image HDF5 file path
 
-        Attributes:
-        ------------
-        image_files: a list of image HDF5 files
-        common_ids: common_ids in multi
-
         """
         self.file = h5py.File(image_file, "r")
         self.images = self.file["images"]
@@ -276,10 +271,11 @@ class ImageManager:
         ids = self.file["id"][:]
         self.ids = pd.MultiIndex.from_arrays(ids.astype(str).T, names=["FID", "IID"])
         self.n_sub, self.n_voxels = self.images.shape
+        self.dim = self.coord.shape[1]
         self.id_idxs = np.arange(len(self.ids))
         self.extracted_ids = self.ids
         self.logger = logging.getLogger(__name__)
-        self.logger.info(f"{self.n_sub} subjects and {self.n_voxels} voxels in {image_file}")
+        self.logger.info(f"{self.n_sub} subjects and {self.n_voxels} voxels (vertices) in {image_file}")
 
     def keep_and_remove(self, keep_idvs=None, remove_idvs=None, check_empty=True):
         """
@@ -302,16 +298,21 @@ class ImageManager:
         self.n_sub = len(self.extracted_ids)
         self.id_idxs = np.arange(len(self.ids))[self.ids.isin(self.extracted_ids)]
         
-    def image_reader(self):
+    def image_reader(self, batch_size=None):
         """
-        Reading imaging data in chunks as a generator, each chunk is ~5 GB
+        Reading imaging data in chunks as a generator
+
+        Parameters:
+        ------------
+        batch_size: an int of batch size
 
         """
-        memory_use = self.n_sub * self.n_voxels * np.dtype(np.float32).itemsize / (1024**3)
-        if memory_use <= 5:
-            batch_size = self.n_sub
-        else:
-            batch_size = int(self.n_sub / memory_use * 5)
+        if batch_size is None:
+            memory_use = self.n_sub * self.n_voxels * np.dtype(np.float32).itemsize / (1024**3)
+            if memory_use <= 5:
+                batch_size = self.n_sub
+            else:
+                batch_size = int(self.n_sub / memory_use * 5)
 
         for i in range(0, self.n_sub, batch_size):
             id_idx_chuck = self.id_idxs[i : i + batch_size]
@@ -484,10 +485,6 @@ def run(args, log):
             image_manager = ImageManager(args.image)
             image_manager.keep_and_remove(args.keep, args.remove)
             image_manager.save(out_dir)
-        except:
-            if os.path.exists(out_dir):
-                os.remove(out_dir)
-            raise
         finally:
             if 'image_manager' in locals():
                 image_manager.close()

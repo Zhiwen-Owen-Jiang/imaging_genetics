@@ -11,24 +11,22 @@ from heig.utils import inv
 from scipy.sparse import csc_matrix, csr_matrix, dok_matrix, hstack, eye
 from sklearn.decomposition import IncrementalPCA
 from scipy.interpolate import make_interp_spline
-import heig.input.dataset as ds
+from heig.image import ImageManager
 
 
 class KernelSmooth:
-    def __init__(self, images, coord, id_idxs):
+    def __init__(self, images):
         """
         Parameters:
         ------------
-        images (n, N): raw imaging data reference
-        coord (N, dim): coordinates
-        id_idxs (n1, ): numerical indices of subjects that included in the analysis
+        images: an ImageManager instance
 
         """
         self.images = images
-        self.coord = coord
-        self.id_idxs = id_idxs
-        self.n = len(id_idxs)
+        self.coord = images.coord
+        self.n = images.n_sub 
         self.N, self.d = self.coord.shape
+        self.logger = logging.getLogger(__name__)
 
     def _gau_kernel(self, x):
         """
@@ -50,7 +48,7 @@ class KernelSmooth:
     def smoother(self):
         raise NotImplementedError
 
-    def gcv(self, bw_list, threads, temp_path, log):
+    def gcv(self, bw_list, threads, temp_path):
         """
         Generalized cross-validation for selecting the optimal bandwidth
 
@@ -59,7 +57,6 @@ class KernelSmooth:
         bw_list: a array of candidate bandwidths
         threads: number of threads
         temp_path: temporay directory to save a sparse smoothing matrix
-        log: a logger
 
         Returns:
         ---------
@@ -70,7 +67,7 @@ class KernelSmooth:
         min_score = np.Inf
 
         for cii, bw in enumerate(bw_list):
-            log.info(
+            self.logger.info(
                 f"Doing generalized cross-validation (GCV) for bandwidth {np.round(bw, 3)} ..."
             )
             sparse_sm_weight = self.smoother(bw, threads)
@@ -81,11 +78,11 @@ class KernelSmooth:
 
                 if score[cii] == 0:
                     score[cii] = np.nan
-                    log.info(f"This bandwidth is invalid.")
+                    self.logger.info(f"This bandwidth is invalid.")
                 if score[cii] < min_score:
                     min_score = score[cii]
                     self._save_sparse_sm_weight(sparse_sm_weight, temp_path)
-                log.info(
+                self.logger.info(
                     f"The GCV score for bandwidth {np.round(bw, 3)} is {score[cii]:.3f}."
                 )
             else:
@@ -93,7 +90,7 @@ class KernelSmooth:
 
         which_min = np.nanargmin(score)
         if which_min == 0 or which_min == len(bw_list) - 1:
-            log.info(
+            self.logger.info(
                 (
                     "WARNING: the optimal bandwidth was obtained at the boundary, "
                     "which may not be the best one."
@@ -103,7 +100,7 @@ class KernelSmooth:
         min_mse = score[which_min]
         if min_mse == np.inf:
             raise ValueError('the optimal bandwidth is invalid. Try to input one using --bw-opt')
-        log.info(
+        self.logger.info(
             f"The optimal bandwidth is {np.round(bw_opt, 3)} with GCV score {min_mse:.3f}."
         )
 
@@ -119,7 +116,7 @@ class KernelSmooth:
         with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
             futures = [
                 executor.submit(self._calculate_diff, images_, sparse_sm_weight)
-                for images_ in image_reader(self.images, self.id_idxs)
+                for images_, _ in self.images.image_reader()
             ]
             diff = [future.result() for future in futures]
         mean_diff = np.sum(diff) / self.n
@@ -149,7 +146,6 @@ class KernelSmooth:
 
         """
         bw_raw = self.N ** (-1 / (4 + self.d))
-        # weights = [0.2, 0.5, 1, 2, 5, 10]
         weights = [0.5, 1, 2, 3, 5, 10]
         bw_list = np.zeros((len(weights), self.d), dtype=np.float32)
 
@@ -160,10 +156,6 @@ class KernelSmooth:
 
 
 class LocalLinear(KernelSmooth):
-    def __init__(self, images, coord, id_idxs):
-        super().__init__(images, coord, id_idxs)
-        self.logger = logging.getLogger(__name__)
-
     def smoother(self, bw, threads):
         """
         Local linear smoother
@@ -237,35 +229,8 @@ class LocalLinear(KernelSmooth):
         return sm_weight[large_weight_idxs], large_weight_idxs
 
 
-def image_reader(images, id_idxs):
-    """
-    Reading imaging data in chunks, each chunk is ~5 GB
-
-    Parameters:
-    ------------
-    images (n, N): raw imaging data reference
-    id_idxs (n1, ): numerical indices of subjects that included in the analysis
-
-    Returns:
-    ---------
-    A generator of images
-
-    """
-    N = images.shape[1]
-    n = len(id_idxs)
-    memory_use = n * N * np.dtype(np.float32).itemsize / (1024**3)
-    if memory_use <= 5:
-        batch_size = n
-    else:
-        batch_size = int(n / memory_use * 5)
-
-    for i in range(0, n, batch_size):
-        id_idx_chuck = id_idxs[i : i + batch_size]
-        yield images[id_idx_chuck]
-
-
 def do_kernel_smoothing(
-    raw_image_dir, sm_image_dir, keep_idvs, bw_opt, threads, temp_path, skip_smoothing, log
+    raw_image_dir, sm_image_dir, keep_idvs, remove_idvs, bw_opt, threads, temp_path, skip_smoothing, log
 ):
     """
     A wrapper function for doing kernel smoothing.
@@ -275,6 +240,7 @@ def do_kernel_smoothing(
     raw_image_dir: directory to HDF5 file of raw images
     sm_image_dir: directory to HDF5 file of smoothed images
     keep_idvs: pd.MultiIndex of subjects to keep
+    remove_idvs: pd.MultiIndex of subjects to remove
     bw_opt (1, ): a scalar of optimal bandwidth
     threads: number of threads
     temp_path: temporay directory to save a sparse smoothing matrix
@@ -286,46 +252,33 @@ def do_kernel_smoothing(
     subject_wise_mean (N, ): sample mean of smoothed images, used in PCA
 
     """
-    with h5py.File(raw_image_dir, "r") as file:
-        images = file["images"]
-        coord = file["coord"][:]
-        ids = file["id"][:]
-        ids = pd.MultiIndex.from_arrays(ids.astype(str).T, names=["FID", "IID"])
-        n_voxels = coord.shape[0]
+    try:
+        raw_images = ImageManager(raw_image_dir)
+        raw_images.keep_and_remove(keep_idvs, remove_idvs)
+        n_subjects = len(raw_images.id_idxs)
+        log.info(f"Using {n_subjects} subjects.")
 
-        log.info(
-            f"{len(ids)} subjects and {n_voxels} voxels (vertices) read from {raw_image_dir}"
-        )
-
-        if keep_idvs is not None:
-            common_ids = ds.get_common_idxs(ids, keep_idvs)
-        else:
-            common_ids = ids
-        id_idxs = np.arange(len(ids))[ids.isin(common_ids)]
-        log.info(f"Using {len(id_idxs)} subjects.")
-        n_subjects = len(id_idxs)
-
-        ks = LocalLinear(images, coord, id_idxs)
+        ks = LocalLinear(raw_images)
         if skip_smoothing:
-            sparse_sm_weight = eye(n_voxels, format='csr')
+            sparse_sm_weight = eye(raw_images.n_voxels, format='csr')
         elif bw_opt is None:
             log.info("\nDoing kernel smoothing ...")
             bw_list = ks.bw_cand()
             log.info(f"Selecting the optimal bandwidth from\n{np.round(bw_list, 3)}.")
-            sparse_sm_weight = ks.gcv(bw_list, threads, temp_path, log)
+            sparse_sm_weight = ks.gcv(bw_list, threads, temp_path)
         else:
-            bw_opt = np.repeat(bw_opt, coord.shape[1])
+            bw_opt = np.repeat(bw_opt, raw_images.dim)
             log.info(f"Doing kernel smoothing using the optimal bandwidth.")
             sparse_sm_weight = ks.smoother(bw_opt, threads)
 
         if sparse_sm_weight is not None:
-            subject_wise_mean = np.zeros(n_voxels, dtype=np.float32)
+            subject_wise_mean = np.zeros(raw_images.n_voxels, dtype=np.float32)
             with h5py.File(sm_image_dir, "w") as h5f:
                 sm_images = h5f.create_dataset(
-                    "images", shape=(n_subjects, n_voxels), dtype="float32"
+                    "images", shape=(n_subjects, raw_images.n_voxels), dtype="float32"
                 )
                 start_idx, end_idx = 0, 0
-                for images_ in image_reader(images, id_idxs):
+                for images_, _ in raw_images.image_reader():
                     start_idx = end_idx
                     end_idx += images_.shape[0]
                     sm_image_ = images_ @ sparse_sm_weight.T
@@ -333,15 +286,19 @@ def do_kernel_smoothing(
                     subject_wise_mean += np.sum(sm_image_, axis=0)
                 subject_wise_mean /= n_subjects
                 h5f.create_dataset(
-                    "id", data=np.array(common_ids.tolist(), dtype="S10")
+                    "id", data=np.array(raw_images.extracted_ids.tolist(), dtype="S10")
                 )
-                h5f.create_dataset("coord", data=coord)
+                h5f.create_dataset("coord", data=raw_images.coord)
                 sm_images.attrs["id"] = "id"
                 sm_images.attrs["coord"] = "coord"
         else:
             raise ValueError("the bandwidth provided by --bw-opt may be problematic")
+        
+        return subject_wise_mean
 
-    return subject_wise_mean
+    finally:
+        if 'raw_images' in locals():
+            raw_images.close()
 
 
 class FPCA:
@@ -450,13 +407,12 @@ def do_fpca(sm_image_dir, subject_wise_mean, args, log):
     fpca.n_top (1, ): #PCs
 
     """
-    with h5py.File(sm_image_dir, "r") as file:
-        sm_images = file["images"]
-        n_subjects, n_voxels = sm_images.shape
+    try:
+        sm_images = ImageManager(sm_image_dir)
 
         # setup parameters
         log.info("\nDoing PCA ...")
-        fpca = FPCA(n_subjects, n_voxels, args.all_pc, args.n_ldrs)
+        fpca = FPCA(sm_images.n_sub, sm_images.n_voxels, args.all_pc, args.n_ldrs)
 
         # incremental PCA
         max_avail_n_sub = fpca.n_batches * fpca.batch_size
@@ -466,18 +422,24 @@ def do_fpca(sm_image_dir, subject_wise_mean, args, log):
                 f"with batch size {fpca.batch_size}."
             )
         )
-        for i in tqdm(
+
+        image_reader = sm_images.image_reader(fpca.batch_size)
+        for _ in tqdm(
             range(0, max_avail_n_sub, fpca.batch_size),
             desc=f"{fpca.n_batches} batch(es)",
         ):
             fpca.ipca.partial_fit(
-                sm_images[i : i + fpca.batch_size] - subject_wise_mean
+                next(image_reader)[0] - subject_wise_mean
             )
         values = (fpca.ipca.singular_values_**2).astype(np.float32)
         bases = fpca.ipca.components_.T
         bases = bases.astype(np.float32)
 
-    return values, bases, fpca.n_top
+        return values, bases, fpca.n_top
+    
+    finally:
+        if 'sm_images' in locals():
+            sm_images.close()
 
 
 class EigenValues:
@@ -598,6 +560,7 @@ def run(args, log):
             args.image,
             sm_image_dir,
             args.keep,
+            args.remove,
             args.bw_opt,
             args.threads,
             temp_path,
