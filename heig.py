@@ -11,7 +11,7 @@ from heig.utils import GetLogger, sec_to_str
 # os.environ['NUMEXPR_MAX_THREADS'] = '8'
 # numexpr.set_num_threads(int(os.environ['NUMEXPR_MAX_THREADS']))
 
-VERSION = "1.1.1"
+VERSION = "1.2.0"
 MASTHEAD = (
     "******************************************************************************\n"
 )
