@@ -11,8 +11,7 @@ from heig.utils import GetLogger, sec_to_str
 # os.environ['NUMEXPR_MAX_THREADS'] = '8'
 # numexpr.set_num_threads(int(os.environ['NUMEXPR_MAX_THREADS']))
 
-
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 MASTHEAD = (
     "******************************************************************************\n"
 )
@@ -156,11 +155,26 @@ common_parser.add_argument(
 common_parser.add_argument(
     "--keep",
     help=(
-        "Individual file(s). Multiple files are separated by comma. "
+        "Subject ID file(s). Multiple files are separated by comma. "
+        "Only common subjects appearing in all files will be kept (logical and). "
         "Each file should be tab or space delimited, "
         "with the first column being FID and the second column being IID. "
         "Other columns will be ignored. "
         "Each row contains only one subject. "
+        "Supported modules: --read-image, --fpca, --make-ldr, --ld-matrix, "
+        "--wgs-null, --wgs-coding, --wgs-sliding-window, --relatedness."
+    ),
+)
+common_parser.add_argument(
+    "--remove",
+    help=(
+        "Subject ID file(s). Multiple files are separated by comma. "
+        "Subjects appearing in any files will be removed (logical or). "
+        "Each file should be tab or space delimited, "
+        "with the first column being FID and the second column being IID. "
+        "Other columns will be ignored. "
+        "Each row contains only one subject. "
+        "If a subject appears in both --keep and --remove, --remove takes precedence. "
         "Supported modules: --read-image, --fpca, --make-ldr, --ld-matrix, "
         "--wgs-null, --wgs-coding, --wgs-sliding-window, --relatedness."
     ),
@@ -366,6 +380,12 @@ image_parser.add_argument(
         "It should be a NIFTI file (nii.gz) for NIFTI images; "
         "a GIFTI file (gii) for CIFTI2 surface data; "
         "a FreeSurfer surface mesh file (.pial) for FreeSurfer morphometry data."
+    ),
+)
+image_parser.add_argument(
+    "--image-list",
+    help=(
+        "Directory to multiple image HDF5 files, separated by comma."
     ),
 )
 
@@ -747,6 +767,11 @@ def process_args(args, log):
         args.keep = split_files(args.keep)
         args.keep = ds.read_keep(args.keep)
         log.info(f"{len(args.keep)} subjects in --keep.")
+
+    if args.remove is not None:
+        args.remove = split_files(args.remove)
+        args.remove = ds.read_remove(args.remove)
+        log.info(f"{len(args.remove)} subjects in --remove.")
 
     if args.extract is not None:
         args.extract = split_files(args.extract)

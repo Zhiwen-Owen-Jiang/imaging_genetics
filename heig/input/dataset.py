@@ -243,6 +243,64 @@ def get_common_idxs(*idx_list, single_id=False):
     return common_idxs
 
 
+def get_union_idxs(*idx_list, single_id=False):
+    """
+    Getting union of indices from a list of double indices for subjects.
+    Each element in the list must be a pd.MultiIndex instance.
+    All duplicated indices will be removed.
+
+    Parameters:
+    ------------
+    idx_list: a list of pd.MultiIndex
+    single_id: if return single id as a list
+
+    Returns:
+    ---------
+    union_idxs: union of indices in pd.MultiIndex or list
+
+    """
+    union_idxs = None
+    for idx in idx_list:
+        if idx is not None:
+            if not isinstance(idx, pd.MultiIndex):
+                raise TypeError("index must be a pd.MultiIndex instance")
+            if union_idxs is None:
+                union_idxs = idx.copy()
+            else:
+                union_idxs = union_idxs.union(idx, sort=False)
+
+    if single_id:
+        union_idxs = union_idxs.get_level_values("IID").tolist()
+
+    return union_idxs
+
+
+def remove_idxs(idxs1, idxs2, single_id=False):
+    """
+    Removing idx2 from idx1
+    Both must be a pd.MultiIndex instance.
+
+    Parameters:
+    ------------
+    idxs1: a pd.MultiIndex of indices
+    idxs2: a pd.MultiIndex of indices
+    single_id: if return single id as a list
+
+    Returns:
+    ---------
+    idxs: indices in pd.MultiIndex or list
+
+    """
+    idxs = idxs1.difference(idxs2)
+    if len(idxs) == 0:
+        raise ValueError("no subject remaining after --remove")
+
+    if single_id:
+        idxs = idxs.get_level_values("IID").tolist()
+
+    return idxs
+
+
 def read_geno_part(dir):
     """
     Reading a genome partition file
@@ -274,7 +332,7 @@ def read_keep(keep_files):
     Extracting common subject IDs from multiple files
     All files are confirmed to exist
     Empty files are skipped without error/warning
-    files either w/ or w/o are ok
+    files w/ or w/o a header are ok
     Error out if no common IDs exist
 
     Parameters:
@@ -315,6 +373,50 @@ def read_keep(keep_files):
         raise ValueError("no subjects are common in --keep")
 
     return keep_idvs_
+
+
+def read_remove(remove_files):
+    """
+    Removing subject IDs from multiple files
+    All files are confirmed to exist
+    Empty files are skipped without error/warning
+    files w/ or w/o a header are ok
+
+    Parameters:
+    ------------
+    remove_files: a list of tab/white-delimited files
+
+    Returns:
+    ---------
+    remove_idvs_: pd.MultiIndex of common subjects
+
+    """
+    for i, remove_file in enumerate(remove_files):
+        if os.path.getsize(remove_file) == 0:
+            continue
+        _, compression = utils.check_compression(remove_file)
+
+        try:
+            remove_idvs = pd.read_csv(
+                remove_file,
+                sep="\s+",
+                header=None,
+                usecols=[0, 1],
+                dtype={0: str, 1: str},
+                compression=compression,
+            )
+        except ValueError:
+            raise ValueError('two columns FID and IID are required')
+        
+        remove_idvs = pd.MultiIndex.from_arrays(
+            [remove_idvs[0], remove_idvs[1]], names=["FID", "IID"]
+        )
+        if i == 0:
+            remove_idvs_ = remove_idvs.copy()
+        else:
+            remove_idvs_ = remove_idvs_.union(remove_idvs, sort=False)
+
+    return remove_idvs_
 
 
 def read_extract(extract_files):
