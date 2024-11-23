@@ -39,7 +39,7 @@ herigc_parser = parser.add_argument_group(
 image_parser = parser.add_argument_group(title="Arguments specific to reading images")
 fpca_parser = parser.add_argument_group(title="Arguments specific to functional PCA")
 ldr_parser = parser.add_argument_group(title="Arguments specific to constructing LDRs")
-makeld_parser = parser.add_argument_group(
+make_ld_parser = parser.add_argument_group(
     title="Arguments specific to making an LD matrix and its inverse"
 )
 sumstats_parser = parser.add_argument_group(
@@ -50,18 +50,6 @@ voxelgwas_parser = parser.add_argument_group(
 )
 gwas_parser = parser.add_argument_group(
     title="Arguments specific to doing genome-wide association analysis"
-)
-annot_vcf_parser = parser.add_argument_group(
-    title="Arguments specific to annotating VCF files"
-)
-wgs_null_parser = parser.add_argument_group(
-    title="Arguments specific to the null model of whole genome sequencing analysis"
-)
-wgs_coding_parser = parser.add_argument_group(
-    title="Arguments specific to whole genome sequencing analysis for coding variants"
-)
-wgs_sliding_window_parser = parser.add_argument_group(
-    title="Arguments specific to  whole genome sequencing analysis using sliding windows"
 )
 relatedness_parser = parser.add_argument_group(
     title="Arguments specific to removing genetic relatedness in LDRs"
@@ -80,7 +68,7 @@ herigc_parser.add_argument(
 image_parser.add_argument("--read-image", action="store_true", help="Reading images.")
 fpca_parser.add_argument("--fpca", action="store_true", help="Functional PCA.")
 ldr_parser.add_argument("--make-ldr", action="store_true", help="Constructing LDRs.")
-makeld_parser.add_argument(
+make_ld_parser.add_argument(
     "--ld-matrix", action="store_true", help="Making an LD matrix and its inverse."
 )
 sumstats_parser.add_argument(
@@ -93,24 +81,6 @@ voxelgwas_parser.add_argument(
 )
 gwas_parser.add_argument(
     "--gwas", action="store_true", help="Genome-wide association analysis."
-)
-annot_vcf_parser.add_argument(
-    "--annot-vcf", action="store_true", help="Annotating VCF files."
-)
-wgs_null_parser.add_argument(
-    "--wgs-null",
-    action="store_true",
-    help="Fitting the null model of whole genome sequencing analysis.",
-)
-wgs_coding_parser.add_argument(
-    "--wgs-coding",
-    action="store_true",
-    help="Whole genome sequencing analysis for coding variants.",
-)
-wgs_sliding_window_parser.add_argument(
-    "--wgs-sliding-window",
-    action="store_true",
-    help="Whole genome sequencing analysis using sliding windows.",
 )
 relatedness_parser.add_argument(
     "--relatedness", action="store_true", help="Removing genetic relatedness in LDRs."
@@ -133,8 +103,7 @@ common_parser.add_argument(
     type=int,
     help=(
         "Number of LDRs. Supported modules: "
-        "--make-ldr, --fpca, --heri-gc, --voxel-gwas, --wgs-null, "
-        "--wgs-coding, --wgs-sliding-window, --relatedness."
+        "--make-ldr, --fpca, --heri-gc, --voxel-gwas."
     ),
 )
 common_parser.add_argument(
@@ -148,7 +117,7 @@ common_parser.add_argument(
     "--bases",
     help=(
         "Directory to functional bases. Supported modules: "
-        "--make-ldr, --heri-gc, --voxel-gwas, --wgs-null."
+        "--make-ldr, --heri-gc, --voxel-gwas."
     ),
 )
 common_parser.add_argument(
@@ -168,7 +137,7 @@ common_parser.add_argument(
         "Other columns will be ignored. "
         "Each row contains only one subject. "
         "Supported modules: --read-image, --fpca, --make-ldr, --ld-matrix, "
-        "--wgs-null, --wgs-coding, --wgs-sliding-window, --relatedness."
+        "--gwas, --make-mt, --relatedness."
     ),
 )
 common_parser.add_argument(
@@ -181,8 +150,8 @@ common_parser.add_argument(
         "Other columns will be ignored. "
         "Each row contains only one subject. "
         "If a subject appears in both --keep and --remove, --remove takes precedence. "
-        "Supported modules: --read-image, --fpca, --make-ldr, --ld-matrix, "
-        "--wgs-null, --wgs-coding, --wgs-sliding-window, --relatedness."
+        "Supported modules: --read-image, --fpca, --make-ldr, --gwas, --make-mt, "
+        "--relatedness."
     ),
 )
 common_parser.add_argument(
@@ -194,8 +163,8 @@ common_parser.add_argument(
         "with the first column being rsID. "
         "Other columns will be ignored. "
         "Each row contains only one SNP. "
-        "Supported modules: --heri-gc, --ld-matrix, --voxel-gwas, "
-        "--wgs-coding, --wgs-sliding-window, --relatedness."
+        "Supported modules: --heri-gc, --ld-matrix, --voxel-gwas, --gwas, "
+        "--make-mt, --relatedness."
     ),
 )
 common_parser.add_argument(
@@ -207,8 +176,8 @@ common_parser.add_argument(
         "with the first column being rsID. "
         "Other columns will be ignored. "
         "Each row contains only one SNP. "
-        "Supported modules: --heri-gc, --ld-matrix, --voxel-gwas, "
-        "--wgs-coding, --wgs-sliding-window, --relatedness."
+        "Supported modules: --heri-gc, --ld-matrix, --voxel-gwas, --gwas, "
+        "--make-mt, --relatedness."
     ),
 )
 common_parser.add_argument(
@@ -216,8 +185,8 @@ common_parser.add_argument(
     type=float,
     help=(
         "Minimum minor allele frequency for screening SNPs. "
-        "Supported modules: --ld-matrix, --sumstats, "
-        "--wgs-coding, --wgs-sliding-window, --relatedness."
+        "Supported modules: --ld-matrix, --sumstats, --gwas, --make-mt, "
+        "--relatedness."
     ),
 )
 common_parser.add_argument(
@@ -225,8 +194,8 @@ common_parser.add_argument(
     type=float,
     help=(
         "Maximum minor allele frequency for screening SNPs. "
-        "Supported modules: --ld-matrix, --sumstats, "
-        "--wgs-coding, --wgs-sliding-window, --relatedness."
+        "Supported modules: --ld-matrix, --sumstats, --gwas, --make-mt, "
+        "--relatedness."
     ),
 )
 common_parser.add_argument(
@@ -236,7 +205,7 @@ common_parser.add_argument(
         "A HWE p-value threshold. "
         "Variants with a HWE p-value less than the threshold "
         "will be removed."
-        "Supported modules: --annot, --coding. " # TODO: add to more modules
+        "Supported modules: --make-mt, --gwas, --relatedness. "
     ),
 )
 common_parser.add_argument(
@@ -276,37 +245,42 @@ common_parser.add_argument(
     ),
 )
 common_parser.add_argument(
+    "--vcf",
+    help=(
+        "Direcotory to a VCF file. "
+        "Supported modules: --make-mt, --gwas, --relatedness."
+    ),
+)
+common_parser.add_argument(
     "--range",
     help=(
         "A segment of chromosome, e.g. `3:1000000,3:2000000`, "
         "from chromosome 3 bp 1000000 to chromosome 3 bp 2000000. "
         "Cross-chromosome is not allowed. And the end position must "
         "be greater than the start position. "
-        "Supported modules: --voxel-gwas, --wgs-coding, "
-        "--wgs-sliding-window."
+        "Supported modules: --voxel-gwas, --gwas, --make-mt, "
+        "--relatedness."
     ),
 )
 common_parser.add_argument(
     "--voxel",
     help=(
         "one-based index of voxel or a file containing voxels. "
-        "Supported modules: --voxel-gwas, --wgs-coding, "
-        "--wgs-sliding-window."
+        "Supported modules: --voxel-gwas."
     ),
 )
 common_parser.add_argument(
     "--ldrs",
     help=(
         "Directory to LDR file. "
-        "Supported modules: --gwas, --wgs-null, --relatedness."
+        "Supported modules: --gwas, --relatedness."
     ),
 )
 common_parser.add_argument(
     "--geno-mt",
     help=(
         "Directory to genotype MatrixTable. "
-        "Supported modules: --gwas, --wgs-coding, --wgs-sliding-window, "
-        "--relatedness."
+        "Supported modules: --gwas, --make-mt, --relatedness."
     ),
 )
 common_parser.add_argument(
@@ -314,15 +288,15 @@ common_parser.add_argument(
     action="store_true",
     help=(
         "Using reference genome GRCh37. Otherwise using GRCh38. "
-        "Supported modules: --gwas, --annot-vcf, --wgs-sliding-window, "
-        "--relatedness"
+        "Supported modules: --gwas, --make-mt,  --relatedness."
     ),
 )
 common_parser.add_argument(
     "--variant-type",
     help=(
         "Variant type (case insensitive), "
-        "must be one of ('variant', 'snv', 'indel')."
+        "must be one of ('variant', 'snv', 'indel'). "
+        "Supported modules: --gwas, --make-mt,  --relatedness."
     ),
 )
 common_parser.add_argument(
@@ -330,10 +304,9 @@ common_parser.add_argument(
     action="store_true",
     help=(
         "Do not save preprocessed genotype data. "
-        "Supported modules: --gwas, --wgs-coding, --wgs-sliding-window, "
-        "--relatedness"
+        "Supported modules: --gwas, --relatedness."
     ),
-)  # may remove it
+)
 common_parser.add_argument(
     "--partition",
     help=(
@@ -352,23 +325,22 @@ common_parser.add_argument(
     help=(
         "number of threads. "
         "Supported modules: --read-image, --sumstats, --fpca, "
-        "--voxel-gwas, --heri-gc, --make-ldr."
+        "--voxel-gwas, --heri-gc, --make-ldr, --relatedness, "
+        "--gwas."
     ),
 ),
 common_parser.add_argument(
     "--spark-conf",
     help=(
         "Spark configuration file. "
-        "Supported modules: --relatedness, --gwas, --wgs-coding, "
-        "--wgs-noncoding, --wgs-sliding-window, --annot-vcf."
+        "Supported modules: --relatedness, --gwas, --make-mt."
     ),
 ),
 common_parser.add_argument(
     "--loco-preds",
     help=(
         "Leave-one-chromosome-out prediction file. "
-        "Supported modules: --gwas, --coding, "
-        "--noncoding, --slidingwindow."
+        "Supported modules: --gwas."
     ),
 )
 
@@ -489,7 +461,7 @@ fpca_parser.add_argument(
 )
 
 # arguments for ldmatrix.py
-makeld_parser.add_argument(
+make_ld_parser.add_argument(
     "--ld-regu",
     help=(
         "Regularization for LD matrix and its inverse. "
@@ -557,53 +529,6 @@ voxelgwas_parser.add_argument(
         "can be specified in a decimal 0.00000005 "
         "or in scientific notation 5e-08."
     ),
-)
-
-# arguments for vcf2mt.py
-annot_vcf_parser.add_argument("--vcf", help="Direcotory to preprocessed VCF file.")
-annot_vcf_parser.add_argument(
-    "--favor-db", help="Directory to unzipped FAVOR annotation files."
-)
-
-# arguments for gwas.py
-
-
-# arguments for coding.py
-wgs_coding_parser.add_argument("--null-model", help="Directory to null model.")
-wgs_coding_parser.add_argument(
-    "--variant-type",
-    help=(
-        "Variant type (case insensitive), "
-        "must be one of ('variant', 'snv', 'indel')."
-    ),
-)
-wgs_coding_parser.add_argument(
-    "--variant-category",
-    help=(
-        "Variant category (case insensitive), "
-        "must be one or some of ('all', 'plof', 'plof_ds', 'missense', "
-        "'disruptive_missense', 'synonymous', 'ptv', 'ptv_ds'); "
-        "where 'all' means all categories; "
-        "multiple categories should be separated by comma."
-    ),
-)
-wgs_coding_parser.add_argument(
-    "--maf-max",
-    type=float,
-    help="Maximum minor allele frequency for screening SNPs. Default: 0.01",
-)
-wgs_coding_parser.add_argument(
-    "--mac-thresh",
-    type=int,
-    help="Minimum minor allele count for distinguishing very rare variants. Default: 10.",
-)
-wgs_coding_parser.add_argument(
-    "--use-annotation-weights", action="store_true", help="If using annotation weights."
-)
-
-# arguments for slidingwindow.py
-wgs_sliding_window_parser.add_argument(
-    "--window-length", type=int, help="Fix window length. Default: 2000"
 )
 
 # arguments for relatedness.py
@@ -749,65 +674,6 @@ def check_accepted_args(module, args, log):
             "spark_conf",
             "not_save_genotype_data",
         },
-        "annot_vcf": {
-            "annot_vcf",
-            "out",
-            "grch37",
-            "vcf",
-            "favor_db",
-            "keep",
-            "extract",
-            "spark_conf"
-        },
-        "wgs_null": {
-            "wgs_null",
-            "out",
-            "ldrs",
-            "n_ldrs",
-            "bases",
-            "covar",
-            "cat_covar_list",
-            "keep",
-            "threads",
-        },
-        "wgs_coding": {
-            "wgs_coding",
-            "out",
-            "geno_mt",
-            "null_model",
-            "variant_type",
-            "variant_category",
-            "maf_max",
-            "maf_min",
-            "mac_thresh",
-            "use_annotation_weights",
-            "n_ldrs",
-            "keep",
-            "extract",
-            "range",
-            "voxel",
-            "not_save_genotype_data",
-            "spark_conf"
-        },
-        "wgs_sliding_window": {
-            "wgs_sliding_window",
-            "out",
-            "geno_mt",
-            "null_model",
-            "variant_type",
-            "window_length",
-            "maf_max",
-            "maf_min",
-            "mac_thresh",
-            "use_annotation_weights",
-            "n_ldrs",
-            "keep",
-            "extract",
-            "range",
-            "voxel",
-            "not_save_genotype_data",
-            "spark_conf"
-        },
         "relatedness": {
             "relatedness",
             "out",
@@ -828,7 +694,7 @@ def check_accepted_args(module, args, log):
             "bsize",
             "spark_conf",
             "threads"
-        },  # more arguments to add
+        }, 
         "make_mt": {
             "make_mt",
             "out",
@@ -888,7 +754,6 @@ def process_args(args, log):
     ds.check_existence(args.partition)
     ds.check_existence(args.ldrs)
     ds.check_existence(args.geno_mt)
-    ds.check_existence(args.null_model)
 
     if args.n_ldrs is not None and args.n_ldrs <= 0:
         raise ValueError("--n-ldrs must be greater than 0")
@@ -967,19 +832,15 @@ def main(args, log):
         + args.sumstats
         + args.voxel_gwas
         + args.gwas
-        + args.annot_vcf
-        + args.wgs_null
-        + args.wgs_coding
-        + args.wgs_sliding_window
         + args.relatedness
+        + args.make_mt
         != 1
     ):
         raise ValueError(
             (
                 "you must raise one and only one of following flags for doing analysis: "
                 "--heri-gc, --read-image, --fpca, --make-ldr, --ld-matrix, --sumstats, "
-                "--voxel-gwas, --gwas, --annot-vcf, --wgs-null, --wgs-coding, "
-                "--wgs-sliding-window, --relatedness"
+                "--voxel-gwas, --gwas, --relatedness, --make-mt"
             )
         )
 
@@ -1007,25 +868,12 @@ def main(args, log):
     elif args.gwas:
         check_accepted_args('gwas', args, log)
         import heig.wgs.gwas as module
-    elif args.annot_vcf:
-        log.info("--annot-vcf module is under development.")
-        # check_accepted_args('annot_vcf', args, log)
-        # import heig.wgs.vcf2mt as module
-    elif args.wgs_null:
-        log.info("--wgs-null module is under development.")
-        # check_accepted_args('wgs_null', args, log)
-        # import heig.wgs.null as module
-    elif args.wgs_coding:
-        log.info("--wgs-coding module is under development.")
-        # check_accepted_args('wgs_coding', args, log)
-        # import heig.wgs.coding as module
-    elif args.wgs_sliding_window:
-        log.info("--wgs-sliding-window module is under development.")
-        # check_accepted_args('wgs_sliding_window', args, log)
-        # import heig.wgs.slidingwindow as module
     elif args.relatedness:
         check_accepted_args('relatedness', args, log)
         import heig.wgs.relatedness as module
+    elif args.make_mt:
+        check_accepted_args('make_mt', args, log)
+        import heig.wgs.mt as module
 
     process_args(args, log)
     module.run(args, log)
