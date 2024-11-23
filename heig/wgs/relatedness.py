@@ -576,8 +576,9 @@ def run(args, log):
 
     # keep common subjects
     common_ids = ds.get_common_idxs(
-        ldrs.data.index, covar.data.index, args.keep, single_id=True
+        ldrs.data.index, covar.data.index, args.keep
     )
+    common_ids = ds.remove_idxs(common_ids, args.remove, single_id=True)
 
     # read genotype data
     if args.bfile is not None:
@@ -591,8 +592,8 @@ def run(args, log):
             args.geno_mt, args.grch37, maf_min=args.maf_min
         )
     log.info(f"Processing genetic data ...")
-    gprocessor.extract_snps(args.extract)
-    gprocessor.extract_idvs(common_ids)
+    gprocessor.extract_exclude_snps(args.extract, args.exclude)
+    gprocessor.keep_remove_idvs(common_ids)
     gprocessor.do_processing(mode="gwas")
 
     try:

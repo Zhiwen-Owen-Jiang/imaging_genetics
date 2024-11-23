@@ -508,35 +508,43 @@ class GProcessor:
             gencode_info = self.snps_mt.fa[Annotation_name_catalog["GENCODE.Info"]]
             self.snps_mt = self.snps_mt.filter_rows(gencode_info.contains(gene_name))
 
-    def extract_snps(self, keep_snps):
+    def extract_exclude_snps(self, extract_variants, exclude_variants):
         """
-        Extracting variants
+        Extracting and excluding variants
 
         Parameters:
         ------------
-        keep_snps: a pd.DataFrame of SNPs
+        extract_variants: a pd.DataFrame of SNPs
+        exclude_variants: a pd.DataFrame of SNPs
 
         """
-        if keep_snps is None:
-            return
-        keep_snps = hl.literal(set(keep_snps["SNP"]))
-        self.snps_mt = self.snps_mt.filter_rows(keep_snps.contains(self.snps_mt.rsid))
+        if extract_variants is not None:
+            extract_variants = hl.literal(set(extract_variants["SNP"]))
+            self.snps_mt = self.snps_mt.filter_rows(extract_variants.contains(self.snps_mt.rsid))
+        if exclude_variants is not None:
+            exclude_variants = hl.literal(set(exclude_variants["SNP"]))
+            self.snps_mt = self.snps_mt.filter_rows(~exclude_variants.contains(self.snps_mt.rsid))
 
-    def extract_idvs(self, keep_idvs):
+    def keep_remove_idvs(self, keep_idvs, remove_idvs):
         """
-        Extracting subjects
+        Keeping and removing subjects
 
         Parameters:
         ------------
         keep_idvs: a pd.MultiIndex/list/tuple/set of subject ids
+        remove_idvs: a pd.MultiIndex/list/tuple/set of subject ids
 
         """
-        if keep_idvs is None:
-            return
-        if isinstance(keep_idvs, pd.MultiIndex):
-            keep_idvs = keep_idvs.get_level_values("IID").tolist()
-        keep_idvs = hl.literal(set(keep_idvs))
-        self.snps_mt = self.snps_mt.filter_cols(keep_idvs.contains(self.snps_mt.s))
+        if keep_idvs is not None:
+            if isinstance(keep_idvs, pd.MultiIndex):
+                keep_idvs = keep_idvs.get_level_values("IID").tolist()
+            keep_idvs = hl.literal(set(keep_idvs))
+            self.snps_mt = self.snps_mt.filter_cols(keep_idvs.contains(self.snps_mt.s))
+        if remove_idvs is not None:
+            if isinstance(remove_idvs, pd.MultiIndex):
+                remove_idvs = remove_idvs.get_level_values("IID").tolist()
+            remove_idvs = hl.literal(set(remove_idvs))
+            self.snps_mt = self.snps_mt.filter_cols(~remove_idvs.contains(self.snps_mt.s))
         
     def extract_range(self):
         result = self.snps_mt.aggregate_rows(hl.struct(

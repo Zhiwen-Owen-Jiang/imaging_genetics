@@ -312,8 +312,8 @@ def run(args, log):
             )
 
         log.info(f"Processing genetic data ...")
-        gprocessor.extract_snps(args.extract)
-        gprocessor.extract_idvs(common_ids)
+        gprocessor.extract_exclude_snps(args.extract, args.remove)
+        gprocessor.keep_remove_idvs(common_ids)
         gprocessor.do_processing(mode="gwas")
         if chr is not None and start is not None:
             # TODO: add more options
