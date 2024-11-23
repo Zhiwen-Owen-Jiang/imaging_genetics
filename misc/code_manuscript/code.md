@@ -58,7 +58,7 @@ python heig.py \
 --out SFO_heri_gc
 ```
 
-This analysis will produce `SFO_heri_gc.log`, `SFO_heri_gc_heri.txt`, and `SFO_heri_gc_gc.npz` for the log, heritability, and genetic correlation results, repectively. We provided them at https://github.com/Zhiwen-Owen-Jiang/heig/tree/pub/misc/code_manuscript. We can compare the heritability results in `SFO_heri_gc.log` (mean, median, min, max, and mean se) to the results at line 20, Table S5. We can compare the genetic correlation results in `SFO_heri_gc.log` (mean, median, min, and mean se) to the results at line 20, Table S6. We may find there is slight difference in genetic correlation results, which is because `SFO_heri_gc.log` presents the summary results before removing out-of-bound results. We will change this in the later version of HEIG. Nevertheless, we can always use the following code to exactly reproduce the results
+This analysis will produce `SFO_heri_gc.log`, `SFO_heri_gc_heri.txt`, and `SFO_heri_gc_gc.npz` for the log, heritability, and genetic correlation results, repectively. We provided them at https://github.com/Zhiwen-Owen-Jiang/heig/tree/pub/misc/code_manuscript. We can compare the heritability results in `SFO_heri_gc.log` (mean, median, min, max, and mean se) to the results at line 20, Table S7. We can compare the genetic correlation results in `SFO_heri_gc.log` (mean, median, min, and mean se) to the results at line 20, Table S8. We may find there is slight difference in genetic correlation results, which is because `SFO_heri_gc.log` presents the summary results before removing out-of-bound results. Nevertheless, we can always use the following code to exactly reproduce the results
 
 ```python
 import numpy as np
@@ -152,4 +152,4 @@ python heig.py \
 --out SFO_insomnia
 ```
 
-This analysis will produce `SFO_insomnia.log` and `SFO_insomnia_gc.txt`. We provided them at https://github.com/Zhiwen-Owen-Jiang/heig/tree/pub/misc/code_manuscript. We can compare the cross-trait genetic correlation results in `SFO_insomnia.log` to the results at line 121, Table S9.
+This analysis will produce `SFO_insomnia.log` and `SFO_insomnia_gc.txt`. We provided them at https://github.com/Zhiwen-Owen-Jiang/heig/tree/pub/misc/code_manuscript. We can compare the cross-trait genetic correlation results in `SFO_insomnia.log` to the results at line 121, Table S11.

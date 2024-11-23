@@ -578,7 +578,7 @@ class GProcessor:
         self.n_variants = self.snps_mt.count_rows()
         self.logger.info(f"{self.n_variants} variants remaining after --chr-interval (--range).")
 
-    def keep_remove_idvs(self, keep_idvs, remove_idvs):
+    def keep_remove_idvs(self, keep_idvs, remove_idvs=None):
         """
         Keeping and removing subjects
 
