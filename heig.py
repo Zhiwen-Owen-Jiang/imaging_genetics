@@ -661,6 +661,7 @@ def check_accepted_args(module, args, log):
             "remove",
             "extract",
             "exclude", 
+            "range",
             "ldr_col",
             "ldrs",
             "n_ldrs",
@@ -714,6 +715,7 @@ def check_accepted_args(module, args, log):
             "spark_conf",
             "qc_mode",
             "grch37",
+            "threads"
         }
     }
 
@@ -768,22 +770,22 @@ def process_args(args, log):
     if args.keep is not None:
         args.keep = split_files(args.keep)
         args.keep = ds.read_keep(args.keep)
-        log.info(f"{len(args.keep)} subject(s) in --keep (logical and).")
+        log.info(f"{len(args.keep)} subject(s) in --keep (logical and for multiple files).")
 
     if args.remove is not None:
         args.remove = split_files(args.remove)
         args.remove = ds.read_remove(args.remove)
-        log.info(f"{len(args.remove)} subject(s) in --remove (logical or).")
+        log.info(f"{len(args.remove)} subject(s) in --remove (logical or for multiple files).")
 
     if args.extract is not None:
         args.extract = split_files(args.extract)
         args.extract = ds.read_extract(args.extract)
-        log.info(f"{len(args.extract)} SNP(s) in --extract (logical and).")
+        log.info(f"{len(args.extract)} SNP(s) in --extract (logical and for multiple files).")
         
     if args.exclude is not None:
         args.exclude = split_files(args.exclude)
         args.exclude = ds.read_exclude(args.exclude)
-        log.info(f"{len(args.exclude)} SNP(s) in --exclude (logical or).")
+        log.info(f"{len(args.exclude)} SNP(s) in --exclude (logical or for multiple files).")
     
     if args.bfile is not None:
         for suffix in [".bed", ".fam", ".bim"]:

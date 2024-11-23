@@ -301,27 +301,27 @@ def run(args, log):
                     maf_min=args.maf_min,
                     maf_max=args.maf_max,
                     call_rate=args.call_rate,
+                    chr=chr,
+                    start=start,
+                    end=end
         )
 
         log.info(f"Processing genetic data ...")
-        gprocessor.extract_exclude_snps(args.extract, args.remove)
+        gprocessor.extract_exclude_snps(args.extract, args.exclude)
         gprocessor.keep_remove_idvs(common_ids)
         gprocessor.do_processing(mode="gwas")
-        if chr is not None and start is not None:
-            # TODO: add more options
-            gprocessor.extract_gene(chr=chr, start=start, end=end)
+        gprocessor.check_valid()
 
         temp_path = get_temp_path()
         if not args.not_save_genotype_data:
             gprocessor.save_interim_data(temp_path)
-        gprocessor.check_valid()
 
         # extract common subjects and align data
         snps_mt_ids = gprocessor.subject_id()
         ldrs.to_single_index()
         covar.to_single_index()
-        ldrs.keep(snps_mt_ids)
-        covar.keep(snps_mt_ids)
+        ldrs.keep_and_remove(snps_mt_ids)
+        covar.keep_and_remove(snps_mt_ids)
         covar.cat_covar_intercept()
 
         if args.loco_preds is not None:

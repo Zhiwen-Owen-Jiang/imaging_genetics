@@ -17,7 +17,7 @@ def check_input(args, log):
         args.vcf = None
     if args.qc_mode is None:
         args.qc_mode = 'gwas'
-    log.info(f"Set QC mode as {args.qc_mode}")
+    log.info(f"Set QC mode as {args.qc_mode}.")
 
     start_chr, start_pos, end_pos = process_range(args.range)
 
@@ -49,14 +49,16 @@ def run(args, log):
                 maf_min=args.maf_min,
                 maf_max=args.maf_max,
                 call_rate=args.call_rate,
+                chr=chr,
+                start=start,
+                end=end
     )
 
     # do preprocessing
     log.info(f"Processing genotype data ...")
-    gprocessor.extract_exclude_snps(args.extract, args.remove)
+    gprocessor.extract_exclude_snps(args.extract, args.exclude)
     gprocessor.keep_remove_idvs(args.keep, args.remove)
     gprocessor.do_processing(mode=args.qc_mode)
-    gprocessor.extract_gene(chr=chr, start=start, end=end)
     gprocessor.check_valid()
 
     # save

@@ -468,6 +468,8 @@ def read_extract(extract_files):
         else:
             keep_snps_ = keep_snps_.merge(keep_snps)
 
+    if not pd.api.types.is_object_dtype(keep_snps_["SNP"]):
+        raise TypeError("invalid rsID in --extract. Did you input other data in the first column?")
     if len(keep_snps_) == 0:
         raise ValueError("no SNPs are common in --extract")
 
@@ -508,6 +510,8 @@ def read_exclude(exclude_files):
             exclude_snps_ = pd.concat([exclude_snps_, exclude_snps], axis=0)
 
     exclude_snps_ = exclude_snps_.drop_duplicates()
+    if not pd.api.types.is_object_dtype(exclude_snps_["SNP"]):
+        raise TypeError("invalid rsID in --exclude. Did you input other data in the first column?")
     if len(exclude_snps_) == 0:
         raise ValueError("no SNPs in --exclude")
 

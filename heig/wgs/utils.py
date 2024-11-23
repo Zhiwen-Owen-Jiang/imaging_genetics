@@ -100,12 +100,14 @@ class GProcessor:
                 "_extract_maf",
                 "_extract_call_rate",
                 "_filter_hwe",
+                "_extract_chr_interval"
             ],
             "conditions": {
                 "_extract_variant_type": ["variant_type"],
                 "_extract_maf": ["maf_min", "maf_max"],
                 "_extract_call_rate": ["call_rate"],
                 "_filter_hwe": ["hwe"],
+                "_extract_chr_interval": ["chr", "start", "end"]
             },
         },
         "wgs": {
@@ -125,12 +127,14 @@ class GProcessor:
                 "_filter_hwe",
                 "_annotate_rare_variants",
                 "_filter_missing_alt",
+                "_extract_chr_interval"
             ],
             "conditions": {
                 "_extract_variant_type": ["variant_type"],
                 "_extract_maf": ["maf_min", "maf_max"],
                 "_extract_call_rate": ["call_rate"],
                 "_filter_hwe": ["hwe"],
+                "_extract_chr_interval": ["chr", "start", "end"]
             },
         },
     }
@@ -155,6 +159,9 @@ class GProcessor:
         maf_max=None,
         mac_thresh=None,
         call_rate=None,
+        chr=None,
+        start=None,
+        end=None
     ):
         """
         Genetic data processor
@@ -172,6 +179,9 @@ class GProcessor:
         call_rate: a float number between 0 and 1, 1 - genotype missingness
         hwe: a float number between 0 and 1, variants with a HWE pvalue less than
             this will be removed
+        chr: chr to extract
+        start: start position ot extract
+        end: end position to extract
 
         """
         self.snps_mt = snps_mt
@@ -182,9 +192,14 @@ class GProcessor:
         self.mac_thresh = mac_thresh
         self.call_rate = call_rate
         self.hwe = hwe
+        self.chr = str(chr)
+        self.start = start
+        self.end = end
+        self.n_sub = snps_mt.count_cols()
+        self.n_variants = snps_mt.count_rows()
         self.logger = logging.getLogger(__name__)
-        # self.logger.info((f"{snps_mt.count_cols()} subjects and "
-        #                   f"{snps_mt.rows().count()} variants in the genotype data.\n"))
+        self.logger.info((f"{self.n_sub} subjects and "
+                          f"{self.n_variants} variants in the genotype data.\n"))
 
     def do_processing(self, mode):
         """
@@ -312,12 +327,13 @@ class GProcessor:
         Checking non-zero #variants
 
         """
-        n_variants = self.snps_mt.rows().count()
-        if n_variants == 0:
+        # self.n_variants = self.snps_mt.count_rows()
+        if self.n_variants == 0:
             raise ValueError("no variant remaining after preprocessing")
         else:
-            self.logger.info(f"{n_variants} variants included in analysis.")
-
+            self.logger.info((f"{self.n_sub} subjects and "
+                              f"{self.n_variants} variants in the final genotype data."))
+            
     def subject_id(self):
         """
         Extracting subject ids
@@ -355,6 +371,9 @@ class GProcessor:
                 (hl.len(self.snps_mt.filters) == 0)
                 | hl.is_missing(self.snps_mt.filters)
             )
+        n_variants_before = self.n_variants
+        self.n_variants = self.snps_mt.count_rows()
+        self.logger.info(f"{n_variants_before - self.n_variants} variants removed by VCF PASS filter.")
 
     def _extract_variant_type(self):
         """
@@ -373,6 +392,9 @@ class GProcessor:
             target_type=func(self.snps_mt.alleles[0], self.snps_mt.alleles[1])
         )
         self.snps_mt = self.snps_mt.filter_rows(self.snps_mt.target_type)
+        n_variants_before = self.n_variants
+        self.n_variants = self.snps_mt.count_rows()
+        self.logger.info(f"{n_variants_before - self.n_variants} variants removed by variant type filter.")
 
     def _extract_maf(self):
         """
@@ -394,6 +416,9 @@ class GProcessor:
         self.snps_mt = self.snps_mt.filter_rows(
             (self.snps_mt.maf > self.maf_min) & (self.snps_mt.maf <= self.maf_max)
         )
+        n_variants_before = self.n_variants
+        self.n_variants = self.snps_mt.count_rows()
+        self.logger.info(f"{n_variants_before - self.n_variants} variants removed by MAF filter.")
 
     def _extract_call_rate(self):
         """
@@ -403,6 +428,9 @@ class GProcessor:
         self.snps_mt = self.snps_mt.filter_rows(
             self.snps_mt.info.call_rate >= self.call_rate
         )
+        n_variants_before = self.n_variants
+        self.n_variants = self.snps_mt.count_rows()
+        self.logger.info(f"{n_variants_before - self.n_variants} variants removed by call rate filter.")
 
     def _filter_hwe(self):
         """
@@ -412,6 +440,9 @@ class GProcessor:
         self.snps_mt = self.snps_mt.filter_rows(
             self.snps_mt.info.p_value_hwe >= self.hwe
         )
+        n_variants_before = self.n_variants
+        self.n_variants = self.snps_mt.count_rows()
+        self.logger.info(f"{n_variants_before - self.n_variants} variants removed by HWE filter.")
 
     def _filter_missing_alt(self):
         """
@@ -422,6 +453,9 @@ class GProcessor:
         self.snps_mt = self.snps_mt.filter_rows(
             hl.is_star(self.snps_mt.alleles[0], self.snps_mt.alleles[1]), keep=False
         )
+        n_variants_before = self.n_variants
+        self.n_variants = self.snps_mt.count_rows()
+        self.logger.info(f"{n_variants_before - self.n_variants} variants removed by missing alt allele filter.")
 
     def _flip_snps(self):
         """
@@ -477,36 +511,35 @@ class GProcessor:
 
         return unique_chrs
 
-    def extract_gene(self, chr, start, end, gene_name=None):
-        """
-        Extacting a gene with starting and end points for Coding, Slidewindow,
-        for Noncoding, extracting genes from annotation
+    # def extract_gene(self, chr, start, end, gene_name=None):
+    #     """
+    #     Extacting a gene with starting and end points 
 
-        Parameters:
-        ------------
-        chr: target chromosome
-        start: start position
-        end: end position
-        gene_name: gene name, if specified, start and end will be ignored
+    #     Parameters:
+    #     ------------
+    #     chr: target chromosome
+    #     start: start position
+    #     end: end position
+    #     gene_name: gene name, if specified, start and end will be ignored
 
-        """
-        if chr is None:
-            return
-        chr = str(chr)
-        if self.geno_ref == "GRCh38":
-            chr = "chr" + chr
+    #     """
+    #     if chr is None:
+    #         return
+    #     chr = str(chr)
+    #     if self.geno_ref == "GRCh38":
+    #         chr = "chr" + chr
 
-        if gene_name is None:
-            self.snps_mt = self.snps_mt.filter_rows(
-                (self.snps_mt.locus.contig == chr)
-                & (self.snps_mt.locus.position >= start)
-                & (self.snps_mt.locus.position <= end)
-            )
-        else:
-            if "fa" not in self.snps_mt.row:
-                raise ValueError("--geno-mt must be annotated before doing analysis")
-            gencode_info = self.snps_mt.fa[Annotation_name_catalog["GENCODE.Info"]]
-            self.snps_mt = self.snps_mt.filter_rows(gencode_info.contains(gene_name))
+    #     if gene_name is None:
+    #         self.snps_mt = self.snps_mt.filter_rows(
+    #             (self.snps_mt.locus.contig == chr)
+    #             & (self.snps_mt.locus.position >= start)
+    #             & (self.snps_mt.locus.position <= end)
+    #         )
+    #     else:
+    #         if "fa" not in self.snps_mt.row:
+    #             raise ValueError("--geno-mt must be annotated before doing analysis")
+    #         gencode_info = self.snps_mt.fa[Annotation_name_catalog["GENCODE.Info"]]
+    #         self.snps_mt = self.snps_mt.filter_rows(gencode_info.contains(gene_name))
 
     def extract_exclude_snps(self, extract_variants, exclude_variants):
         """
@@ -521,9 +554,29 @@ class GProcessor:
         if extract_variants is not None:
             extract_variants = hl.literal(set(extract_variants["SNP"]))
             self.snps_mt = self.snps_mt.filter_rows(extract_variants.contains(self.snps_mt.rsid))
+            self.n_variants = self.snps_mt.count_rows()
+            self.logger.info(f"{self.n_variants} variants remaining after --extract.")
+
         if exclude_variants is not None:
             exclude_variants = hl.literal(set(exclude_variants["SNP"]))
             self.snps_mt = self.snps_mt.filter_rows(~exclude_variants.contains(self.snps_mt.rsid))
+            self.n_variants = self.snps_mt.count_rows()
+            self.logger.info(f"{self.n_variants} variants remaining after --exclude.")
+            
+    def _extract_chr_interval(self):
+        """
+        Extracting a chr interval
+        
+        """
+        if self.geno_ref == "GRCh38":
+            self.chr = "chr" + self.chr
+        self.snps_mt = self.snps_mt.filter_rows(
+                (self.snps_mt.locus.contig == self.chr)
+                & (self.snps_mt.locus.position >= self.start)
+                & (self.snps_mt.locus.position <= self.end)
+            )
+        self.n_variants = self.snps_mt.count_rows()
+        self.logger.info(f"{self.n_variants} variants remaining after --range.")
 
     def keep_remove_idvs(self, keep_idvs, remove_idvs):
         """
@@ -540,13 +593,23 @@ class GProcessor:
                 keep_idvs = keep_idvs.get_level_values("IID").tolist()
             keep_idvs = hl.literal(set(keep_idvs))
             self.snps_mt = self.snps_mt.filter_cols(keep_idvs.contains(self.snps_mt.s))
+            self.n_sub = self.snps_mt.count_cols()
+            self.logger.info(f"{self.n_sub} subjects remaining after --keep.")
+
         if remove_idvs is not None:
             if isinstance(remove_idvs, pd.MultiIndex):
                 remove_idvs = remove_idvs.get_level_values("IID").tolist()
             remove_idvs = hl.literal(set(remove_idvs))
             self.snps_mt = self.snps_mt.filter_cols(~remove_idvs.contains(self.snps_mt.s))
+            self.n_sub = self.snps_mt.count_cols()
+            self.logger.info(f"{self.n_sub} subjects remaining after --remove.")
         
     def extract_range(self):
+        """
+        Obtaining the chr and the max and min position
+        only containing a single chr is valid  
+        
+        """
         result = self.snps_mt.aggregate_rows(hl.struct(
             chr=hl.agg.take(self.snps_mt.locus.contig, 1)[0],
             min_pos=hl.agg.min(self.snps_mt.locus.position),

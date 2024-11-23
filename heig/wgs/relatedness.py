@@ -615,8 +615,8 @@ def run(args, log):
         snps_mt_ids = gprocessor.subject_id()
         ldrs.to_single_index()
         covar.to_single_index()
-        ldrs.keep(snps_mt_ids)
-        covar.keep(snps_mt_ids)
+        ldrs.keep_and_remove(snps_mt_ids)
+        covar.keep_and_remove(snps_mt_ids)
         covar.cat_covar_intercept()
         log.info(f"{len(snps_mt_ids)} common subjects in the data.")
         log.info(
