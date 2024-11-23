@@ -63,6 +63,8 @@ def check_input(args, log):
         raise ValueError("--ldrs is required")
     if args.covar is None:
         raise ValueError("--covar is required")
+    if args.spark_conf is None:
+        raise ValueError("--spark-conf is required")
     if args.bfile is None and args.geno_mt is None:
         raise ValueError("either --bfile or --geno-mt is required")
     elif args.bfile is not None and args.geno_mt is not None:
@@ -76,16 +78,6 @@ def check_input(args, log):
     elif args.n_ldrs is not None:
         args.ldr_col = (0, args.n_ldrs)
     args.n_ldrs = None
-
-    # if args.variant_type is None:
-    #     args.variant_type = "variant"
-    # else:
-    if args.variant_type is not None:
-        args.variant_type = args.variant_type.lower()
-        if args.variant_type not in {"snv", "variant", "indel"}:
-            raise ValueError(
-                "--variant-type must be one of ('variant', 'snv', 'indel')"
-            )
 
     start_chr, start_pos, end_pos = process_range(args.range)
 
@@ -292,24 +284,24 @@ def run(args, log):
         common_ids = ds.remove_idxs(common_ids, args.remove, single_id=True)
 
         # read genotype data
-        if args.bfile is not None:
+        if args.geno_mt is not None:
+            log.info(f"Read MatrixTable from {args.geno_mt}")
+            read_func = GProcessor.read_matrix_table
+            data_path = args.geno_mt
+        elif args.bfile is not None:
             log.info(f"Read bfile from {args.bfile}")
-            gprocessor = GProcessor.import_plink(
-                args.bfile,
-                args.grch37,
-                variant_type=args.variant_type,
-                maf_min=args.maf_min,
-                maf_max=args.maf_max,
-            )
-        elif args.geno_mt is not None:
-            log.info(f"Read genotype data from {args.geno_mt}")
-            gprocessor = GProcessor.read_matrix_table(
-                args.geno_mt,
-                args.grch37,
-                variant_type=args.variant_type,
-                maf_min=args.maf_min,
-                maf_max=args.maf_max,
-            )
+            read_func = GProcessor.import_plink
+            data_path = args.bfile
+
+        gprocessor = read_func(
+                    data_path,
+                    grch37=args.grch37,
+                    hwe=args.hwe,
+                    variant_type=args.variant_type,
+                    maf_min=args.maf_min,
+                    maf_max=args.maf_max,
+                    call_rate=args.call_rate,
+        )
 
         log.info(f"Processing genetic data ...")
         gprocessor.extract_exclude_snps(args.extract, args.remove)

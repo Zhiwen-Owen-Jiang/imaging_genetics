@@ -581,16 +581,25 @@ def run(args, log):
     common_ids = ds.remove_idxs(common_ids, args.remove, single_id=True)
 
     # read genotype data
-    if args.bfile is not None:
+    if args.geno_mt is not None:
+        log.info(f"Read MatrixTable from {args.geno_mt}")
+        read_func = GProcessor.read_matrix_table
+        data_path = args.geno_mt
+    elif args.bfile is not None:
         log.info(f"Read bfile from {args.bfile}")
-        gprocessor = GProcessor.import_plink(
-            args.bfile, args.grch37, maf_min=args.maf_min
-        )
-    elif args.geno_mt is not None:
-        log.info(f"Read genotype data from {args.geno_mt}")
-        gprocessor = GProcessor.read_matrix_table(
-            args.geno_mt, args.grch37, maf_min=args.maf_min
-        )
+        read_func = GProcessor.import_plink
+        data_path = args.bfile
+
+    gprocessor = read_func(
+                data_path,
+                grch37=args.grch37,
+                hwe=args.hwe,
+                variant_type=args.variant_type,
+                maf_min=args.maf_min,
+                maf_max=args.maf_max,
+                call_rate=args.call_rate,
+    )
+    
     log.info(f"Processing genetic data ...")
     gprocessor.extract_exclude_snps(args.extract, args.exclude)
     gprocessor.keep_remove_idvs(common_ids)
