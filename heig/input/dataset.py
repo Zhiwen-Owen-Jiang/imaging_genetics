@@ -469,6 +469,46 @@ def read_extract(extract_files):
     return keep_snps_
 
 
+def read_exclude(exclude_files):
+    """
+    Excluding SNPs from multiple files
+    All files are confirmed to exist
+    Empty files are skipped without error/warning
+    Error out if no common SNPs exist
+
+    Parameters:
+    ------------
+    exclude_files: a list of tab/white-delimited files
+
+    Returns:
+    ---------
+    exclude_snp_: pd.DataFrame of common SNPs
+
+    """
+    for i, exclude_file in enumerate(exclude_files):
+        if os.path.getsize(exclude_file) == 0:
+            continue
+        _, compression = utils.check_compression(exclude_file)
+        exclude_snps = pd.read_csv(
+            exclude_file,
+            sep="\s+",
+            header=None,
+            usecols=[0],
+            names=["SNP"],
+            compression=compression,
+        )
+        if i == 0:
+            exclude_snps_ = exclude_snps.copy()
+        else:
+            exclude_snps_ = pd.concat([exclude_snps_, exclude_snps], axis=0)
+
+    exclude_snps_ = exclude_snps_.drop_duplicates()
+    if len(exclude_snps_) == 0:
+        raise ValueError("no SNPs in --exclude")
+
+    return exclude_snps_
+
+
 def read_voxel(voxel_file):
     """
     Reading a list of one-based voxels

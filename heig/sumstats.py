@@ -952,16 +952,6 @@ class GWASHEIG(GWASLDR):
         z_array = np.array(list(gwas_data['Z']))
         self._save_sumstats(beta_array, z_array, is_last_file)
 
-<<<<<<< HEAD
-    @staticmethod
-    def _string_to_float(gwas, stat, threads):
-        # data = np.array([ast.literal_eval(x) for x in list(gwas[stat])])
-        with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
-            results = list(executor.map(ast.literal_eval, gwas[stat]))
-        return np.array(results, dtype=np.float32)
-
-=======
->>>>>>> daddcff (save heig gwas results as parquet, update sumstats.py)
 
 def run(args, log):
     check_input(args, log)

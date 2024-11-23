@@ -183,6 +183,20 @@ common_parser.add_argument(
     "--extract",
     help=(
         "SNP file(s). Multiple files are separated by comma. "
+        "Only common SNPs appearing in all files will be extracted (logical and). "
+        "Each file should be tab or space delimited, "
+        "with the first column being rsID. "
+        "Other columns will be ignored. "
+        "Each row contains only one SNP. "
+        "Supported modules: --heri-gc, --ld-matrix, --voxel-gwas, "
+        "--wgs-coding, --wgs-sliding-window, --relatedness."
+    ),
+)
+common_parser.add_argument(
+    "--exclude",
+    help=(
+        "SNP file(s). Multiple files are separated by comma. "
+        "SNPs appearing in any files will be excluded (logical or). "
         "Each file should be tab or space delimited, "
         "with the first column being rsID. "
         "Other columns will be ignored. "
@@ -580,6 +594,7 @@ def check_accepted_args(module, args, log):
             "bases",
             "ldr_cov",
             "extract",
+            "exclude",
             "threads",
         },
         "read_image": {
@@ -825,6 +840,11 @@ def process_args(args, log):
         args.extract = split_files(args.extract)
         args.extract = ds.read_extract(args.extract)
         log.info(f"{len(args.extract)} SNPs in --extract (logical and).")
+        
+    if args.exclude is not None:
+        args.exclude = split_files(args.exclude)
+        args.exclude = ds.read_exclude(args.exclude)
+        log.info(f"{len(args.exclude)} SNPs in --exclude (logical or).")
     
     if args.bfile is not None:
         for suffix in [".bed", ".fam", ".bim"]:

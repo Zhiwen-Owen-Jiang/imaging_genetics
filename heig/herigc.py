@@ -38,11 +38,12 @@ class CommonSNPs:
 
     """
 
-    def __init__(self, *snp_list, threads):
+    def __init__(self, *snp_list, exclude_snps, threads):
         """
         Parameters:
         ------------
         snp_list: a list of snp lists
+        exclude_snps: a pd.DataFrame of SNPs to exclude
         threads: number of threads
 
         Returns:
@@ -52,6 +53,8 @@ class CommonSNPs:
         """
         self.snp_list = snp_list
         common_snps = self._merge_snp_list()
+        if exclude_snps is not None:
+            common_snps = common_snps[~(common_snps["SNP"].isin(exclude_snps["SNP"]))]
         matched_alleles_set = self._match_alleles(common_snps, threads)
         self.common_snps = common_snps.loc[matched_alleles_set, "SNP"]
 
@@ -935,7 +938,7 @@ def run(args, log):
 
         # get common snps from gwas, LD matrices, and keep_snps
         common_snps = CommonSNPs(
-            ld, ld_inv, ldr_gwas, y2_gwas, args.extract, threads=args.threads
+            ld, ld_inv, ldr_gwas, y2_gwas, args.extract, exclude_snps=args.exclude, threads=args.threads
         )
         log.info(
             (
