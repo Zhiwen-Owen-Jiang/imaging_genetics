@@ -66,6 +66,9 @@ wgs_sliding_window_parser = parser.add_argument_group(
 relatedness_parser = parser.add_argument_group(
     title="Arguments specific to removing genetic relatedness in LDRs"
 )
+make_mt_parser = parser.add_argument_group(
+    title="Arguments specific to making a hail.MatrixTable of genotype data"
+)
 
 
 # module arguments
@@ -111,6 +114,9 @@ wgs_sliding_window_parser.add_argument(
 )
 relatedness_parser.add_argument(
     "--relatedness", action="store_true", help="Removing genetic relatedness in LDRs."
+)
+make_mt_parser.add_argument(
+    "--make-mt", action="store_true", help="Making a hail.MatrixTable of genotype data."
 )
 
 # common arguments
@@ -215,6 +221,35 @@ common_parser.add_argument(
     ),
 )
 common_parser.add_argument(
+    "--maf-max",
+    type=float,
+    help=(
+        "Maximum minor allele frequency for screening SNPs. "
+        "Supported modules: --ld-matrix, --sumstats, "
+        "--wgs-coding, --wgs-sliding-window, --relatedness."
+    ),
+)
+common_parser.add_argument(
+    "--hwe",
+    type=float,
+    help=(
+        "A HWE p-value threshold. "
+        "Variants with a HWE p-value less than the threshold "
+        "will be removed."
+        "Supported modules: --annot, --coding. " # TODO: add to more modules
+    ),
+)
+common_parser.add_argument(
+    "--call-rate",
+    type=float,
+    help=(
+        "A genotype call rate threshold, equivalent to 1 - missing rate. "
+        "Variants with a call rate less than the threshold "
+        "will be removed."
+        "Supported modules: --annot, --coding. " # TODO: add to more modules
+    ),
+)
+common_parser.add_argument(
     "--covar",
     help=(
         "Directory to covariate file. "
@@ -281,6 +316,13 @@ common_parser.add_argument(
         "Using reference genome GRCh37. Otherwise using GRCh38. "
         "Supported modules: --gwas, --annot-vcf, --wgs-sliding-window, "
         "--relatedness"
+    ),
+)
+common_parser.add_argument(
+    "--variant-type",
+    help=(
+        "Variant type (case insensitive), "
+        "must be one of ('variant', 'snv', 'indel')."
     ),
 )
 common_parser.add_argument(
@@ -574,6 +616,11 @@ gwas_parser.add_argument(
     "--ldr-col", help="One-based LDR indices. E.g., `3,4,5,6` and `3:6`, must be consecutive"
 )
 
+# arguments for mt.py
+make_mt_parser.add_argument(
+    "--qc-mode", help="Genotype data QC mode, either gwas or wgs. Default: gwas"
+)
+
 
 def check_accepted_args(module, args, log):
     """
@@ -782,6 +829,26 @@ def check_accepted_args(module, args, log):
             "spark_conf",
             "threads"
         },  # more arguments to add
+        "make_mt": {
+            "make_mt",
+            "out",
+            "keep",
+            "remove",
+            "extract",
+            "exclude",
+            "bfile",
+            "vcf",
+            "geno_mt",
+            "maf_min",
+            "maf_max",
+            "variant_type",
+            "hwe",
+            "call_rate",
+            "range",
+            "spark_conf",
+            "qc_mode",
+            "grch37",
+        }
     }
 
     ignored_args = []
@@ -871,9 +938,21 @@ def process_args(args, log):
     if args.maf_min is not None:
         if args.maf_min >= 0.5 or args.maf_min <= 0:
             raise ValueError("--maf-min must be greater than 0 and less than 0.5")
-    # else:
-    #     args.maf_min = 0 # >
-
+    if args.maf_max is not None:
+        if args.maf_max >= 0.5 or args.maf_max <= 0:
+            raise ValueError("--maf-max must be greater than 0 and less than 0.5")
+    if args.hwe is not None and args.hwe <= 0:
+        raise ValueError("--hwe must be greater than 0")
+    if args.call_rate is not None and args.call_rate <= 0:
+        raise ValueError("--call-rate must be greater than 0")
+    
+    if args.variant_type is not None:
+        args.variant_type = args.variant_type.lower()
+        if args.variant_type not in {"snv", "variant", "indel"}:
+            raise ValueError(
+                "--variant-type must be one of ('variant', 'snv', 'indel')"
+            )
+    
 
 def main(args, log):
     dirname = os.path.dirname(args.out)
