@@ -594,7 +594,7 @@ class GProcessor:
             keep_idvs = hl.literal(set(keep_idvs))
             self.snps_mt = self.snps_mt.filter_cols(keep_idvs.contains(self.snps_mt.s))
             self.n_sub = self.snps_mt.count_cols()
-            self.logger.info(f"{self.n_sub} subjects remaining after --keep.")
+            # self.logger.info(f"{self.n_sub} subjects remaining after --keep.")
 
         if remove_idvs is not None:
             if isinstance(remove_idvs, pd.MultiIndex):
@@ -602,7 +602,7 @@ class GProcessor:
             remove_idvs = hl.literal(set(remove_idvs))
             self.snps_mt = self.snps_mt.filter_cols(~remove_idvs.contains(self.snps_mt.s))
             self.n_sub = self.snps_mt.count_cols()
-            self.logger.info(f"{self.n_sub} subjects remaining after --remove.")
+            # self.logger.info(f"{self.n_sub} subjects remaining after --remove.")
         
     def extract_range(self):
         """

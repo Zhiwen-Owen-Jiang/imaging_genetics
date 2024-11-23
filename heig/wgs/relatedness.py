@@ -589,6 +589,10 @@ def run(args, log):
         log.info(f"Read bfile from {args.bfile}")
         read_func = GProcessor.import_plink
         data_path = args.bfile
+    elif args.vcf is not None:
+            log.info(f"Read VCF from {args.vcf}")
+            read_func = GProcessor.import_vcf
+            data_path = args.vcf
 
     gprocessor = read_func(
                 data_path,
