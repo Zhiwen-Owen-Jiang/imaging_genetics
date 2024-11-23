@@ -411,14 +411,18 @@ def run(args, log):
         else:
             snp_idxs = ~ldr_gwas.snpinfo["SNP"].isna().to_numpy()
             outpath += ".txt"
-            log.info(f"{np.sum(snp_idxs)} SNP(s) in total.")
 
         if args.extract is not None:
-            idx_keep_snps = (
+            idx_extract_snps = (
                 ldr_gwas.snpinfo["SNP"].isin(args.extract["SNP"])
             ).to_numpy()
-            snp_idxs = snp_idxs & idx_keep_snps
-            log.info(f"Keep {len(args.extract['SNP'])} SNP(s) from --extract.")
+            snp_idxs = snp_idxs & idx_extract_snps
+            
+        if args.exclude is not None:
+            idx_exclude_snps = (
+                ~(ldr_gwas.snpinfo["SNP"].isin(args.exclude["SNP"]))
+            ).to_numpy()
+            snp_idxs = snp_idxs & idx_exclude_snps
 
         # extracting SNPs
         ldr_n = np.array(ldr_gwas.snpinfo["N"]).reshape(-1, 1)
@@ -432,7 +436,7 @@ def run(args, log):
             thresh_chisq = 0
 
         # doing analysis
-        log.info(f"Recovering voxel-level GWAS results ...")
+        log.info(f"Recovering voxel-level GWAS results for {np.sum(snp_idxs)} SNP(s) ...")
         write_header(snp_info, outpath)
         vgwas = VGWAS(bases, ldr_cov, ldr_gwas, snp_idxs, ldr_n, args.threads)
 
