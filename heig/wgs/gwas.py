@@ -79,7 +79,7 @@ def check_input(args, log):
         args.ldr_col = (0, args.n_ldrs)
     args.n_ldrs = None
 
-    start_chr, start_pos, end_pos = process_range(args.range)
+    start_chr, start_pos, end_pos = process_range(args.chr_interval)
 
     return start_chr, start_pos, end_pos
 

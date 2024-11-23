@@ -312,7 +312,7 @@ def check_input(args, log):
     if args.sig_thresh is not None and (args.sig_thresh <= 0 or args.sig_thresh >= 1):
         raise ValueError("--sig-thresh should be greater than 0 and less than 1")
     if (
-        args.range is None
+        args.chr_interval is None
         and args.voxel is None
         and args.sig_thresh is None
         and args.extract is None
@@ -325,14 +325,14 @@ def check_input(args, log):
         )
 
     # process some arguments
-    if args.range is not None:
+    if args.chr_interval is not None:
         try:
-            start, end = args.range.split(",")
+            start, end = args.chr_interval.split(",")
             start_chr, start_pos = [int(x) for x in start.split(":")]
             end_chr, end_pos = [int(x) for x in end.split(":")]
         except:
             raise ValueError(
-                "--range should be in this format: <CHR>:<POS1>,<CHR>:<POS2>"
+                "--chr-interval (--range) should be in this format: <CHR>:<POS1>,<CHR>:<POS2>"
             )
         if start_chr != end_chr:
             raise ValueError(

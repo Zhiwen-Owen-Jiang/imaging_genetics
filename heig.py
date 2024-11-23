@@ -252,14 +252,13 @@ common_parser.add_argument(
     ),
 )
 common_parser.add_argument(
-    "--range",
+    "--chr-interval", "--range",
     help=(
         "A segment of chromosome, e.g. `3:1000000,3:2000000`, "
         "from chromosome 3 bp 1000000 to chromosome 3 bp 2000000. "
         "Cross-chromosome is not allowed. And the end position must "
         "be greater than the start position. "
-        "Supported modules: --voxel-gwas, --gwas, --make-mt, "
-        "--relatedness."
+        "Supported modules: --voxel-gwas, --gwas, --make-mt."
     ),
 )
 common_parser.add_argument(
@@ -645,7 +644,7 @@ def check_accepted_args(module, args, log):
             "voxel_gwas",
             "sig_thresh",
             "voxel",
-            "range",
+            "chr_interval",
             "extract",
             "exclude",
             "ldr_sumstats",
@@ -661,7 +660,7 @@ def check_accepted_args(module, args, log):
             "remove",
             "extract",
             "exclude", 
-            "range",
+            "chr_interval",
             "ldr_col",
             "ldrs",
             "n_ldrs",
@@ -711,7 +710,7 @@ def check_accepted_args(module, args, log):
             "variant_type",
             "hwe",
             "call_rate",
-            "range",
+            "chr_interval",
             "spark_conf",
             "qc_mode",
             "grch37",

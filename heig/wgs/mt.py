@@ -19,7 +19,7 @@ def check_input(args, log):
         args.qc_mode = 'gwas'
     log.info(f"Set QC mode as {args.qc_mode}.")
 
-    start_chr, start_pos, end_pos = process_range(args.range)
+    start_chr, start_pos, end_pos = process_range(args.chr_interval)
 
     return start_chr, start_pos, end_pos
 

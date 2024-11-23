@@ -576,7 +576,7 @@ class GProcessor:
                 & (self.snps_mt.locus.position <= self.end)
             )
         self.n_variants = self.snps_mt.count_rows()
-        self.logger.info(f"{self.n_variants} variants remaining after --range.")
+        self.logger.info(f"{self.n_variants} variants remaining after --chr-interval (--range).")
 
     def keep_remove_idvs(self, keep_idvs, remove_idvs):
         """
@@ -749,7 +749,7 @@ def process_range(range):
             end_chr, end_pos = [int(x) for x in end.split(":")]
         except:
             raise ValueError(
-                "--range should be in this format: <CHR>:<POS1>,<CHR>:<POS2>"
+                "--chr-interval (--range) should be in this format: <CHR>:<POS1>,<CHR>:<POS2>"
             )
         if start_chr != end_chr:
             raise ValueError(
