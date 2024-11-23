@@ -17,7 +17,7 @@ import heig.input.dataset as ds
 
 def check_input(args, log):
     # required arguments
-    if args.ldr_gwas is None and args.y2_gwas and args.ldr_gwas_heig is None:
+    if args.ldr_gwas is None and args.y2_gwas is None and args.ldr_gwas_heig is None:
         raise ValueError("--ldr-gwas, --ldr-gwas-heig, or --y2-gwas should be provided")
     
     # columns of LDR GWAS in HEIG are fixed

@@ -25,9 +25,10 @@ class Args:
                  ldr_gwas=None, se_col=None, chr_col=None, pos_col=None,
                  z_col=None, p_col=None, maf_col=None, maf_min=None,
                  info_col=None, info_min=None, n=None, y2_gwas=None,
-                 out=None):
+                 ldr_gwas_heig=None, out=None):
         self.ldr_gwas = ldr_gwas
         self.y2_gwas = y2_gwas
+        self.ldr_gwas_heig = ldr_gwas_heig
         self.snp_col = snp_col
         self.a1_col = a1_col
         self.a2_col = a2_col
@@ -326,7 +327,7 @@ class Test_GWAS(unittest.TestCase):
     def test_y2_gwas(self):
         true_z = np.array([0.0, 0.0]).reshape((2, 1))
         true_snpinfo = pd.DataFrame({'SNP': ['rs2', 'rs4'],
-                                    'A1': ['C', 'C'],
+                                     'A1': ['C', 'C'],
                                      'A2': ['A', 'A'],
                                      'N': [100, 100]})
         # beta and se, maf

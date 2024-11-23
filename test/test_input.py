@@ -185,7 +185,7 @@ class Test_DataSet(unittest.TestCase):
         data = Dataset(os.path.join(self.folder, 'data_dup_rows_na.txt'))
         keep_rows = pd.MultiIndex.from_arrays([('s6', 's1'), ('s6', 's1')],
                                               names=['FID', 'IID'])
-        data.keep(keep_rows)
+        data.keep_and_remove(keep_idx=keep_rows)
         assert_frame_equal(true_data, data.data)
 
 
@@ -203,7 +203,6 @@ class Test_Covar(unittest.TestCase):
                                   'covar1': [1, 2, 3]}).set_index(['FID', 'IID'])
         data = Covar(os.path.join(self.folder, 'covar_cont.txt'))
         data.cat_covar_intercept()
-        print(data.data)
         assert_frame_equal(true_data, data.data)
 
     def test_cate_covar(self):

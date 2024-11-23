@@ -88,18 +88,23 @@ class Dataset:
             f"Removed {sum(bad_idxs)} row(s) with missing or infinite values."
         )
 
-    def keep_and_remove(self, keep_idx=None, remove_idx=None):
+    def keep_and_remove(self, keep_idx=None, remove_idx=None, merge=False):
         """
         Extracting and removing rows using indices (not boolean)
-        the resulting dataset should have the same order as the indices
+        the resulting dataset should have the same order as the keep_idx
 
         Parameters:
         ------------
-        idx: indices of the data (may be None)
+        keep_idx: indices to keep
+        remove_idx: indices to remove
+        merge: if getting commmon indices before keeping, the data order will be different
 
         """
         if keep_idx is not None:
-            common_idxs = get_common_idxs(self.data.index, keep_idx)
+            if merge:
+                common_idxs = get_common_idxs(self.data.index, keep_idx)
+            else:
+                common_idxs = keep_idx
             self.data = self.data.loc[common_idxs]
         if remove_idx is not None:
             self.data = self.data[~self.data.index.isin(remove_idx)]

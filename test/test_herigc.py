@@ -52,7 +52,7 @@ class Test_get_common_snps(unittest.TestCase):
 
         """
         with self.assertRaises(ValueError):
-            CommonSNPs(threads=1)
+            CommonSNPs(exclude_snps=None, threads=1)
 
     def test_case1(self):
         """
@@ -60,8 +60,8 @@ class Test_get_common_snps(unittest.TestCase):
 
         """
         true_res = pd.Series({0: 'rs1', 1: 'rs3'}, name='SNP')
-        assert_series_equal(true_res, CommonSNPs(self.gwas, self.ld1, threads=1).common_snps)
-        assert_series_equal(true_res, CommonSNPs(self.ld1, self.gwas, threads=1).common_snps)
+        assert_series_equal(true_res, CommonSNPs(self.gwas, self.ld1, exclude_snps=None, threads=1).common_snps)
+        assert_series_equal(true_res, CommonSNPs(self.ld1, self.gwas, exclude_snps=None, threads=1).common_snps)
 
     def test_case2(self):
         """
@@ -70,9 +70,9 @@ class Test_get_common_snps(unittest.TestCase):
         """
         true_res1 = pd.Series({0: 'rs3'}, name='SNP')
         true_res2 = pd.Series({0: 'rs2', 1: 'rs3'}, name='SNP')
-        assert_series_equal(true_res1, CommonSNPs(self.gwas, self.ld1, self.keep_snps1, threads=1).common_snps)
-        assert_series_equal(true_res1, CommonSNPs(self.gwas, self.keep_snps1, threads=1).common_snps)
-        assert_series_equal(true_res2, CommonSNPs(self.ld1, self.keep_snps1, threads=1).common_snps)
+        assert_series_equal(true_res1, CommonSNPs(self.gwas, self.ld1, self.keep_snps1, exclude_snps=None, threads=1).common_snps)
+        assert_series_equal(true_res1, CommonSNPs(self.gwas, self.keep_snps1, exclude_snps=None, threads=1).common_snps)
+        assert_series_equal(true_res2, CommonSNPs(self.ld1, self.keep_snps1, exclude_snps=None, threads=1).common_snps)
 
     def test_case3(self):
         """
@@ -80,7 +80,7 @@ class Test_get_common_snps(unittest.TestCase):
 
         """
         with self.assertRaises(ValueError):
-            CommonSNPs(self.gwas, self.ld1, self.keep_snps2, threads=1).common_snps
+            CommonSNPs(self.gwas, self.ld1, self.keep_snps2, exclude_snps=None, threads=1).common_snps
 
     def test_case4(self):
         """
@@ -88,7 +88,7 @@ class Test_get_common_snps(unittest.TestCase):
 
         """
         true_res = pd.Series({0: 'rs1'}, name='SNP')
-        assert_series_equal(true_res, CommonSNPs(self.gwas, self.ld2, threads=1).common_snps)
+        assert_series_equal(true_res, CommonSNPs(self.gwas, self.ld2, exclude_snps=None, threads=1).common_snps)
 
     def test_case5(self):
         """
@@ -96,7 +96,7 @@ class Test_get_common_snps(unittest.TestCase):
         
         """
         true_res = pd.Series({0: 'rs1'}, name='SNP')
-        assert_series_equal(true_res, CommonSNPs(self.gwas, self.ld3, threads=1).common_snps)
+        assert_series_equal(true_res, CommonSNPs(self.gwas, self.ld3, exclude_snps=None, threads=1).common_snps)
 
 
 class Test_check_alleles(unittest.TestCase):

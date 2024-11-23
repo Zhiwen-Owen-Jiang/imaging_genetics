@@ -464,7 +464,7 @@ def run(args, log):
             )
         )
         
-        images.keep_and_remove(args.keep, args.remove)
+        images.keep_and_remove(args.keep, args.remove, merge=True)
         ids = images.get_ids()
         images = np.array(images.data, dtype=np.float32)
         log.info(f"Keep {images.shape[0]} subjects.")
