@@ -638,6 +638,9 @@ def check_accepted_args(module, args, log):
         "gwas": {
             "out",
             "gwas",
+            "keep",
+            "remove",
+            "ldr_col",
             "ldrs",
             "n_ldrs",
             "grch37",
@@ -646,6 +649,8 @@ def check_accepted_args(module, args, log):
             "covar",
             "cat_covar_list",
             "bfile",
+            "loco_preds",
+            "spark_conf",
             "not_save_genotype_data",
         },
         "annot_vcf": {

@@ -283,13 +283,13 @@ def run(args, log):
                 covar.data.index,
                 loco_preds.ids,
                 args.keep,
-                single_id=True,
             )
         else:
             # keep subjects
             common_ids = ds.get_common_idxs(
-                ldrs.data.index, covar.data.index, args.keep, single_id=True
+                ldrs.data.index, covar.data.index, args.keep
             )
+        common_ids = ds.remove_idxs(common_ids, args.remove, single_id=True)
 
         # read genotype data
         if args.bfile is not None:
@@ -345,8 +345,6 @@ def run(args, log):
         gwas = DoGWAS(gprocessor, ldrs, covar, temp_path, loco_preds)
 
         # save gwas results
-        # gwas.gwas.export(f"{args.out}.txt.bgz")
-        # gwas.gwas.to_spark.write.parquet(f"{args.out}.parquet")
         gwas.save(args.out)
         log.info(f"\nSave GWAS results to {args.out}.parquet")
     finally:
