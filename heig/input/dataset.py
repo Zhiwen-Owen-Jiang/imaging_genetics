@@ -282,10 +282,10 @@ def get_union_idxs(*idx_list, single_id=False):
     return union_idxs
 
 
-def remove_idxs(idxs1, idxs2, single_id=False):
+def remove_idxs(idx1, idx2, single_id=False):
     """
-    Removing idx2 from idx1
-    Both must be a pd.MultiIndex instance.
+    Removing idx2 (may be None) from idx1
+    idx1 must be a pd.MultiIndex instance.
 
     Parameters:
     ------------
@@ -298,14 +298,18 @@ def remove_idxs(idxs1, idxs2, single_id=False):
     idxs: indices in pd.MultiIndex or list
 
     """
-    idxs = idxs1.difference(idxs2)
-    if len(idxs) == 0:
-        raise ValueError("no subject remaining after --remove")
-
+    if not isinstance(idx1, pd.MultiIndex):
+        raise TypeError("index must be a pd.MultiIndex instance")
+    if idx2 is not None:
+        idx = idx1.difference(idx2)
+        if len(idx) == 0:
+            raise ValueError("no subject remaining after --remove")
+    else:
+        idx = idx1
     if single_id:
-        idxs = idxs.get_level_values("IID").tolist()
-
-    return idxs
+        idx = idx.get_level_values("IID").tolist()
+    
+    return idx
 
 
 def read_geno_part(dir):

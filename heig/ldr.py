@@ -1,10 +1,9 @@
-import h5py
 import concurrent.futures
 import numpy as np
 import pandas as pd
 import heig.input.dataset as ds
 from collections import defaultdict
-from heig.fpca import image_reader
+from heig.image import ImageManager
 from heig.utils import inv
 
 
@@ -144,30 +143,26 @@ def run(args, log):
     else:
         n_ldrs = n_bases
 
-    # read images
-    log.info(f"Read raw images from {args.image}")
-    with h5py.File(args.image, "r") as file:
-        images = file["images"]
-        ids = file["id"][:]
-        ids = pd.MultiIndex.from_arrays(ids.astype(str).T, names=["FID", "IID"])
-        if n_voxels != images.shape[1]:
+    try:
+        # read images
+        images = ImageManager(args.image)
+        if n_voxels != images.n_voxels:
             raise ValueError("the images and bases have different resolution")
-
+        
         # read covariates
         log.info(f"Read covariates from {args.covar}")
         covar = ds.Covar(args.covar, args.cat_covar_list)
 
         # keep common subjects
-        common_idxs = ds.get_common_idxs(ids, covar.data.index, args.keep)
+        common_idxs = ds.get_common_idxs(images.ids, covar.data.index, args.keep)
+        common_idxs = ds.remove_idxs(common_idxs, args.remove)
+        images.keep_and_remove(common_idxs)
         log.info(f"{len(common_idxs)} common subjects in these files.")
 
         # contruct ldrs
-        ids_ = ids.isin(common_idxs)
-        id_idxs = np.arange(len(ids))[ids_]
-        ldrs = np.zeros((len(id_idxs), n_ldrs), dtype=np.float32)
-
+        ldrs = np.zeros((len(common_idxs), n_ldrs), dtype=np.float32)
         start_idx, end_idx = 0, 0
-        rec_corr = defaultdict(lambda: np.zeros(len(id_idxs)))
+        rec_corr = defaultdict(lambda: np.zeros(len(common_idxs)))
         alt_n_ldrs_list = [int(n_ldrs * prop) for prop in (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1)]
 
         log.info(f"Constructing {n_ldrs} LDRs ...")
@@ -175,7 +170,7 @@ def run(args, log):
             max_workers=args.threads
         ) as executor:
             futures = []
-            for images_ in image_reader(images, id_idxs):
+            for images_, _ in images.image_reader():
                 start_idx = end_idx
                 end_idx += images_.shape[0]
 
@@ -204,28 +199,32 @@ def run(args, log):
 
         print_alt_corr(rec_corr, log)
 
-    # process covar
-    covar.keep(common_idxs)
-    covar.cat_covar_intercept()
-    log.info(
-        f"{covar.data.shape[1]} fixed effects in the covariates (including the intercept)."
-    )
-
-    # var-cov matrix of projected LDRs
-    ldr_cov = projection_ldr(ldrs, np.array(covar.data))
-    log.info(
-        f"Removed covariate effects from LDRs and computed variance-covariance matrix.\n"
-    )
-
-    # save the output
-    ldr_df = pd.DataFrame(ldrs, index=ids[ids_])
-    ldr_df.to_csv(f"{args.out}_ldr_top{n_ldrs}.txt", sep="\t")
-    np.save(f"{args.out}_ldr_cov_top{n_ldrs}.npy", ldr_cov)
-
-    log.info(f"Save the raw LDRs to {args.out}_ldr_top{n_ldrs}.txt")
-    log.info(
-        (
-            f"Save the variance-covariance matrix of covariate-effect-removed LDRs "
-            f"to {args.out}_ldr_cov_top{n_ldrs}.npy"
+        # process covar
+        covar.keep_and_remove(common_idxs)
+        covar.cat_covar_intercept()
+        log.info(
+            f"{covar.data.shape[1]} fixed effects in the covariates (including the intercept)."
         )
-    )
+
+        # var-cov matrix of projected LDRs
+        ldr_cov = projection_ldr(ldrs, np.array(covar.data))
+        log.info(
+            f"Removed covariate effects from LDRs and computed variance-covariance matrix.\n"
+        )
+
+        # save the output
+        ldr_df = pd.DataFrame(ldrs, index=images.extracted_ids)
+        ldr_df.to_csv(f"{args.out}_ldr_top{n_ldrs}.txt", sep="\t")
+        np.save(f"{args.out}_ldr_cov_top{n_ldrs}.npy", ldr_cov)
+
+        log.info(f"Save the raw LDRs to {args.out}_ldr_top{n_ldrs}.txt")
+        log.info(
+            (
+                f"Save the variance-covariance matrix of covariate-effect-removed LDRs "
+                f"to {args.out}_ldr_cov_top{n_ldrs}.npy"
+            )
+        )
+
+    finally:
+        if 'images' in locals():
+            images.close()

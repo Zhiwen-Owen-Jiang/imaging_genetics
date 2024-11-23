@@ -296,9 +296,6 @@ common_parser.add_argument(
     help=(
         "number of threads. "
         "Supported modules: --read-image, --sumstats, --fpca, "
-<<<<<<< HEAD
-        "--voxel-gwas, --heri-gc, --make-ldr"
-=======
         "--voxel-gwas, --heri-gc, --make-ldr."
     ),
 ),
@@ -316,7 +313,6 @@ common_parser.add_argument(
         "Leave-one-chromosome-out prediction file. "
         "Supported modules: --gwas, --coding, "
         "--noncoding, --slidingwindow."
->>>>>>> d52e350 (simulation test for gwas and relatedness)
     ),
 )
 
@@ -621,6 +617,7 @@ def check_accepted_args(module, args, log):
             "covar",
             "cat_covar_list",
             "keep",
+            "remove",
             "threads",
         },
         "ld_matrix": {
@@ -672,11 +669,8 @@ def check_accepted_args(module, args, log):
         "gwas": {
             "out",
             "gwas",
-<<<<<<< HEAD
             "keep",
             "remove",
-=======
->>>>>>> 2d48ec5 (add --ldr-col to do GWAS for selected LDRs)
             "ldr_col",
             "ldrs",
             "n_ldrs",
@@ -763,6 +757,8 @@ def check_accepted_args(module, args, log):
             "geno_mt",
             "not_save_genotype_data",
             "bsize",
+            "spark_conf",
+            "threads"
         },  # more arguments to add
     }
 
@@ -778,7 +774,7 @@ def check_accepted_args(module, args, log):
         ignored_args = [f"--{arg.replace('_', '-')}" for arg in ignored_args]
         ignored_args_str = ", ".join(ignored_args)
         log.info(
-            f"WARNING: {ignored_args_str} are ignored by --{module.replace('_', '-')}."
+            f"WARNING: {ignored_args_str} ignored by --{module.replace('_', '-')}."
         )
 
 
@@ -801,12 +797,9 @@ def process_args(args, log):
     ds.check_existence(args.ldr_cov)
     ds.check_existence(args.covar)
     ds.check_existence(args.partition)
-<<<<<<< HEAD
-=======
     ds.check_existence(args.ldrs)
     ds.check_existence(args.geno_mt)
     ds.check_existence(args.null_model)
->>>>>>> d52e350 (simulation test for gwas and relatedness)
 
     if args.n_ldrs is not None and args.n_ldrs <= 0:
         raise ValueError("--n-ldrs must be greater than 0")
@@ -832,6 +825,10 @@ def process_args(args, log):
         args.extract = split_files(args.extract)
         args.extract = ds.read_extract(args.extract)
         log.info(f"{len(args.extract)} SNPs in --extract (logical and).")
+    
+    if args.bfile is not None:
+        for suffix in [".bed", ".fam", ".bim"]:
+            ds.check_existence(args.bfile, suffix)
 
     if args.voxel is not None:
         try:
@@ -847,8 +844,8 @@ def process_args(args, log):
     if args.maf_min is not None:
         if args.maf_min >= 0.5 or args.maf_min <= 0:
             raise ValueError("--maf-min must be greater than 0 and less than 0.5")
-    else:
-        args.maf_min = 0 # >
+    # else:
+    #     args.maf_min = 0 # >
 
 
 def main(args, log):
@@ -902,9 +899,8 @@ def main(args, log):
         check_accepted_args("voxel_gwas", args, log)
         import heig.voxelgwas as module
     elif args.gwas:
-        log.info("--gwas module is under development.")
-        # check_accepted_args('gwas', args, log)
-        # import heig.wgs.gwas as module
+        check_accepted_args('gwas', args, log)
+        import heig.wgs.gwas as module
     elif args.annot_vcf:
         log.info("--annot-vcf module is under development.")
         # check_accepted_args('annot_vcf', args, log)
@@ -922,9 +918,8 @@ def main(args, log):
         # check_accepted_args('wgs_sliding_window', args, log)
         # import heig.wgs.slidingwindow as module
     elif args.relatedness:
-        log.info("--relatedness module is under development.")
-        # check_accepted_args('relatedness', args, log)
-        # import heig.wgs.relatedness as module
+        check_accepted_args('relatedness', args, log)
+        import heig.wgs.relatedness as module
 
     process_args(args, log)
     module.run(args, log)

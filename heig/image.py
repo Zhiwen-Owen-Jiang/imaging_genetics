@@ -368,10 +368,8 @@ def merge_images(image_files, out_dir, log, keep_idvs=None, remove_idvs=None):
         n_all_sub = sum((image_manager.n_sub for image_manager in image_managers))
         log.info((f"{n_unique_sub} unique subjects in these image files. "
                 f"{n_all_sub - n_unique_sub} duplicated subject(s). Keep the first one."))
-        if keep_idvs is not None:
-            all_ids = ds.get_common_idxs(all_ids, keep_idvs)
-        if remove_idvs is not None:
-            all_ids = ds.remove_idxs(all_ids, remove_idvs)
+        all_ids = ds.get_common_idxs(all_ids, keep_idvs)
+        all_ids = ds.remove_idxs(all_ids, remove_idvs)
 
         for image_manager in image_managers:
             image_manager.keep_and_remove(keep_idvs=all_ids, remove_idvs=None, check_empty=False)
