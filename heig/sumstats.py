@@ -410,7 +410,14 @@ class ProcessGWAS(ABC):
         n_snps = self._check_remaining_snps(gwas)
         self.logger.info(f"{n_snps} SNPs in the raw data.")
 
-        gwas.drop_duplicates(subset=["SNP"], keep=False, inplace=True)
+        if gwas["SNP"].isna().all():
+            # if not gwas["CHR"].isna().all() and not gwas["POS"].isna().all():
+            #     gwas.drop_duplicates(subset=["CHR", "POS"], keep=False, inplace=True)
+            # else:
+            #     raise ValueError("CHR, POS, and SNP are all missing values")
+            raise ValueError("all SNPs missing an rsID")
+        else:
+            gwas.drop_duplicates(subset=["SNP"], keep=False, inplace=True)
         self.logger.info(f"Removed {n_snps - gwas.shape[0]} duplicated SNPs.")
         n_snps = self._check_remaining_snps(gwas)
 
@@ -893,10 +900,17 @@ class GWASHEIG(GWASLDR):
 
         self.logger.info(f"Pruning SNPs for the first GWAS file ...")
         gwas_data = self._prune_snps(gwas_data, is_heig=True)
-        final_snps_list = gwas_data["SNP"]
-        valid_snp_idxs = (
-            valid_snp_idxs & orig_snps_list["SNP"].isin(final_snps_list).values
-        )
+        if gwas_data["SNP"].isna().all():
+        #     final_snps_list = gwas_data[["CHR", "POS"]]
+        #     valid_snp_idxs = (
+        #     valid_snp_idxs & orig_snps_list[["CHR", "POS"]].isin(final_snps_list).all(axis=1).values
+        # )
+            raise ValueError("all SNPs missing an rsID")
+        else:
+            final_snps_list = gwas_data["SNP"]
+            valid_snp_idxs = (
+                valid_snp_idxs & orig_snps_list["SNP"].isin(final_snps_list).values
+            )
 
         is_valid_snp = valid_snp_idxs == 1
         snpinfo = orig_snps_list.loc[is_valid_snp].reset_index(drop=True)
