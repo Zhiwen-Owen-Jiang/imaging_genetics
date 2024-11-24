@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        
+        
+        <link rel="shortcut icon" href="../img/favicon.ico">
+        <title>Tutorial - HEIG</title>
+        <link href="../css/bootstrap.min.css" rel="stylesheet">
+        <link href="../css/fontawesome.min.css" rel="stylesheet">
+        <link href="../css/brands.min.css" rel="stylesheet">
+        <link href="../css/solid.min.css" rel="stylesheet">
+        <link href="../css/v4-font-face.min.css" rel="stylesheet">
+        <link href="../css/base.css" rel="stylesheet">
+        <link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" >
+        <link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css" disabled>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+        <script>hljs.highlightAll();</script> 
+    </head>
+
+    <body>
+        <div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+            <div class="container">
+                <a class="navbar-brand" href="..">HEIG</a>
+                <!-- Expander button -->
+                <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar-collapse" aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <!-- Expanded navigation -->
+                <div id="navbar-collapse" class="navbar-collapse collapse">
+                        <!-- Main navigation -->
+                        <ul class="nav navbar-nav">
+                            <li class="nav-item">
+                                <a href=".." class="nav-link">Home</a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="../install/" class="nav-link">Install</a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="../options/" class="nav-link">Options</a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="./" class="nav-link active" aria-current="page">Tutorial</a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="../format/" class="nav-link">Format</a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="../faq/" class="nav-link">F.A.Q.</a>
+                            </li>
+                        </ul>
+
+                    <ul class="nav navbar-nav ms-md-auto">
+                        <li class="nav-item">
+                            <a href="#" class="nav-link" data-bs-toggle="modal" data-bs-target="#mkdocs_search_modal">
+                                <i class="fa fa-search"></i> Search
+                            </a>
+                        </li>
+                            <li class="nav-item">
+                                <a rel="prev" href="../options/" class="nav-link">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a rel="next" href="../format/" class="nav-link">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </a>
+                            </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                    <div class="col-md-3"><div class="navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+    <div class="navbar-header">
+        <button type="button" class="navbar-toggler collapsed" data-bs-toggle="collapse" data-bs-target="#toc-collapse" title="Table of Contents">
+            <span class="fa fa-angle-down"></span>
+        </button>
+    </div>
+
+    
+    <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
+        <ul class="nav flex-column">
+            
+            <li class="nav-item" data-bs-level="2"><a href="#gettting-started" class="nav-link">Gettting started</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            
+            <li class="nav-item" data-bs-level="2"><a href="#reading-images" class="nav-link">Reading images</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+        </ul>
+    </div>
+</div></div>
+                    <div class="col-md-9" role="main">
+
+<h2 id="gettting-started">Gettting started</h2>
+<p>In this tutorial, we will go through seven analysis modules in <strong>HEIG</strong> (v.1.1.0), including reading images, functional PCA, constructing LDRs, preprocessing summary statistics, voxelwise GWAS reconstruction, heritability and (cross-trait) genetic correlation analysis, and LD matrix construction. For beginners, we recommend reading these modules in the above sequence. </p>
+<p>To replicate the analyses showed in the tutorial, you can download the example data at <a href="https://zenodo.org/records/13770930">Zenodo</a>. The total file size is 1.1 GB.</p>
+<p>After downloading the example data, unzip it and navigate to it. Make sure your current directory is <code>example</code>. Let's get started.</p>
+<h2 id="reading-images">Reading images</h2>
+<pre><code>heig.py \
+--read-image \
+--out output/images/example \
+--threads 4 \
+--image-dir input/images/ \
+--image-suffix _example_image.nii.gz \
+--coord-dir input/images/s1000_example_image.nii.gz \
+</code></pre>
+<p><code>--read-image</code> is the main flag for reading images and <code>--out</code> specifies the prefix of output. </p>
+<p><code>--threads</code> is to specify the number of threads in parallel.</p>
+<p><code>--image-dir</code> is to specify the directory(s) and flag <code>--image-suffix</code> to specify the suffix(s). <strong>HEIG</strong> supports images in <code>NIFTI</code>, <code>CIFTI2</code>, and FreeSurfer morphometry data format. Prior to loading into <strong>HEIG</strong>, all images should be appropriately registered/projected to the same template. Images can be placed under one or more directories. Separate multiple directories by comma, such as <code>data/image_folder1,data/image_folder2,data/image_folder3</code>. The naming convention of image file is <code>&lt;ID&gt;&lt;suffix&gt;</code>. For example, images in this tutorial were named as <code>sxxxx_example_image.nii.gz</code>, where <code>sxxxx</code> (e.g., s1001) is the ID and <code>_example_image.nii.gz</code> is the suffix. If images are from different directories, the same number of suffices must be provided and separated by comma, such as <code>suffix1,suffix2,suffix3</code>. </p>
+<p><code>--coord-dir</code> is to specify the coordinate file. For <code>NIFTI</code> images, it should also be a <code>NIFTI</code> image; for <code>CIFTI2</code> images, it should be a <code>GIFTI</code> image; for FreeSurfer morphometry data, it should be a FreeSurfer surface mesh file. Only one coordinate file can be provided even if you have images from multiple directories.</p>
+<p><strong>HEIG</strong> also supports images in tabular data. Using <code>--image-txt</code> and <code>--coord-txt</code> to read images and coordinates, respectively. Refer to <a href="https://github.com/Zhiwen-Owen-Jiang/heig/wiki/Basic-options-and-input-formats">Basic options and input formats</a> for detailed format.</p></div>
+            </div>
+        </div>
+
+        <footer class="col-md-12">
+            <hr>
+                <p>HEIG is licensed under <a href='https://github.com/Zhiwen-Owen-Jiang/heig/blob/pub/LICENSE'>GNU General Public License v3.0</p>
+            <p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+        </footer>
+        <script src="../js/bootstrap.bundle.min.js"></script>
+        <script>
+            var base_url = "..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+        <script src="../js/base.js"></script>
+        <script src="../search/main.js"></script>
+
+        <div class="modal" id="mkdocs_search_modal" tabindex="-1" role="dialog" aria-labelledby="searchModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="searchModalLabel">Search</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>From here you can search these documents. Enter your search terms below.</p>
+                <form>
+                    <div class="form-group">
+                        <input type="search" class="form-control" placeholder="Search..." id="mkdocs-search-query" title="Type search term here">
+                    </div>
+                </form>
+                <div id="mkdocs-search-results" data-no-results-text="No results found"></div>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div><div class="modal" id="mkdocs_keyboard_modal" tabindex="-1" role="dialog" aria-labelledby="keyboardModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 20%;">Keys</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="help shortcut"><kbd>?</kbd></td>
+                    <td>Open this help</td>
+                  </tr>
+                  <tr>
+                    <td class="next shortcut"><kbd>n</kbd></td>
+                    <td>Next page</td>
+                  </tr>
+                  <tr>
+                    <td class="prev shortcut"><kbd>p</kbd></td>
+                    <td>Previous page</td>
+                  </tr>
+                  <tr>
+                    <td class="search shortcut"><kbd>s</kbd></td>
+                    <td>Search</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+
+    </body>
+</html>
