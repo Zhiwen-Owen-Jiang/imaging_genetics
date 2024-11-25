@@ -1,0 +1,15 @@
+{
+    "spark.master": "local[4]",
+    "spark.executor.memory": "12g",
+    "spark.driver.memory": "12g",                                                                
+    "spark.executor.cores": "2",
+    "spark.num.executors": "2",
+    "spark.serializer": "org.apache.spark.serializer.KryoSerializer",
+    "spark.kryoserializer.buffer.max": "2048m",
+    "spark.shuffle.compress": "true",
+    "spark.io.compression.codec": "lz4",
+    "spark.default.parallelism": "8",
+    "spark.sql.shuffle.partitions": "200",
+    "spark.executor.extraJavaOptions": "-XX:ReservedCodeCacheSize=2048m",
+    "spark.driver.extraJavaOptions": "-XX:ReservedCodeCacheSize=2048m"
+}
