@@ -36,7 +36,7 @@ conda activate heig
 Or you can create a new environment and install dependencies through `pip`
 ```
 conda create --name heig python=3.11
-conda activate myenv
+conda activate heig
 pip install -r requirements.txt
 ```
 Since version v1.2.0, [hail](https://hail.is) has been a dependency for conducting GWAS analysis. If you fail to install hail, please contact the hail team.
