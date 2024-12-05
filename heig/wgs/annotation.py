@@ -1,3 +1,4 @@
+import logging
 import hail as hl
 from heig.wgs.utils import *
 
@@ -9,11 +10,11 @@ Each variant is in `chr:pos:ref:alt` format
 
 TODO:
 1. provide arguments for annot-names and extract-chr-pos
+2. why is it `interval-list`?
 
 """
 
 class Annotation:
-
     """
     Processing and saving functional annotations
 
@@ -23,36 +24,46 @@ class Annotation:
         """
         Parameters:
         ------------
-        annot: a Table of functional annotation
+        annot: a hail.Table of functional annotation
         grch37: if the reference genome is GRCh37
 
         """
         self.annot = annot
+        self.n_variants = annot.count()
         self.geno_ref = "GRCh37" if grch37 else "GRCh38"
+        self._parse_variant()
         self._create_keys()
+        self.logger = logging.getLogger(__name__)
 
     @classmethod
-    def read_annot(cls, annot, grch37, *args, **kwargs):
+    def read_annot(cls, annot_dir, grch37, *args, **kwargs):
         """
         Reading annotation
 
         Parameters:
         ------------
-        annot: directory to unzipped annotation folder
+        annot_dir: directory to unzipped annotation folder
             Hail will read all annotation files
         grch37: if the reference genome is GRCh37
 
         """
-        annot = hl.import_table(annot, *args, **kwargs)
+        annot = hl.import_table(annot_dir, *args, **kwargs)
         return cls(annot, grch37)
+
+    def _parse_variant(self):
+        """
+        Parsing variants
+        
+        """
+        variant_column = self.annot.row.keys()[0]
+        parsed_variant = hl.parse_variant(self.annot[variant_column], reference_genome=self.geno_ref)
+        self.annot = self.annot.annotate(parsed_variant=parsed_variant)
 
     def _create_keys(self):
         """
         Creating keys for merging
 
         """
-        variant_column = self.annot.row.keys()[0]
-        self.annot = self.annot.annotate(parsed_variant=hl.parse_variant(self.annot[variant_column], reference_genome=self.geno_ref))
         self.annot = self.annot.annotate(
             locus=self.annot.parsed_variant.locus,
             alleles=self.annot.parsed_variant.alleles
@@ -60,46 +71,53 @@ class Annotation:
         self.annot = self.annot.key_by("locus", "alleles")
         self.annot = self.annot.drop("parsed_variant")
         
-    def extract_variants(self, variant_list):
+    def extract_exclude_locus(self, extract_locus=None, exclude_locus=None):
         """
-        variant_list: a list/array/series of variant strings in format: `chr:pos`,
-        where both `chr` and `pos` are integers.
-        Only the first variant will be checked.
+        Extracting and excluding variants by locus
+
+        Parameters:
+        ------------
+        extract_locus: a pd.DataFrame of SNPs in `chr:pos` format
+        exclude_locus: a pd.DataFrame of SNPs in `chr:pos` format
         
         """
-        variant_list = list(variant_list)
-        if not ':' in variant_list[0]:
-            raise ValueError('variant must be in `chr:pos` format')
-        
-        parsed_variants = [
-            hl.parse_locus(v, reference_genome=self.geno_ref)
-            for v in variant_list
-        ]
+        if extract_locus is not None:
+            extract_locus = parse_locus(extract_locus["locus"], self.geno_ref)
+            self.annot = self.annot.filter(extract_locus.contains(self.annot.locus))
+            self.n_variants = self.annot.count()
+            self.logger.info(f"{self.n_variants} variants remaining after --extract-locus.")
+        if exclude_locus is not None:
+            exclude_locus = parse_locus(exclude_locus["locus"], self.geno_ref)
+            self.annot = self.annot.filter(~exclude_locus.contains(self.annot.locus))
+            self.n_variants = self.annot.count()
+            self.logger.info(f"{self.n_variants} variants remaining after --exclude-locus.")
 
-        variant_set = hl.literal(set(parsed_variants))
-        self.annot = self.annot.filter(variant_set.contains(self.annot.locus))
-
-    def extract_by_interval(self, interval_list):
+    def extract_by_interval(self, interval_list=None):
         """
         interval_list: a list/array/series of interval strings in format: `chr:start-end`,
         where `chr`, `start`, and `end` are integers, and `start` < `end`.
         
         """
-        interval_list = list(interval_list)
-        parsed_intervals = [
-            hl.parse_locus_interval(v, reference_genome=self.geno_ref)
-            for v in interval_list
-        ]
-        interval_expr = hl.literal(parsed_intervals)
-        self.annot = self.annot.filter(hl.any(lambda interval: interval.contains(self.annot.locus), interval_expr))
+        if interval_list is not None:
+            interval_list = list(interval_list)
+            parsed_intervals = [
+                hl.parse_locus_interval(v, reference_genome=self.geno_ref)
+                for v in interval_list
+            ]
+            interval_expr = hl.literal(parsed_intervals)
+            self.annot = self.annot.filter(hl.any(lambda interval: interval.contains(self.annot.locus), interval_expr))
+            self.n_variants = self.annot.count()
+            self.logger.info(f"{self.n_variants} variants remaining in --chr-interval.")
 
-    def extract_annots(self, annot_list):
+    def extract_annots(self, annot_list=None):
         """
         annot_list: a list/array/series annotation names to extract
         
         """
-        annot_list = list(annot_list)
-        self.annot = self.annot.select(*annot_list)
+        if annot_list is not None:
+            annot_list = list(annot_list)
+            self.annot = self.annot.select(*annot_list)
+            self.logger.info(f"{annot_list} extracted from the annotation.")
 
     def save(self, output_dir):
         self.annot.write(f'{output_dir}_annot.ht', overwrite=True)
@@ -133,9 +151,13 @@ class AnnotationFAVOR(Annotation):
 
     def __init__(self, annot, grch37):
         super().__init__(annot, grch37)
-
         self._drop_rename()
         self._add_more_annot()
+
+    def _parse_variant(self):
+        parse_variant = hl.variant_str(hl.locus(self.annot.chromosome, self.annot.position), 
+                                       self.annot.ref_vcf, self.annot.alt_vcf)
+        self.annot = self.annot.annotate(parsed_variant=parse_variant)
 
     def _drop_rename(self):
         """
@@ -203,17 +225,9 @@ def run(args, log):
         )
 
     log.info(f"Processing annotations ...")
-    if args.annot_names is not None:
-        annot.extract_annots(args.annot_names)
-        log.info(f"Extracted annotations {args.annot_names}.")
-
-    if args.range is not None:
-        annot.extract_by_interval(args.range)
-        log.info(f"Extracted variants in specified interval(s).")
-
-    if args.extract_chr_pos is not None:
-        annot.extract_variants(args.extract_chr_pos)
-        log.info(f"Extracted variants in --extract-chr-pos.")
+    annot.extract_annots(args.annot_names)
+    annot.extract_by_interval(args.chr_interval)
+    annot.extract_exclude_locus(args.extract_locus, args.exclude_locus)
     
     annot.write(args.out)
     log.info(f"\nSave the annotations to {args.out}_annot.ht")

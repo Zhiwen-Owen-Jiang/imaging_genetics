@@ -32,47 +32,45 @@ OFFICIAL_NAME = {
 
 
 class Coding:
-    def __init__(self, snps_mt, variant_type, use_annotation_weights=True):
+    def __init__(self, annot, variant_type):
         """
         Extracting coding variants, generate annotation, and get index for each category
 
         Parameters:
         ------------
-        snps_mt: a hail.MatrixTable of genotype data with annotation attached
-            for a specific gene and variant type
+        annot: a hail.Table of annotations, semi_merged with locus
         variant_type: one of ('variant', 'snv', 'indel')
-        use_annotation_weights: if using annotation weights
 
         """
-        self.snps_mt = snps_mt
+        self.annot = annot
 
-        gencode_exonic_category = self.snps_mt.fa[
+        gencode_exonic_category = self.annot[
             Annotation_name_catalog["GENCODE.EXONIC.Category"]
         ]
-        gencode_category = self.snps_mt.fa[Annotation_name_catalog["GENCODE.Category"]]
+        gencode_category = self.annot[Annotation_name_catalog["GENCODE.Category"]]
         valid_exonic_categories = hl.literal(
             {"stopgain", "stoploss", "nonsynonymous SNV", "synonymous SNV"}
         )
         valid_categories = hl.literal(
             {"splicing", "exonic;splicing", "ncRNA_splicing", "ncRNA_exonic;splicing"}
         )
-        lof_in_coding_snps_mt = valid_exonic_categories.contains(
+        lof_in_coding_annot = valid_exonic_categories.contains(
             gencode_exonic_category
         ) | valid_categories.contains(gencode_category)
-        self.snps_mt = self.snps_mt.filter_rows(lof_in_coding_snps_mt)
-        if self.snps_mt.rows().count() == 0:
+        self.annot = self.annot.filter(lof_in_coding_annot)
+        if self.annot.count() == 0:
             raise ValueError("no variants remaining")
 
-        self.gencode_exonic_category = self.snps_mt.fa[
+        self.gencode_exonic_category = self.annot[
             Annotation_name_catalog["GENCODE.EXONIC.Category"]
         ]
-        self.gencode_category = self.snps_mt.fa[
+        self.gencode_category = self.annot[
             Annotation_name_catalog["GENCODE.Category"]
         ]
-        self.metasvm_pred = self.snps_mt.fa[Annotation_name_catalog["MetaSVM"]]
+        self.metasvm_pred = self.annot[Annotation_name_catalog["MetaSVM"]]
         self.category_dict = self.get_category(variant_type)
 
-        if variant_type == "snv" and use_annotation_weights:
+        if variant_type == "snv":
             self.annot_cols = [
                 Annotation_name_catalog[annot_name] for annot_name in Annotation_name
             ]

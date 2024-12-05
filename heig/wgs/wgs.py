@@ -114,7 +114,7 @@ class WGS:
         self.half_ldr_score = BlockMatrix.read(f"{prefix}_half_ldr_score.bm") # (m, r)
         self.inner_vset = BlockMatrix.read(f"{prefix}_vset_ld.bm") # (m, m)
         self.vset_half_covar_proj = BlockMatrix.read(f"{prefix}_vset_half_covar.bm") # (m, p)
-        self.locus = hl.read_table(f'{prefix}_locus_info.ht').key_by('locus')
+        self.locus = hl.read_table(f'{prefix}_locus_info.ht').key_by('locus', 'alleles')
         self.locus = self.locus.add_index('idx')
         self.geno_ref = self.locus.reference_genome.collect()[0]
 
@@ -210,16 +210,29 @@ class WGS:
             self.n_variants = self.locus.count()
             self.logger.info(f"{self.n_variants} variants remaining after filtering by MAF.")
 
-    def parse_data(self):
+    def semi_join(self, annot):
         """
-        Parse maf and is_rare into np.array
+        Semi join with annotations
+        
+        """
+        self.locus = self.locus.semi_join(annot)
+
+    def parse_data(self, idx):
+        """
+        Parse data for analysis, must do select_variants() before
+
+        Parameters:
+        ------------
+        idx: hail.expr of boolean indices of mask
         
         """ 
-        half_ldr_score = self.half_ldr_score.to_numpy()
-        inner_adj_vset = self.inner_vset - self.vset_half_covar_proj @ self.vset_half_covar_proj.T
-        inner_adj_vset = inner_adj_vset.to_numpy() # (m, m)
-        maf = np.array(self.locus.maf.collect())
-        is_rare = np.array(self.locus.is_rare.collect())
+        half_ldr_score = self.half_ldr_score.filter_rows[idx].to_numpy()
+        vset_half_covar_proj = self.vset_half_covar_proj.filter_rows[idx]
+        inner_vset = self.inner_vset.filter[idx, idx]
+        inner_adj_vset = (inner_vset - vset_half_covar_proj @ vset_half_covar_proj.T).to_numpy()
+        locus = self.locus.filter(idx)
+        maf = np.array(locus.maf.collect())
+        is_rare = np.array(locus.is_rare.collect())
 
         return half_ldr_score, inner_adj_vset, maf, is_rare, self.bases, self.var
 
