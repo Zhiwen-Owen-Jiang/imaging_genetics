@@ -16,7 +16,8 @@ __all__ = [
     "init_hail",
     "process_range",
     "get_temp_path",
-    "Table"
+    "parse_locus",
+    "Table",
 ]
 
 
@@ -575,15 +576,17 @@ class GProcessor:
 
         """
         if extract_locus is not None:
-            extract_locus = hl.Table.from_pandas(extract_locus[["locus"]])
-            extract_locus = extract_locus.annotate(locus=hl.parse_locus(extract_locus.locus))
+            # extract_locus = hl.Table.from_pandas(extract_locus[["locus"]])
+            # extract_locus = extract_locus.annotate(locus=hl.parse_locus(extract_locus.locus))
+            extract_locus = parse_locus(extract_locus["locus"], self.geno_ref)
             self.snps_mt = self.snps_mt.filter_rows(extract_locus.contains(self.snps_mt.locus))
             self.n_variants = self.snps_mt.count_rows()
             self.logger.info(f"{self.n_variants} variants remaining after --extract-locus.")
 
         if exclude_locus is not None:
-            exclude_locus = hl.Table.from_pandas(exclude_locus[["locus"]])
-            exclude_locus = exclude_locus.annotate(locus=hl.parse_locus(exclude_locus.locus))
+            # exclude_locus = hl.Table.from_pandas(exclude_locus[["locus"]])
+            # exclude_locus = exclude_locus.annotate(locus=hl.parse_locus(exclude_locus.locus))
+            exclude_locus = parse_locus(exclude_locus["locus"], self.geno_ref)
             self.snps_mt = self.snps_mt.filter_rows(~exclude_locus.contains(self.snps_mt.locus))
             self.n_variants = self.snps_mt.count_rows()
             self.logger.info(f"{self.n_variants} variants remaining after --exclude-locus.")
@@ -595,11 +598,13 @@ class GProcessor:
         """
         if self.geno_ref == "GRCh38":
             self.chr = "chr" + self.chr
-        self.snps_mt = self.snps_mt.filter_rows(
-                (self.snps_mt.locus.contig == self.chr)
-                & (self.snps_mt.locus.position >= self.start)
-                & (self.snps_mt.locus.position <= self.end)
-            )
+        # self.snps_mt = self.snps_mt.filter_rows(
+        #         (self.snps_mt.locus.contig == self.chr)
+        #         & (self.snps_mt.locus.position >= self.start)
+        #         & (self.snps_mt.locus.position <= self.end)
+        #     )
+        interval = hl.locus_interval(self.chr, self.start, self.end, reference_genome=self.geno_ref)
+        self.snps_mt = self.snps_mt.filter_rows(interval.contains(self.snps_mt.locus))
         self.n_variants = self.snps_mt.count_rows()
         self.logger.info(f"{self.n_variants} variants remaining after --chr-interval (--range).")
 
@@ -653,10 +658,6 @@ class GProcessor:
 
         return chr, min_pos, max_pos
     
-    def write_locus(self, output_path):
-        locus = self.snps_mt.rows().key_by().select('locus', 'alleles')
-        locus.write(f'{output_path}_locus_info.ht', overwrite=True)
-
 
 # def get_common_ids(ids, snps_mt_ids=None, keep_idvs=None):
 #     """
@@ -808,6 +809,25 @@ def get_temp_path():
     temp_path += str(i)
 
     return temp_path
+
+
+def parse_locus(variant_list, geno_ref):
+    """
+    Parsing locus from a list of string
+    
+    """
+    variant_list = list(variant_list)
+    if variant_list[0].count(':') != 1:
+        raise ValueError('variant must be in `chr:pos` format')
+    
+    parsed_variants = [
+        hl.parse_locus(v, reference_genome=geno_ref)
+        for v in variant_list
+    ]
+
+    variant_set = hl.literal(set(parsed_variants))
+
+    return variant_set
 
 
 class Table:

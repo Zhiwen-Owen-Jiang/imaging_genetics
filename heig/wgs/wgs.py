@@ -26,36 +26,23 @@ TODO:
 """
 
 
-class ProcessWGS:
+class WGSsumstats:
     """
     Computing summary statistics for rare variants
 
     """
 
-    def __init__(self, bases, resid_ldr, covar, maf, is_rare, grch37, variant_type, 
-                 chr, start, end, loco_preds=None):
+    def __init__(self, bases, resid_ldr, covar, loco_preds=None):
         """
         Parameters:
         ------------
         bases: (N, r) np.array, functional bases
         resid_ldr: (n, r) np.array, LDR residuals
         covar: (n, p) np.array, the same as those used to do projection
-        maf: (m, ) np.array, minor allele frequency
-        is_rare: (m, ) np.array, if the minor allele count less than a threshold
-        grch37: if genome reference is GRCh37
-        variant_type: variant type
-        chr: include which chr
-        start: start bp
-        end: end bp
         loco_preds: a LOCOpreds instance of loco predictions
             loco_preds.data_reader(j) returns loco preds for chrj with matched subjects
 
         """
-        if grch37:
-            self.geno_ref = "GRCh37"
-        else:
-            self.geno_ref = "GRCh38"
-    
         # adjust for relatedness
         if loco_preds is not None:
             resid_ldr -= loco_preds.data_reader(chr) # (I-M)\Xi, (n, r)
@@ -73,25 +60,22 @@ class ProcessWGS:
         self.var = var
         self.half_covar_proj = BlockMatrix.from_numpy(np.dot(covar_U, covar_Vt).astype(np.float32))
         self.bases = bases
-        self.maf = maf
-        self.is_rare = is_rare
-        self.variant_type = variant_type
-        self.chr = chr
-        self.start = start
-        self.end = end
         self.n_subs = covar.shape[0]
         
-    def sumstats(self, vset):
+    def sumstats(self, vset, locus):
         """
         Computing and writing summary statistics for rare variants
 
         Parameters:
         ------------
         vset: (m, n) blockmatrix of genotype data
+        locus: hail.Table including locus, maf, is_rare, grch37, variant_type, 
+                chr, start, and end
 
         """
-        # n_variants
+        # n_variants and locus
         self.n_variants = vset.shape[0]
+        self.locus = locus
 
         # half ldr score
         self.half_ldr_score = vset @ self.resid_ldr # Z'(I-M)\Xi, (m, r)
@@ -111,24 +95,18 @@ class ProcessWGS:
         with h5py.File(f"{output_dir}_misc.h5", 'w') as file:
             file.create_dataset('bases', data=self.bases, dtype='float32')
             file.create_dataset('var', data=self.var, dtype='float32')
-            file.create_dataset('maf', data=self.maf, dtype='float32')
-            file.create_dataset('is_rare', data=self.is_rare)
-            file.attrs['variant_type'] = self.variant_type
-            file.attrs['chr'] = self.chr
-            file.attrs['start'] = self.start
-            file.attrs['end'] = self.end
             file.attrs['n_subs'] = self.n_subs
             file.attrs['n_variants'] = self.n_variants
-            file.attrs['geno_ref'] = self.geno_ref
 
         self.half_ldr_score.write(f"{output_dir}_half_ldr_score.bm")
         self.inner_vset.write(f"{output_dir}_vset_ld.bm")
         self.vset_half_covar_proj.write(f"{output_dir}_vset_half_covar.bm")
+        self.locus.write(f'{output_dir}_locus_info.ht', overwrite=True)
 
 
 class WGS:
     """
-    Reading and processing WGS summary statistics
+    Reading and processing WGS summary statistics for analysis
 
     """
 
@@ -136,21 +114,17 @@ class WGS:
         self.half_ldr_score = BlockMatrix.read(f"{prefix}_half_ldr_score.bm") # (m, r)
         self.inner_vset = BlockMatrix.read(f"{prefix}_vset_ld.bm") # (m, m)
         self.vset_half_covar_proj = BlockMatrix.read(f"{prefix}_vset_half_covar.bm") # (m, p)
-
-        with h5py.File(f"{self.output_dir}_misc.h5", 'r') as file:
-            self.bases = file['bases'][:]
-            self.var = file['var'][:]
-            self.maf = file['maf'][:]
-            self.is_rare = file['is_rare'][:]
-            self.geno_ref = file.attrs['geno_ref']
-            self.chr = file.attrs['chr']
-            self.start = file.attrs['start']
-            self.end = file.attrs['end']
-            self.n_variants = file.attrs['n_variants']
-
         self.locus = hl.read_table(f'{prefix}_locus_info.ht').key_by('locus')
         self.locus = self.locus.add_index('idx')
-        self.idxs = None
+        self.geno_ref = self.locus.reference_genome.collect()[0]
+
+        with h5py.File(f"{self.output_dir}_misc.h5", 'r') as file:
+            self.bases = file['bases'][:] # (N, r)
+            self.var = file['var'][:] # (N, )
+            self.n_variants = file.attrs['n_variants']
+            self.n_subs = file.attrs['n_subs']
+
+        self.variant_idxs = None
         self.logger = logging.getLogger(__name__)
 
     def select_ldrs(self, n_ldrs=None):
@@ -161,20 +135,25 @@ class WGS:
                 self.logger.info(f"Keep the top {n_ldrs} LDRs.")
             else:
                 raise ValueError("--n-ldrs is greater than #LDRs")
+
+    def select_voxels(self, voxel_idxs=None):
+        if voxel_idxs is not None:
+            if np.max(voxel_idxs) < self.bases.shape[0]:
+                self.bases = self.bases[voxel_idxs]
+                self.logger.info(f"{len(voxel_idxs)} voxels included.")
+            else:
+                raise ValueError("--voxel index (one-based) out of range")
             
     def select_variants(self):
         """
         Selecting variants from summary statistics
         
         """
-        if self.idxs is None:
-            return self.half_ldr_score, self.inner_vset, self.vset_half_covar_proj
-        else:
-            half_ldr_score = self.half_ldr_score.filter_rows(self.idxs)
-            inner_vset = self.inner_vset.filter(self.idxs, self.idxs)
-            vset_half_covar_proj = self.vset_half_covar_proj.filter_rows(self.idxs)
-
-            return half_ldr_score, inner_vset, vset_half_covar_proj
+        if self.n_variants < self.half_ldr_score.shape[0]:
+            self.variant_idxs = self.locus.idx.collect()
+            self.half_ldr_score = self.half_ldr_score.filter_rows(self.variant_idxs)
+            self.inner_vset = self.inner_vset.filter(self.variant_idxs, self.variant_idxs)
+            self.vset_half_covar_proj = self.vset_half_covar_proj.filter_rows(self.variant_idxs)
 
     def extract_exclude_locus(self, extract_locus, exclude_locus):
         """
@@ -187,66 +166,90 @@ class WGS:
 
         """
         if extract_locus is not None:
-            extract_locus = hl.Table.from_pandas(extract_locus[["locus"]])
-            extract_locus = extract_locus.annotate(locus=hl.parse_locus(extract_locus.locus))
+            # extract_locus = hl.Table.from_pandas(extract_locus[["locus"]])
+            # extract_locus = extract_locus.annotate(locus=hl.parse_locus(extract_locus.locus))
+            extract_locus = parse_locus(extract_locus["locus"], self.geno_ref)
             self.locus = self.locus.filter(extract_locus.contains(self.locus.locus))
             self.n_variants = self.locus.count()
             self.logger.info(f"{self.n_variants} variants remaining after --extract-locus.")
         if exclude_locus is not None:
-            exclude_locus = hl.Table.from_pandas(exclude_locus[["locus"]])
-            exclude_locus = exclude_locus.annotate(locus=hl.parse_locus(exclude_locus.locus))
+            # exclude_locus = hl.Table.from_pandas(exclude_locus[["locus"]])
+            # exclude_locus = exclude_locus.annotate(locus=hl.parse_locus(exclude_locus.locus))
+            exclude_locus = parse_locus(exclude_locus["locus"], self.geno_ref)
             self.locus = self.locus.filter(~exclude_locus.contains(self.locus.locus))
             self.n_variants = self.locus.count()
             self.logger.info(f"{self.n_variants} variants remaining after --exclude-locus.")
-        if extract_locus is not None or exclude_locus is not None:
-            self.idxs = self.locus.idx.collect()
 
-    def extract_chr_interval(self, start=None, end=None):
+    def extract_chr_interval(self, chr=None, start=None, end=None):
         """
         Extacting a chr interval
 
         Parameters:
         ------------
+        chr: chromosome
         start: start position
         end: end position
 
         """
-        if start is not None and end is not None:
-            interval = hl.locus_interval(self.chr, start, end, reference_genome=self.geno_ref)
+        if chr is not None and start is not None and end is not None:
+            interval = hl.locus_interval(chr, start, end, reference_genome=self.geno_ref)
             self.locus = self.locus.filter(interval.contains(self.locus.locus))
             self.n_variants = self.locus.count()
             self.logger.info(f"{self.n_variants} variants remaining after --chr-interval.")
-            self.idxs = self.locus.idx.collect()
     
-    def extract_maf(self, maf_min, maf_max):
+    def extract_maf(self, maf_min=None, maf_max=None):
         """
         Extracting variants by MAF 
         
         """
-        self.idxs = list(np.where((maf_min < self.maf) & (self.maf >= maf_max))[0])
+        if maf_min is not None:
+            self.locus = self.locus.filter(self.locus.maf < maf_min)
+        if maf_max is not None:
+            self.locus = self.locus.filter(self.locus.maf >= maf_max)
+        if maf_min is not None or maf_max is not None:
+            self.n_variants = self.locus.count()
+            self.logger.info(f"{self.n_variants} variants remaining after filtering by MAF.")
+
+    def parse_data(self):
+        """
+        Parse maf and is_rare into np.array
+        
+        """
+        maf = np.array(self.locus.maf.collect())
+        is_rare = np.array(self.locus.is_rare.collect())
+
+        return maf, is_rare
 
 
-def prepare_vset(snps_mt):
+def prepare_vset(snps_mt, variant_type, chr, start, end):
     """
     Extracting data from MatrixTable
 
     Parameters:
     ------------
-    snps_mt: MatrixTable
+    snps_mt: a MatrixTable of genotype data
+    variant_type: variant type
+    chr: chromosome of the genotype data
+    start: start pos of the genotype data
+    end: end pos of the genotype data
 
     Returns:
     ---------
     vset: (m, n) BlockMatrix
-    maf: (m, ) np.array of MAF
-    is_rare: (m, ) np.array boolean index indicating MAC < mac_threshold
 
     """
-    maf = np.array(snps_mt.maf.collect())
-    is_rare = np.array(snps_mt.is_rare.collect())
+    # maf = np.array(snps_mt.maf.collect())
+    # is_rare = np.array(snps_mt.is_rare.collect())
+    locus = snps_mt.rows().key_by().select('locus', 'alleles', 'maf', 'is_rare')
+    locus = locus.annotate_globals(reference_genome=locus.locus.dtype.reference_genome.name)
+    locus = locus.annotate_globals(variant_type=variant_type)
+    locus = locus.annotate_globals(chr=chr)
+    locus = locus.annotate_globals(start=start)
+    locus = locus.annotate_globals(end=end)
     vset = BlockMatrix.from_entry_expr(
         snps_mt.flipped_n_alt_alleles, mean_impute=True
     )
-    return maf, is_rare, vset
+    return vset, locus
 
 
 def check_input(args, log):
@@ -281,7 +284,7 @@ def run(args, log):
     chr, start, end = check_input(args, log)
     init_hail(args.spark_conf, args.grch37, args.out, log)
 
-    # reading data and selecting voxels and LDRs
+    # reading data and selecting LDRs
     log.info(f"Read null model from {args.null_model}")
     null_model = NullModel(args.null_model)
     null_model.select_ldrs(args.n_ldrs)
@@ -365,13 +368,11 @@ def run(args, log):
             loco_preds = None
 
         log.info('Computing summary statistics ...\n')
-        maf, is_rare, vset = prepare_vset(gprocessor.snps_mt)
-        process_wgs = ProcessWGS(null_model.bases, null_model.resid_ldr, 
-                                 null_model.covar, maf, is_rare, args.grch37,
-                                 args.variant_type, chr, start, end, loco_preds)
-        process_wgs.sumstats(vset)
+        vset, locus = prepare_vset(gprocessor.snps_mt)
+        process_wgs = WGSsumstats(null_model.bases, null_model.resid_ldr, 
+                                 null_model.covar, loco_preds)
+        process_wgs.sumstats(vset, locus)
         process_wgs.save(args.out)
-        gprocessor.write_locus(args.out)
 
         log.info((f'Save summary statistics to\n'
                   f'{args.out}_half_ldr_score.bm\n'
