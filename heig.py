@@ -57,6 +57,12 @@ relatedness_parser = parser.add_argument_group(
 make_mt_parser = parser.add_argument_group(
     title="Arguments specific to making a hail.MatrixTable of genotype data"
 )
+wgs_null_parser = parser.add_argument_group(
+    title="Arguments specific to the null model of whole genome sequencing analysis"
+)
+wgs_sumstats_parser = parser.add_argument_group(
+    title="Arguments specific to generating summary statistics for whole genome sequencing analysis"
+)
 
 
 # module arguments
@@ -87,6 +93,16 @@ relatedness_parser.add_argument(
 )
 make_mt_parser.add_argument(
     "--make-mt", action="store_true", help="Making a hail.MatrixTable of genotype data."
+)
+wgs_null_parser.add_argument(
+    "--wgs-null",
+    action="store_true",
+    help="Fitting the null model for whole genome sequencing analysis.",
+)
+wgs_sumstats_parser.add_argument(
+    "--wgs-sumstats",
+    action="store_true",
+    help="Generating summary statistics for whole genome sequencing analysis.",
 )
 
 # common arguments
@@ -726,6 +742,43 @@ def check_accepted_args(module, args, log):
             "qc_mode",
             "grch37",
             "threads"
+        },
+        "wgs_null": {
+            "wgs_null",
+            "out",
+            "ldrs",
+            "n_ldrs",
+            "bases",
+            "covar",
+            "cat_covar_list",
+            "keep",
+            "remove",
+            "threads",
+        },
+        "wgs_sumstats":{
+            "wgs_sumstats",
+            "out",
+            "geno_mt",
+            "bfile",
+            "vcf",
+            "null_model",
+            "variant_type",
+            "maf_max",
+            "maf_min",
+            "mac_thresh",
+            "hwe",
+            "call_rate",
+            "mac_thresh",
+            "chr_interval",
+            "n_ldrs",
+            "keep",
+            "remove",
+            "extract_locus",
+            "exclude_locus",
+            "grch37",
+            "loco_preds",
+            "not_save_genotype_data",
+            "spark_conf",
         }
     }
 
@@ -796,6 +849,16 @@ def process_args(args, log):
         args.exclude = split_files(args.exclude)
         args.exclude = ds.read_exclude(args.exclude)
         log.info(f"{len(args.exclude)} SNP(s) in --exclude (logical or for multiple files).")
+
+    if args.extract_locus is not None:
+        args.extract_locus = split_files(args.extract_locus)
+        args.extract_locus = ds.read_extract(args.extract_locus, locus=True)
+        log.info(f"{len(args.extract_locus)} SNP(s) in --extract-locus (logical and for multiple files).")
+        
+    if args.exclude_locus is not None:
+        args.exclude_locus = split_files(args.exclude_locus)
+        args.exclude_locus = ds.read_exclude(args.exclude_locus, locus=True)
+        log.info(f"{len(args.exclude_locus)} SNP(s) in --exclude-locus (logical or for multiple files).")
     
     if args.bfile is not None:
         for suffix in [".bed", ".fam", ".bim"]:

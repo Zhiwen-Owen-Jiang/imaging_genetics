@@ -563,6 +563,30 @@ class GProcessor:
             self.snps_mt = self.snps_mt.filter_rows(~exclude_variants.contains(self.snps_mt.rsid))
             self.n_variants = self.snps_mt.count_rows()
             self.logger.info(f"{self.n_variants} variants remaining after --exclude.")
+
+    def extract_exclude_locus(self, extract_locus, exclude_locus):
+        """
+        Extracting and excluding variants by locus
+
+        Parameters:
+        ------------
+        extract_locus: a pd.DataFrame of SNPs in `chr:pos` format
+        exclude_locus: a pd.DataFrame of SNPs in `chr:pos` format
+
+        """
+        if extract_locus is not None:
+            extract_locus = hl.Table.from_pandas(extract_locus[["locus"]])
+            extract_locus = extract_locus.annotate(locus=hl.parse_locus(extract_locus.locus))
+            self.snps_mt = self.snps_mt.filter_rows(extract_locus.contains(self.snps_mt.locus))
+            self.n_variants = self.snps_mt.count_rows()
+            self.logger.info(f"{self.n_variants} variants remaining after --extract-locus.")
+
+        if exclude_locus is not None:
+            exclude_locus = hl.Table.from_pandas(exclude_locus[["locus"]])
+            exclude_locus = exclude_locus.annotate(locus=hl.parse_locus(exclude_locus.locus))
+            self.snps_mt = self.snps_mt.filter_rows(~exclude_locus.contains(self.snps_mt.locus))
+            self.n_variants = self.snps_mt.count_rows()
+            self.logger.info(f"{self.n_variants} variants remaining after --exclude-locus.")
             
     def _extract_chr_interval(self):
         """

@@ -182,8 +182,8 @@ class WGS:
 
         Parameters:
         ------------
-        extract_locus: a pd.DataFrame of SNPs in `chr:POS` format
-        exclude_locus: a pd.DataFrame of SNPs in `chr:POS` format
+        extract_locus: a pd.DataFrame of SNPs in `chr:pos` format
+        exclude_locus: a pd.DataFrame of SNPs in `chr:pos` format
 
         """
         if extract_locus is not None:
@@ -215,7 +215,7 @@ class WGS:
             interval = hl.locus_interval(self.chr, start, end, reference_genome=self.geno_ref)
             self.locus = self.locus.filter(interval.contains(self.locus.locus))
             self.n_variants = self.locus.count()
-            self.logger.info(f"{self.n_variants} variants remaining after --chr-interval-locus.")
+            self.logger.info(f"{self.n_variants} variants remaining after --chr-interval.")
             self.idxs = self.locus.idx.collect()
     
     def extract_maf(self, maf_min, maf_max):
@@ -284,7 +284,6 @@ def run(args, log):
     # reading data and selecting voxels and LDRs
     log.info(f"Read null model from {args.null_model}")
     null_model = NullModel(args.null_model)
-    null_model.select_voxels(args.voxel)
     null_model.select_ldrs(args.n_ldrs)
 
     # read loco preds
@@ -339,7 +338,7 @@ def run(args, log):
     
         # do preprocessing
         log.info(f"Processing genetic data ...")
-        gprocessor.extract_exclude_snps(args.extract, args.exclude)
+        gprocessor.extract_exclude_locus(args.extract_locus, args.exclude_locus)
         gprocessor.keep_remove_idvs(common_ids)
         gprocessor.do_processing(mode="wgs")
         gprocessor.check_valid()

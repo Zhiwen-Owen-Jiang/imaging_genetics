@@ -129,17 +129,18 @@ def run(args, log):
     covar = ds.Covar(args.covar, args.cat_covar_list)
 
     common_idxs = ds.get_common_idxs(ldrs.data.index, covar.data.index, args.keep)
+    common_idxs = ds.remove_idxs(common_idxs, args.remove)
     log.info(f"{len(common_idxs)} subjects common in these files.")
 
     # keep common subjects
-    covar.keep(common_idxs)
+    covar.keep_and_remove(common_idxs)
     covar.cat_covar_intercept()
     log.info(
         f"{covar.data.shape[1]} fixed effects in the covariates (including the intercept)."
     )
-    ldrs.keep(common_idxs)
+    ldrs.keep_and_remove(common_idxs)
     # ldrs.to_single_index()
-    ids = ldrs.data.index
+    ids = ldrs.get_ids()
     covar.data = np.array(covar.data)
     ldrs.data = np.array(ldrs.data)
 

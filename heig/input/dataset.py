@@ -435,7 +435,7 @@ def read_remove(remove_files):
     return remove_idvs_
 
 
-def read_extract(extract_files):
+def read_extract(extract_files, locus=False):
     """
     Extracting common SNPs from multiple files
     All files are confirmed to exist
@@ -445,12 +445,17 @@ def read_extract(extract_files):
     Parameters:
     ------------
     extract_files: a list of tab/white-delimited files
+    locus: if variants are indexed by locus (chr:pos) 
 
     Returns:
     ---------
     keep_snp_: pd.DataFrame of common SNPs
 
     """
+    if locus:
+        data_type = "locus"
+    else:
+        data_type = "SNP"
     for i, extract_file in enumerate(extract_files):
         if os.path.getsize(extract_file) == 0:
             continue
@@ -460,7 +465,7 @@ def read_extract(extract_files):
             sep="\s+",
             header=None,
             usecols=[0],
-            names=["SNP"],
+            names=[data_type],
             compression=compression,
         )
         if i == 0:
@@ -468,15 +473,15 @@ def read_extract(extract_files):
         else:
             keep_snps_ = keep_snps_.merge(keep_snps)
 
-    if not pd.api.types.is_object_dtype(keep_snps_["SNP"]):
-        raise TypeError("invalid rsID in --extract. Did you input other data in the first column?")
+    if not pd.api.types.is_object_dtype(keep_snps_[data_type]):
+        raise TypeError("invalid variants in --extract(-locus). Did you input other data in the first column?")
     if len(keep_snps_) == 0:
-        raise ValueError("no SNPs are common in --extract")
+        raise ValueError("no variants are common in --extract(-locus)")
 
     return keep_snps_
 
 
-def read_exclude(exclude_files):
+def read_exclude(exclude_files, locus=False):
     """
     Excluding SNPs from multiple files
     All files are confirmed to exist
@@ -486,12 +491,17 @@ def read_exclude(exclude_files):
     Parameters:
     ------------
     exclude_files: a list of tab/white-delimited files
+    locus: if variants are indexed by locus (chr:pos) 
 
     Returns:
     ---------
     exclude_snp_: pd.DataFrame of common SNPs
 
     """
+    if locus:
+        data_type = "locus"
+    else:
+        data_type = "SNP"
     for i, exclude_file in enumerate(exclude_files):
         if os.path.getsize(exclude_file) == 0:
             continue
@@ -501,7 +511,7 @@ def read_exclude(exclude_files):
             sep="\s+",
             header=None,
             usecols=[0],
-            names=["SNP"],
+            names=[data_type],
             compression=compression,
         )
         if i == 0:
@@ -510,10 +520,10 @@ def read_exclude(exclude_files):
             exclude_snps_ = pd.concat([exclude_snps_, exclude_snps], axis=0)
 
     exclude_snps_ = exclude_snps_.drop_duplicates()
-    if not pd.api.types.is_object_dtype(exclude_snps_["SNP"]):
-        raise TypeError("invalid rsID in --exclude. Did you input other data in the first column?")
+    if not pd.api.types.is_object_dtype(exclude_snps_[data_type]):
+        raise TypeError("invalid variants in --exclude(-locus). Did you input other data in the first column?")
     if len(exclude_snps_) == 0:
-        raise ValueError("no SNPs in --exclude")
+        raise ValueError("no variants in --exclude(-locus)")
 
     return exclude_snps_
 
