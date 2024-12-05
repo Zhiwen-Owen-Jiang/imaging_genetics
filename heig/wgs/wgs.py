@@ -214,11 +214,14 @@ class WGS:
         """
         Parse maf and is_rare into np.array
         
-        """
+        """ 
+        half_ldr_score = self.half_ldr_score.to_numpy()
+        inner_adj_vset = self.inner_vset - self.vset_half_covar_proj @ self.vset_half_covar_proj.T
+        inner_adj_vset = inner_adj_vset.to_numpy() # (m, m)
         maf = np.array(self.locus.maf.collect())
         is_rare = np.array(self.locus.is_rare.collect())
 
-        return maf, is_rare
+        return half_ldr_score, inner_adj_vset, maf, is_rare, self.bases, self.var
 
 
 def prepare_vset(snps_mt, variant_type, chr, start, end):
