@@ -59,14 +59,11 @@ class NullModel:
     def keep(self, keep_idvs):
         """
         Keep subjects
+        this method will only be invoked after extracting common subjects
 
         Parameters:
         ------------
-        keep_idvs: a list of subject ids
-
-        Returns:
-        ---------
-        self.id_idxs: numeric indices of subjects
+        keep_idvs: a list of subject ids to keep
 
         """
         keep_idvs = pd.MultiIndex.from_arrays(
@@ -77,9 +74,9 @@ class NullModel:
             {"id": self.id_idxs}, index=self.ids.get_level_values("IID")
         )
         ids_df = ids_df.loc[common_ids]
-        self.id_idxs = ids_df["id"].values
-        self.resid_ldr = self.resid_ldr[self.id_idxs]
-        self.covar = self.covar[self.id_idxs]
+        id_idxs = ids_df["id"].values
+        self.resid_ldr = self.resid_ldr[id_idxs]
+        self.covar = self.covar[id_idxs]
 
     def remove_dependent_columns(self):
         """

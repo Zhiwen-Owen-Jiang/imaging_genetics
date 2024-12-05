@@ -509,6 +509,7 @@ class LOCOpreds:
     def keep(self, keep_idvs):
         """
         Keep subjects
+        this method will only be invoked after extracting common subjects
 
         Parameters:
         ------------

@@ -16,6 +16,7 @@ __all__ = [
     "init_hail",
     "process_range",
     "get_temp_path",
+    "Table"
 ]
 
 
@@ -168,7 +169,7 @@ class GProcessor:
 
         Parameters:
         ------------
-        snps_mt: a hl.MatrixTable of annotated VCF
+        snps_mt: a hl.MatrixTable genotype data
         variant_type: one of ('variant', 'snv', 'indel')
         grch37: if the reference genome is GRCh37
         maf_max: a float number between 0 and 0.5
@@ -629,7 +630,7 @@ class GProcessor:
         return chr, min_pos, max_pos
     
     def write_locus(self, output_path):
-        locus = self.snps_mt.rows().select(*['locus', 'alleles'])
+        locus = self.snps_mt.rows().key_by().select('locus', 'alleles')
         locus.write(f'{output_path}_locus_info.ht', overwrite=True)
 
 
@@ -783,3 +784,55 @@ def get_temp_path():
     temp_path += str(i)
 
     return temp_path
+
+
+class Table:
+    """
+    hail.Table processor for loci and annotations
+
+    """
+    def __init__(self, table, grch37):
+        """
+        table: a hail.Table
+        
+        """
+        self.table = table
+        self.geno_ref = "GRCh37" if grch37 else "GRCh38"
+        self.table = self.table.add_index('idx')
+        self._create_keys()
+
+    @classmethod  
+    def read_table(cls, dir, grch37):
+        """
+        Reading a hail.Table from a directory
+
+        """
+        table = hl.read_table(dir)
+        return cls(table, grch37)
+        
+    def _create_keys(self):
+        self.table = self.table.key_by('locus')
+
+    def extract_locus(self, extract_locus, exclude_locus):
+        """
+        Extracting variants by locus
+
+        Parameters:
+        ------------
+        extract_locus: a pd.DataFrame of SNPs in `chr:pos` format
+        exclude_locus: a pd.DataFrame of SNPs in `chr:pos` format
+
+        """
+        if extract_locus is not None:
+            extract_locus = hl.Table.from_pandas(extract_locus[["locus"]])
+            extract_locus = extract_locus.annotate(locus=hl.parse_locus(extract_locus.locus))
+            # filtered_with_index = self.locus.semi_join(extract_locus)
+            filtered_with_index = self.locus.filter(extract_locus.contains(self.locus.locus))
+            indices = filtered_with_index.idx.collect()
+        if exclude_locus is not None:
+            exclude_locus = hl.Table.from_pandas(exclude_locus[["locus"]])
+            exclude_locus = exclude_locus.annotate(locus=hl.parse_locus(exclude_locus.locus))
+            filtered_with_index = self.locus.filter(~exclude_locus.contains(self.locus.locus))
+            # self.logger.info(f"{self.n_variants} variants remaining after --exclude.")
+
+    
