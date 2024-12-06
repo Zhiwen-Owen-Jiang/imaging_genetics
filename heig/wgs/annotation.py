@@ -221,7 +221,7 @@ def run(args, log):
     else:
         log.info(f"Read annotations from {args.general_annot}")
         annot = Annotation.read_annot(
-            args.general_annot, args.grch37, delimiter=",", missing="", quote='"'
+            args.general_annot, args.grch37, delimiter="\s+", missing="", quote='"'
         )
 
     log.info(f"Processing annotations ...")

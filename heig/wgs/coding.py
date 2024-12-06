@@ -2,7 +2,7 @@ import hail as hl
 import numpy as np
 import pandas as pd
 from functools import reduce
-from heig.wgs.wgs import WGSsumstats
+from heig.wgs.wgs import RVsumstats
 from heig.wgs.vsettest import VariantSetTest, cauchy_combination
 from heig.wgs.utils import *
 
@@ -118,14 +118,14 @@ class Coding:
 
 
 def coding_vset_analysis(
-    wgs_sumstats, annot, variant_type, vset_test, variant_category, log
+    rv_sumstats, annot, variant_type, vset_test, variant_category, log
 ):
     """
     Single coding variant set analysis
 
     Parameters:
     ------------
-    wgs_sumstats: a WGSsumstats instance
+    rv_sumstats: a RVsumstats instance
     annot: a hail.Table of annotations
     variant_type: one of ('variant', 'snv', 'indel')
     vset_test: an instance of VariantSetTest
@@ -141,8 +141,9 @@ def coding_vset_analysis(
 
     """
     # getting annotations and specific categories of variants
-    annot = annot.semi_join(wgs_sumstats.locus)
-    wgs_sumstats.semi_join(annot)
+    annot = annot.semi_join(rv_sumstats.locus)
+    rv_sumstats.semi_join(annot)
+    log.info(f"{rv_sumstats.n_variants} variants overlapping in summary statistics and annotations")
     coding = Coding(annot, variant_type)
 
     # individual analysis
@@ -151,7 +152,7 @@ def coding_vset_analysis(
         if variant_category[0] != "all" and cate not in variant_category:
             cate_pvalues[cate] = None
         else:
-            half_ldr_score, cov_mat, maf, is_rare = wgs_sumstats.parse_data(idx)
+            half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(idx)
             if maf.shape[0] <= 1:
                 log.info(f"Less than 2 variants for {OFFICIAL_NAME[cate]}, skip.")
                 continue
@@ -240,16 +241,13 @@ def process_missense(m_pvalues, dm_pvalues):
     return m_pvalues
 
 
-def format_output(cate_pvalues, chr, start, end, n_variants, voxels, variant_category):
+def format_output(cate_pvalues, n_variants, voxels, variant_category):
     """
     organizing pvalues to a structured format
 
     Parameters:
     ------------
     cate_pvalues: a pd.DataFrame of pvalues of the variant category
-    chr: chromosome
-    start: start position of the gene
-    end: end position of the gene
     n_variants: #variants of the category
     voxels: zero-based voxel idxs of the image
     variant_category: which category of variants to analyze,
@@ -265,9 +263,6 @@ def format_output(cate_pvalues, chr, start, end, n_variants, voxels, variant_cat
         {
             "INDEX": voxels + 1,
             "VARIANT_CATEGORY": variant_category,
-            "CHR": chr,
-            "START": start,
-            "END": end,
             "N_VARIANT": n_variants,
         }
     )
@@ -277,8 +272,8 @@ def format_output(cate_pvalues, chr, start, end, n_variants, voxels, variant_cat
 
 def check_input(args, log):
     # required arguments
-    if args.wgs_sumstats is None:
-        raise ValueError("--wgs-sumstats is required")
+    if args.rv_sumstats is None:
+        raise ValueError("--rv-sumstats is required")
 
     if args.variant_category is None:
         variant_category = ["all"]
@@ -315,31 +310,31 @@ def check_input(args, log):
         args.maf_max = 0.01
         log.info(f"Set --maf-max as default 0.01")
 
-    start_chr, start_pos, end_pos = process_range(args.chr_interval)
-
-    return start_chr, start_pos, end_pos, variant_category
+    return variant_category
 
 
 def run(args, log):
     # checking if input is valid
-    chr, start, end, variant_category = check_input(args, log)
+    variant_category = check_input(args, log)
     init_hail(args.spark_conf, args.grch37, args.out, log)
 
     # reading data and selecting voxels and LDRs
-    log.info(f"Read WGS/WES summary statistics from {args.wgs_sumstats}")
-    wgs_sumstats = WGSsumstats(args.wgs_sumstats)
-    wgs_sumstats.select_ldrs(args.n_ldrs)
-    wgs_sumstats.select_voxels(args.voxels)
+    log.info(f"Read rare variant summary statistics from {args.rv_sumstats}")
+    rv_sumstats = RVsumstats(args.rv_sumstats)
+    rv_sumstats.extract_exclude_locus(args.extract_locus, args.exclude_locus)
+    rv_sumstats.extract_chr_interval(args.chr_interval)
+    rv_sumstats.select_ldrs(args.n_ldrs)
+    rv_sumstats.select_voxels(args.voxels)
 
     # reading annotation
-    annot = hl.read_table(args.annot)
+    annot = hl.read_table(args.annot_ht)
 
     # single gene analysis
-    vset_test = VariantSetTest(wgs_sumstats.bases, wgs_sumstats.var)
+    vset_test = VariantSetTest(rv_sumstats.bases, rv_sumstats.var)
     cate_pvalues = coding_vset_analysis(
-        wgs_sumstats,
+        rv_sumstats,
         annot,
-        wgs_sumstats.variant_type,
+        rv_sumstats.variant_type,
         vset_test,
         variant_category,
         log,
@@ -349,14 +344,11 @@ def run(args, log):
     for cate, cate_results in cate_pvalues.items():
         cate_output = format_output(
             cate_results["pvalues"],
-            chr,
-            start,
-            end,
             cate_results["n_variants"],
-            wgs_sumstats.voxel_idxs,
+            rv_sumstats.voxel_idxs,
             cate,
         )
-        out_path = f"{args.out}_chr{chr}_start{start}_end{end}_{cate}.txt"
+        out_path = f"{args.out}_{cate}.txt"
         cate_output.to_csv(
             out_path,
             sep="\t",

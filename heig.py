@@ -881,7 +881,6 @@ def check_accepted_args(module, args, log):
             "exclude_locus",
             "grch37",
             "loco_preds",
-            "not_save_genotype_data",
             "spark_conf",
         },
         "rv_annot":{

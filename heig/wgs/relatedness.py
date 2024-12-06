@@ -13,7 +13,7 @@ from functools import partial
 from sklearn.model_selection import KFold
 from scipy.linalg import cho_solve, cho_factor
 import heig.input.dataset as ds
-from heig.wgs.utils import GProcessor, init_hail, get_temp_path
+from heig.wgs.utils import init_hail, get_temp_path, read_genotype_data
 from hail.linalg import BlockMatrix
 from heig.utils import inv
 
@@ -582,29 +582,9 @@ def run(args, log):
     common_ids = ds.remove_idxs(common_ids, args.remove, single_id=True)
 
     # read genotype data
-    if args.geno_mt is not None:
-        log.info(f"Read MatrixTable from {args.geno_mt}")
-        read_func = GProcessor.read_matrix_table
-        data_path = args.geno_mt
-    elif args.bfile is not None:
-        log.info(f"Read bfile from {args.bfile}")
-        read_func = GProcessor.import_plink
-        data_path = args.bfile
-    elif args.vcf is not None:
-            log.info(f"Read VCF from {args.vcf}")
-            read_func = GProcessor.import_vcf
-            data_path = args.vcf
-
-    gprocessor = read_func(
-                data_path,
-                grch37=args.grch37,
-                hwe=args.hwe,
-                variant_type=args.variant_type,
-                maf_min=args.maf_min,
-                maf_max=args.maf_max,
-                call_rate=args.call_rate,
-    )
+    gprocessor = read_genotype_data(args, log)
     
+    # processing genotype data
     log.info(f"Processing genetic data ...")
     gprocessor.extract_exclude_snps(args.extract, args.exclude)
     gprocessor.keep_remove_idvs(common_ids)

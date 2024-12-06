@@ -5,13 +5,7 @@ import logging
 import hail as hl
 import heig.input.dataset as ds
 from heig.wgs.relatedness import LOCOpreds
-from heig.wgs.utils import (
-    GProcessor,
-    pandas_to_table,
-    init_hail,
-    process_range,
-    get_temp_path,
-)
+from heig.wgs.utils import read_genotype_data, init_hail, get_temp_path
 
 
 """
@@ -57,6 +51,31 @@ def parse_ldr_col(ldr_col):
     return res
 
 
+def pandas_to_table(df, dir):
+    """
+    Converting a pd.DataFrame to hail.Table
+
+    Parameters:
+    ------------
+    df: a pd.DataFrame to convert, it must have a single index 'IID'
+    target_id: a list or np.array of ids of the another dataset
+
+    Returns:
+    ---------
+    index: a np.array of indices such that current_id[index] = target_id
+
+    """
+    if not df.index.name == "IID":
+        raise ValueError("the DataFrame must have a single index IID")
+    df.to_csv(f"{dir}.txt", sep="\t", na_rep="NA")
+
+    table = hl.import_table(
+        f"{dir}.txt", key="IID", impute=True, types={"IID": hl.tstr}, missing="NA"
+    )
+
+    return table
+
+
 def check_input(args, log):
     # required arguments
     if args.ldrs is None:
@@ -78,10 +97,6 @@ def check_input(args, log):
     elif args.n_ldrs is not None:
         args.ldr_col = (0, args.n_ldrs)
     args.n_ldrs = None
-
-    start_chr, start_pos, end_pos = process_range(args.chr_interval)
-
-    return start_chr, start_pos, end_pos
 
 
 class DoGWAS:
@@ -240,7 +255,7 @@ class DoGWAS:
 
 def run(args, log):
     # check input and configure hail
-    chr, start, end = check_input(args, log)
+    check_input(args, log)
     init_hail(args.spark_conf, args.grch37, args.out, log)
 
     # read LDRs and covariates
@@ -284,34 +299,11 @@ def run(args, log):
         common_ids = ds.remove_idxs(common_ids, args.remove, single_id=True)
 
         # read genotype data
-        if args.geno_mt is not None:
-            log.info(f"Read MatrixTable from {args.geno_mt}")
-            read_func = GProcessor.read_matrix_table
-            data_path = args.geno_mt
-        elif args.bfile is not None:
-            log.info(f"Read bfile from {args.bfile}")
-            read_func = GProcessor.import_plink
-            data_path = args.bfile
-        elif args.vcf is not None:
-            log.info(f"Read VCF from {args.vcf}")
-            read_func = GProcessor.import_vcf
-            data_path = args.vcf
-
-        gprocessor = read_func(
-                    data_path,
-                    grch37=args.grch37,
-                    hwe=args.hwe,
-                    variant_type=args.variant_type,
-                    maf_min=args.maf_min,
-                    maf_max=args.maf_max,
-                    call_rate=args.call_rate,
-                    chr=chr,
-                    start=start,
-                    end=end
-        )
+        gprocessor = read_genotype_data(args, log)
 
         log.info(f"Processing genetic data ...")
         gprocessor.extract_exclude_snps(args.extract, args.exclude)
+        gprocessor.extract_chr_interval(args.chr_interval)
         gprocessor.keep_remove_idvs(common_ids)
         gprocessor.do_processing(mode="gwas")
         gprocessor.check_valid()
