@@ -27,15 +27,14 @@ class VariantSetTest:
         self.bases = bases
         self.var = var
 
-    def input_vset(self, half_ldr_score, inner_vset, vset_half_covar_proj, maf, is_rare, annotation_pred=None, annot_transform=True):
+    def input_vset(self, half_ldr_score, cov_mat, maf, is_rare, annotation_pred=None, annot_transform=True):
         """
         Inputing variant set and computing half scores and covariance matrix
 
         Parameters:
         ------------
         half_ldr_score: (m, r) np.array, Z'(I-M)\Xi
-        inner_vset: (m, m) np.array, Z'Z
-        vset_half_covar_proj: (m, p) np.array, Z'UV'
+        cov_mat: (m, m) np.array, Z'(I-M)Z
         maf: (m, ) np.array of MAF
         is_rare: (m, ) np.array boolean index indicating MAC < mac_threshold
         annotation_pred: (m, q) np.array of functional annotation or None
@@ -46,7 +45,7 @@ class VariantSetTest:
         self.is_rare = is_rare
         self.half_ldr_score = half_ldr_score  # Z'(I-M)\Xi, (m, r)
         self.half_score = np.dot(self.half_ldr_score, self.bases.T)  # Z'(I-M)Y, (m, N)
-        self.cov_mat = inner_vset - np.dot(vset_half_covar_proj, vset_half_covar_proj.T)
+        self.cov_mat = cov_mat
         self.weights = self._get_weights(annotation_pred, annot_transform)
         self.n_variants = self.half_ldr_score.shape[0]
 

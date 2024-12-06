@@ -26,7 +26,7 @@ TODO:
 """
 
 
-class WGSsumstats:
+class WGS:
     """
     Computing summary statistics for rare variants
 
@@ -104,7 +104,7 @@ class WGSsumstats:
         self.locus.write(f'{output_dir}_locus_info.ht', overwrite=True)
 
 
-class WGS:
+class WGSsumstats:
     """
     Reading and processing WGS summary statistics for analysis
 
@@ -117,6 +117,7 @@ class WGS:
         self.locus = hl.read_table(f'{prefix}_locus_info.ht').key_by('locus', 'alleles')
         self.locus = self.locus.add_index('idx')
         self.geno_ref = self.locus.reference_genome.collect()[0]
+        self.variant_type = self.locus.variant_type.collect()[0]
 
         with h5py.File(f"{self.output_dir}_misc.h5", 'r') as file:
             self.bases = file['bases'][:] # (N, r)
@@ -125,6 +126,7 @@ class WGS:
             self.n_subs = file.attrs['n_subs']
 
         self.variant_idxs = None
+        self.voxel_idxs = np.arange(self.bases.shape[0])
         self.logger = logging.getLogger(__name__)
 
     def select_ldrs(self, n_ldrs=None):
@@ -139,6 +141,7 @@ class WGS:
     def select_voxels(self, voxel_idxs=None):
         if voxel_idxs is not None:
             if np.max(voxel_idxs) < self.bases.shape[0]:
+                self.voxel_idxs = voxel_idxs
                 self.bases = self.bases[voxel_idxs]
                 self.logger.info(f"{len(voxel_idxs)} voxels included.")
             else:
@@ -229,12 +232,12 @@ class WGS:
         half_ldr_score = self.half_ldr_score.filter_rows[idx].to_numpy()
         vset_half_covar_proj = self.vset_half_covar_proj.filter_rows[idx]
         inner_vset = self.inner_vset.filter[idx, idx]
-        inner_adj_vset = (inner_vset - vset_half_covar_proj @ vset_half_covar_proj.T).to_numpy()
+        cov_mat = (inner_vset - vset_half_covar_proj @ vset_half_covar_proj.T).to_numpy()
         locus = self.locus.filter(idx)
         maf = np.array(locus.maf.collect())
         is_rare = np.array(locus.is_rare.collect())
 
-        return half_ldr_score, inner_adj_vset, maf, is_rare, self.bases, self.var
+        return half_ldr_score, cov_mat, maf, is_rare
 
 
 def prepare_vset(snps_mt, variant_type, chr, start, end):
@@ -385,8 +388,7 @@ def run(args, log):
 
         log.info('Computing summary statistics ...\n')
         vset, locus = prepare_vset(gprocessor.snps_mt)
-        process_wgs = WGSsumstats(null_model.bases, null_model.resid_ldr, 
-                                 null_model.covar, loco_preds)
+        process_wgs = WGS(null_model.bases, null_model.resid_ldr, null_model.covar, loco_preds)
         process_wgs.sumstats(vset, locus)
         process_wgs.save(args.out)
 
