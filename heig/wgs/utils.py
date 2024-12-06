@@ -17,7 +17,8 @@ __all__ = [
     "process_range",
     "get_temp_path",
     "parse_locus",
-    "Table",
+    "read_genotype_data",
+    # "Table",
 ]
 
 
@@ -102,14 +103,14 @@ class GProcessor:
                 "_extract_maf",
                 "_extract_call_rate",
                 "_filter_hwe",
-                "_extract_chr_interval"
+                # "_extract_chr_interval"
             ],
             "conditions": {
                 "_extract_variant_type": ["variant_type"],
                 "_extract_maf": ["maf_min", "maf_max"],
                 "_extract_call_rate": ["call_rate"],
                 "_filter_hwe": ["hwe"],
-                "_extract_chr_interval": ["chr", "start", "end"]
+                # "_extract_chr_interval": ["chr", "start", "end"]
             },
         },
         "wgs": {
@@ -129,14 +130,14 @@ class GProcessor:
                 "_filter_hwe",
                 "_annotate_rare_variants",
                 "_filter_missing_alt",
-                "_extract_chr_interval"
+                # "_extract_chr_interval"
             ],
             "conditions": {
                 "_extract_variant_type": ["variant_type"],
                 "_extract_maf": ["maf_min", "maf_max"],
                 "_extract_call_rate": ["call_rate"],
                 "_filter_hwe": ["hwe"],
-                "_extract_chr_interval": ["chr", "start", "end"]
+                # "_extract_chr_interval": ["chr", "start", "end"]
             },
         },
     }
@@ -161,9 +162,6 @@ class GProcessor:
         maf_max=None,
         mac_thresh=None,
         call_rate=None,
-        chr=None,
-        start=None,
-        end=None
     ):
         """
         Genetic data processor
@@ -181,9 +179,6 @@ class GProcessor:
         call_rate: a float number between 0 and 1, 1 - genotype missingness
         hwe: a float number between 0 and 1, variants with a HWE pvalue less than
             this will be removed
-        chr: chr to extract
-        start: start position ot extract
-        end: end position to extract
 
         """
         self.snps_mt = snps_mt
@@ -194,9 +189,7 @@ class GProcessor:
         self.mac_thresh = mac_thresh
         self.call_rate = call_rate
         self.hwe = hwe
-        self.chr = str(chr)
-        self.start = start
-        self.end = end
+        self.chr, self.start, self.end = None, None, None
         self.n_sub = snps_mt.count_cols()
         self.n_variants = snps_mt.count_rows()
         self.logger = logging.getLogger(__name__)
@@ -591,22 +584,25 @@ class GProcessor:
             self.n_variants = self.snps_mt.count_rows()
             self.logger.info(f"{self.n_variants} variants remaining after --exclude-locus.")
             
-    def _extract_chr_interval(self):
+    def extract_chr_interval(self, chr_interval=None):
         """
         Extracting a chr interval
         
         """
-        if self.geno_ref == "GRCh38":
-            self.chr = "chr" + self.chr
-        # self.snps_mt = self.snps_mt.filter_rows(
-        #         (self.snps_mt.locus.contig == self.chr)
-        #         & (self.snps_mt.locus.position >= self.start)
-        #         & (self.snps_mt.locus.position <= self.end)
-        #     )
-        interval = hl.locus_interval(self.chr, self.start, self.end, reference_genome=self.geno_ref)
-        self.snps_mt = self.snps_mt.filter_rows(interval.contains(self.snps_mt.locus))
-        self.n_variants = self.snps_mt.count_rows()
-        self.logger.info(f"{self.n_variants} variants remaining after --chr-interval (--range).")
+        if chr_interval is not None:
+            self.chr, self.start, self.end = process_range(chr_interval)
+            self.chr = str(self.chr)
+            if self.geno_ref == "GRCh38":
+                self.chr = "chr" + self.chr
+            # self.snps_mt = self.snps_mt.filter_rows(
+            #         (self.snps_mt.locus.contig == self.chr)
+            #         & (self.snps_mt.locus.position >= self.start)
+            #         & (self.snps_mt.locus.position <= self.end)
+            #     )
+            interval = hl.locus_interval(self.chr, self.start, self.end, reference_genome=self.geno_ref)
+            self.snps_mt = self.snps_mt.filter_rows(interval.contains(self.snps_mt.locus))
+            self.n_variants = self.snps_mt.count_rows()
+            self.logger.info(f"{self.n_variants} variants remaining after --chr-interval (--range).")
 
     def keep_remove_idvs(self, keep_idvs, remove_idvs=None):
         """
@@ -657,31 +653,34 @@ class GProcessor:
             chr = int(chr)
 
         return chr, min_pos, max_pos
+
+
+def read_genotype_data(args, log):
+    if args.geno_mt is not None:
+        log.info(f"Read MatrixTable from {args.geno_mt}")
+        read_func = GProcessor.read_matrix_table
+        data_path = args.geno_mt
+    elif args.bfile is not None:
+        log.info(f"Read bfile from {args.bfile}")
+        read_func = GProcessor.import_plink
+        data_path = args.bfile
+    elif args.vcf is not None:
+        log.info(f"Read VCF from {args.vcf}")
+        read_func = GProcessor.import_vcf
+        data_path = args.vcf
+
+    gprocessor = read_func(
+            data_path,
+            grch37=args.grch37,
+            hwe=args.hwe,
+            variant_type=args.variant_type,
+            maf_min=args.maf_min,
+            maf_max=args.maf_max,
+            mac_thresh=args.mac_thresh,
+            call_rate=args.call_rate,
+    )
     
-
-# def get_common_ids(ids, snps_mt_ids=None, keep_idvs=None):
-#     """
-#     Extracting common ids
-
-#     Parameters:
-#     ------------
-#     ids: a np.array of id
-#     snps_mt_ids: a list of id
-#     keep_idvs: a pd.MultiIndex of id
-
-#     Returns:
-#     ---------
-#     common_ids: a set of common ids
-
-#     """
-#     if keep_idvs is not None:
-#         keep_idvs = keep_idvs.get_level_values('IID').tolist()
-#         common_ids = set(keep_idvs).intersection(ids)
-#     else:
-#         common_ids = set(ids)
-#     if snps_mt_ids is not None:
-#         common_ids = common_ids.intersection(snps_mt_ids)
-#     return common_ids
+    return gprocessor
 
 
 def keep_ldrs(n_ldrs, resid_ldr, bases=None):
@@ -708,34 +707,6 @@ def keep_ldrs(n_ldrs, resid_ldr, bases=None):
         raise ValueError("LDR residuals are less than --n-ldrs")
     resid_ldr = resid_ldr[:, :n_ldrs]
     return resid_ldr, bases
-
-
-# def extract_align_subjects(current_id, target_id):
-#     """
-#     Extracting and aligning subjects for a dataset based on another dataset
-#     target_id and current_id must only have order difference
-
-#     Parameters:
-#     ------------
-#     current_id: a list or np.array of ids of the current dataset
-#     target_id: a list or np.array of ids of the another dataset
-
-#     Returns:
-#     ---------
-#     index: a np.array of indices such that current_id[index] = target_id
-
-#     """
-#     # if not set(target_id).issubset(current_id):
-#     #     raise ValueError('target_id must be the subset of current_id')
-#     if set(current_id) != set(target_id):
-#         raise ValueError(('subjects in LDRs and covariates must be included in genetic data. '
-#                           'Use --keep in when fitting the null model'))
-#     n_current_id = len(current_id)
-#     current_id = pd.DataFrame({'id': current_id, 'index': range(n_current_id)})
-#     target_id = pd.DataFrame({'id': target_id})
-#     target_id = target_id.merge(current_id, on='id')
-#     index = np.array(target_id['index'])
-#     return index
 
 
 def pandas_to_table(df, dir):
@@ -830,53 +801,53 @@ def parse_locus(variant_list, geno_ref):
     return variant_set
 
 
-class Table:
-    """
-    hail.Table processor for loci and annotations
+# class Table:
+#     """
+#     hail.Table processor for loci and annotations
 
-    """
-    def __init__(self, table, grch37):
-        """
-        table: a hail.Table
+#     """
+#     def __init__(self, table, grch37):
+#         """
+#         table: a hail.Table
         
-        """
-        self.table = table
-        self.geno_ref = "GRCh37" if grch37 else "GRCh38"
-        self.table = self.table.add_index('idx')
-        self._create_keys()
+#         """
+#         self.table = table
+#         self.geno_ref = "GRCh37" if grch37 else "GRCh38"
+#         self.table = self.table.add_index('idx')
+#         self._create_keys()
 
-    @classmethod  
-    def read_table(cls, dir, grch37):
-        """
-        Reading a hail.Table from a directory
+#     @classmethod  
+#     def read_table(cls, dir, grch37):
+#         """
+#         Reading a hail.Table from a directory
 
-        """
-        table = hl.read_table(dir)
-        return cls(table, grch37)
+#         """
+#         table = hl.read_table(dir)
+#         return cls(table, grch37)
         
-    def _create_keys(self):
-        self.table = self.table.key_by('locus')
+#     def _create_keys(self):
+#         self.table = self.table.key_by('locus')
 
-    def extract_locus(self, extract_locus, exclude_locus):
-        """
-        Extracting variants by locus
+#     def extract_locus(self, extract_locus, exclude_locus):
+#         """
+#         Extracting variants by locus
 
-        Parameters:
-        ------------
-        extract_locus: a pd.DataFrame of SNPs in `chr:pos` format
-        exclude_locus: a pd.DataFrame of SNPs in `chr:pos` format
+#         Parameters:
+#         ------------
+#         extract_locus: a pd.DataFrame of SNPs in `chr:pos` format
+#         exclude_locus: a pd.DataFrame of SNPs in `chr:pos` format
 
-        """
-        if extract_locus is not None:
-            extract_locus = hl.Table.from_pandas(extract_locus[["locus"]])
-            extract_locus = extract_locus.annotate(locus=hl.parse_locus(extract_locus.locus))
-            # filtered_with_index = self.locus.semi_join(extract_locus)
-            filtered_with_index = self.locus.filter(extract_locus.contains(self.locus.locus))
-            indices = filtered_with_index.idx.collect()
-        if exclude_locus is not None:
-            exclude_locus = hl.Table.from_pandas(exclude_locus[["locus"]])
-            exclude_locus = exclude_locus.annotate(locus=hl.parse_locus(exclude_locus.locus))
-            filtered_with_index = self.locus.filter(~exclude_locus.contains(self.locus.locus))
-            # self.logger.info(f"{self.n_variants} variants remaining after --exclude.")
+#         """
+#         if extract_locus is not None:
+#             extract_locus = hl.Table.from_pandas(extract_locus[["locus"]])
+#             extract_locus = extract_locus.annotate(locus=hl.parse_locus(extract_locus.locus))
+#             # filtered_with_index = self.locus.semi_join(extract_locus)
+#             filtered_with_index = self.locus.filter(extract_locus.contains(self.locus.locus))
+#             indices = filtered_with_index.idx.collect()
+#         if exclude_locus is not None:
+#             exclude_locus = hl.Table.from_pandas(exclude_locus[["locus"]])
+#             exclude_locus = exclude_locus.annotate(locus=hl.parse_locus(exclude_locus.locus))
+#             filtered_with_index = self.locus.filter(~exclude_locus.contains(self.locus.locus))
+#             # self.logger.info(f"{self.n_variants} variants remaining after --exclude.")
 
     

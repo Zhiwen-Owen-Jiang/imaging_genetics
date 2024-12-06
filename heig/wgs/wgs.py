@@ -1,6 +1,4 @@
-import os
 import h5py
-import shutil
 import logging
 import numpy as np
 import hail as hl
@@ -12,7 +10,7 @@ from hail.linalg import BlockMatrix
 
 
 """
-Generate WGS summary statistics:
+Generate rare variant summary statistics:
 1. LDR score statistics: U = Z'(I-M)\Xi, where relatedness has been removed from \Xi
 2. Spark matrix of inner product of Z: Z'Z
 3. low-dimensional format of Z'X(X'X)^{-1/2} = Z'UV', where X = UDV'
@@ -26,7 +24,7 @@ TODO:
 """
 
 
-class WGS:
+class RV:
     """
     Computing summary statistics for rare variants
 
@@ -104,7 +102,7 @@ class WGS:
         self.locus.write(f'{output_dir}_locus_info.ht', overwrite=True)
 
 
-class WGSsumstats:
+class RVsumstats:
     """
     Reading and processing WGS summary statistics for analysis
 
@@ -183,18 +181,17 @@ class WGSsumstats:
             self.n_variants = self.locus.count()
             self.logger.info(f"{self.n_variants} variants remaining after --exclude-locus.")
 
-    def extract_chr_interval(self, chr=None, start=None, end=None):
+    def extract_chr_interval(self, chr_interval=None):
         """
         Extacting a chr interval
 
         Parameters:
         ------------
-        chr: chromosome
-        start: start position
-        end: end position
+        chr_interval: chr interval to extract
 
         """
-        if chr is not None and start is not None and end is not None:
+        if chr_interval is not None:
+            chr, start, end = process_range(chr_interval)
             interval = hl.locus_interval(chr, start, end, reference_genome=self.geno_ref)
             self.locus = self.locus.filter(interval.contains(self.locus.locus))
             self.n_variants = self.locus.count()
@@ -219,6 +216,7 @@ class WGSsumstats:
         
         """
         self.locus = self.locus.semi_join(annot)
+        self.n_variants = self.locus.count()
 
     def parse_data(self, idx):
         """
@@ -240,7 +238,7 @@ class WGSsumstats:
         return half_ldr_score, cov_mat, maf, is_rare
 
 
-def prepare_vset(snps_mt, variant_type, chr, start, end):
+def prepare_vset(snps_mt, variant_type):
     """
     Extracting data from MatrixTable
 
@@ -248,23 +246,15 @@ def prepare_vset(snps_mt, variant_type, chr, start, end):
     ------------
     snps_mt: a MatrixTable of genotype data
     variant_type: variant type
-    chr: chromosome of the genotype data
-    start: start pos of the genotype data
-    end: end pos of the genotype data
 
     Returns:
     ---------
     vset: (m, n) BlockMatrix
 
     """
-    # maf = np.array(snps_mt.maf.collect())
-    # is_rare = np.array(snps_mt.is_rare.collect())
     locus = snps_mt.rows().key_by().select('locus', 'alleles', 'maf', 'is_rare')
     locus = locus.annotate_globals(reference_genome=locus.locus.dtype.reference_genome.name)
     locus = locus.annotate_globals(variant_type=variant_type)
-    locus = locus.annotate_globals(chr=chr)
-    locus = locus.annotate_globals(start=start)
-    locus = locus.annotate_globals(end=end)
     vset = BlockMatrix.from_entry_expr(
         snps_mt.flipped_n_alt_alleles, mean_impute=True
     )
@@ -292,15 +282,10 @@ def check_input(args, log):
     elif args.mac_thresh < 0:
         raise ValueError("--mac-thresh must be greater than 0")
 
-    # process arguments
-    start_chr, start_pos, end_pos = process_range(args.chr_interval)
-
-    return start_chr, start_pos, end_pos
-
 
 def run(args, log):
     # checking if input is valid
-    chr, start, end = check_input(args, log)
+    check_input(args, log)
     init_hail(args.spark_conf, args.grch37, args.out, log)
 
     # reading data and selecting LDRs
@@ -331,46 +316,16 @@ def run(args, log):
         common_ids = ds.remove_idxs(common_ids, args.remove, single_id=True)
 
         # read genotype data
-        if args.geno_mt is not None:
-            log.info(f"Read MatrixTable from {args.geno_mt}")
-            read_func = GProcessor.read_matrix_table
-            data_path = args.geno_mt
-        elif args.bfile is not None:
-            log.info(f"Read bfile from {args.bfile}")
-            read_func = GProcessor.import_plink
-            data_path = args.bfile
-        elif args.vcf is not None:
-            log.info(f"Read VCF from {args.vcf}")
-            read_func = GProcessor.import_vcf
-            data_path = args.vcf
-
-        gprocessor = read_func(
-                data_path,
-                grch37=args.grch37,
-                hwe=args.hwe,
-                variant_type=args.variant_type,
-                maf_min=args.maf_min,
-                maf_max=args.maf_max,
-                mac_thresh=args.mac_thresh,
-                call_rate=args.call_rate,
-                chr=chr,
-                start=start,
-                end=end
-        )
+        gprocessor = read_genotype_data(args, log)
     
         # do preprocessing
         log.info(f"Processing genetic data ...")
         gprocessor.extract_exclude_locus(args.extract_locus, args.exclude_locus)
+        gprocessor.extract_chr_interval(args.chr_interval)
         gprocessor.keep_remove_idvs(common_ids)
         gprocessor.do_processing(mode="wgs")
         gprocessor.check_valid()
 
-        if not args.not_save_genotype_data:
-            temp_path = get_temp_path()
-            gprocessor.save_interim_data(temp_path)
-
-        if chr is None:
-            chr, start, end = gprocessor.extract_range()
         # extract and align subjects with the genotype data
         snps_mt_ids = gprocessor.subject_id()
         null_model.keep(snps_mt_ids)
@@ -387,8 +342,8 @@ def run(args, log):
             loco_preds = None
 
         log.info('Computing summary statistics ...\n')
-        vset, locus = prepare_vset(gprocessor.snps_mt)
-        process_wgs = WGS(null_model.bases, null_model.resid_ldr, null_model.covar, loco_preds)
+        vset, locus = prepare_vset(gprocessor.snps_mt, gprocessor.variant_type) 
+        process_wgs = RV(null_model.bases, null_model.resid_ldr, null_model.covar, loco_preds)
         process_wgs.sumstats(vset, locus)
         process_wgs.save(args.out)
 
@@ -400,9 +355,5 @@ def run(args, log):
                   f'{args.out}_locus_info.ht'))
 
     finally:
-        if "temp_path" in locals():
-            if os.path.exists(temp_path):
-                shutil.rmtree(temp_path)
-                log.info(f"Removed preprocessed genotype data at {temp_path}")
         if 'loco_preds' in locals():
             loco_preds.close()
