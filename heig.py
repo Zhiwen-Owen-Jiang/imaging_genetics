@@ -57,11 +57,23 @@ relatedness_parser = parser.add_argument_group(
 make_mt_parser = parser.add_argument_group(
     title="Arguments specific to making a hail.MatrixTable of genotype data"
 )
-wgs_null_parser = parser.add_argument_group(
-    title="Arguments specific to the null model of whole genome sequencing analysis"
+rv_null_parser = parser.add_argument_group(
+    title="Arguments specific to the null model of rare variant analysis"
 )
-wgs_sumstats_parser = parser.add_argument_group(
-    title="Arguments specific to generating summary statistics for whole genome sequencing analysis"
+rv_sumstats_parser = parser.add_argument_group(
+    title="Arguments specific to generating summary statistics for rare variant analysis"
+)
+rv_annotation_parser = parser.add_argument_group(
+    title="Arguments specific to processing rare variant annotations"
+)  
+rv_coding_parser = parser.add_argument_group(
+    title="Arguments specific to analyzing coding rare variants using FAVOR annotations"
+)
+rv_noncoding_parser = parser.add_argument_group(
+    title="Arguments specific to analyzing non-coding rare variants using FAVOR annotations"
+)
+rv_parser = parser.add_argument_group(
+    title="Arguments specific to analyzing rare variants w/ or w/o customized annotations"
 )
 
 
@@ -94,15 +106,35 @@ relatedness_parser.add_argument(
 make_mt_parser.add_argument(
     "--make-mt", action="store_true", help="Making a hail.MatrixTable of genotype data."
 )
-wgs_null_parser.add_argument(
-    "--wgs-null",
+rv_null_parser.add_argument(
+    "--rv-null",
     action="store_true",
-    help="Fitting the null model for whole genome sequencing analysis.",
+    help="Fitting the null model for rare variant analysis.",
 )
-wgs_sumstats_parser.add_argument(
-    "--wgs-sumstats",
+rv_sumstats_parser.add_argument(
+    "--make-rv-sumstats",
     action="store_true",
-    help="Generating summary statistics for whole genome sequencing analysis.",
+    help="Generating summary statistics for rare variant analysis.",
+)
+rv_annotation_parser.add_argument(
+    "--rv-annot",
+    action="store_true",
+    help="Preprocessing rare variant annotations.",
+)
+rv_coding_parser.add_argument(
+    "--rv-coding",
+    action="store_true",
+    help="Analyzing rare coding variants using FAVOR annotations.",
+)
+rv_noncoding_parser.add_argument(
+    "--rv-noncoding",
+    action="store_true",
+    help="Analyzing rare non-coding variants using FAVOR annotations.",
+)
+rv_parser.add_argument(
+    "--rv",
+    action="store_true",
+    help="Analyzing rare variants w/ or w/o customized annotations.",
 )
 
 # common arguments
@@ -184,6 +216,18 @@ common_parser.add_argument(
     ),
 )
 common_parser.add_argument(
+    "--extract-locus",
+    help=(
+        "Variant file(s). Multiple files are separated by comma. "
+        "Only common Variants appearing in all files will be extracted (logical and). "
+        "Each file should be tab or space delimited, "
+        "with the first column being CHR:POS. "
+        "Other columns will be ignored. "
+        "Each row contains only one variant. "
+        "Supported modules: --rv-coding, --rv-noncoding, --rv-annot, --rv."
+    ),
+)
+common_parser.add_argument(
     "--exclude",
     help=(
         "SNP file(s). Multiple files are separated by comma. "
@@ -194,6 +238,18 @@ common_parser.add_argument(
         "Each row contains only one SNP. "
         "Supported modules: --heri-gc, --ld-matrix, --voxel-gwas, --gwas, "
         "--make-mt, --relatedness."
+    ),
+)
+common_parser.add_argument(
+    "--exclude-locus",
+    help=(
+        "Variant file(s). Multiple files are separated by comma. "
+        "Variants appearing in any files will be excluded (logical or). "
+        "Each file should be tab or space delimited, "
+        "with the first column being CHR:POS. "
+        "Other columns will be ignored. "
+        "Each row contains only one variant. "
+        "Supported modules: --rv-coding, --rv-noncoding, --rv-annot, --rv."
     ),
 )
 common_parser.add_argument(
@@ -239,7 +295,7 @@ common_parser.add_argument(
     help=(
         "Directory to covariate file. "
         "The file should be tab or space delimited, with each row only one subject. "
-        "Supported modules: --make-ldr, --gwas, --wgs-null, --relatedness."
+        "Supported modules: --make-ldr, --gwas, --rv-null, --relatedness."
     ),
 )
 common_parser.add_argument(
@@ -247,7 +303,7 @@ common_parser.add_argument(
     help=(
         "List of categorical covariates to include in the analysis. "
         "Multiple covariates are separated by comma. "
-        "Supported modules: --make-ldr, --gwas, --wgs-null, --relatedness."
+        "Supported modules: --make-ldr, --gwas, --rv-null, --relatedness."
     ),
 )
 common_parser.add_argument(
@@ -358,6 +414,22 @@ common_parser.add_argument(
         "Supported modules: --gwas."
     ),
 )
+common_parser.add_argument(
+    "--annot-ht",
+    help=(
+        "Directory to processed functional annotations "
+        "for rare variant analysis in hail.Table format. "
+        "Supported modules: --rv-coding, --rv-noncoding, --rv."
+    ),
+)
+common_parser.add_argument(
+    "--rv-sumstats",
+    help=(
+        "Prefix of rare variant summary statistics. "
+        "Supported modules: --rv-coding, --rv-noncoding, --rv."
+    )
+)
+
 
 # arguments for herigc.py
 herigc_parser.add_argument(
@@ -561,6 +633,38 @@ make_mt_parser.add_argument(
     "--qc-mode", help="Genotype data QC mode, either gwas or wgs. Default: gwas"
 )
 
+# arguments for annotation.py
+rv_annotation_parser.add_argument(
+    "--favor-annot", 
+    help=(
+        "Directory to unzipped FAVOR annotation files. "
+        "For multiple files, using * to match any string of characters. "
+        "E.g., favor_db/chr*.csv"
+    ),
+)
+
+rv_annotation_parser.add_argument(
+    "--general-annot", 
+    help=(
+        "Directory to general annotation files. "
+        "Each file should be tab or space delimited. "
+        "Missing values are not allowed. "
+        "Use double quote marks `\"`. "
+        "For multiple files, using * to match any string of characters. "
+        "E.g., chr*.csv"
+    ),
+)
+
+rv_annotation_parser.add_argument(
+    "--annot-names",
+    help=(
+        "Annotation column names. Multiple names are separated by comma."
+    ),
+)
+
+# arguments for coding.py
+
+
 
 def check_accepted_args(module, args, log):
     """
@@ -743,8 +847,8 @@ def check_accepted_args(module, args, log):
             "grch37",
             "threads"
         },
-        "wgs_null": {
-            "wgs_null",
+        "rv_null": {
+            "rv_null",
             "out",
             "ldrs",
             "n_ldrs",
@@ -755,8 +859,8 @@ def check_accepted_args(module, args, log):
             "remove",
             "threads",
         },
-        "wgs_sumstats":{
-            "wgs_sumstats",
+        "make_rv_sumstats":{
+            "make_rv_sumstats",
             "out",
             "geno_mt",
             "bfile",
@@ -779,6 +883,39 @@ def check_accepted_args(module, args, log):
             "loco_preds",
             "not_save_genotype_data",
             "spark_conf",
+        },
+        "rv_annot":{
+            "rv_annot",
+            "out",
+            "spark_conf",
+            "grch37",
+            "favor_annot",
+            "general_annot",
+            "annot_names"
+        },
+        "rv_coding":{
+            "rv_coding",
+            "out",
+            "rv_sumstats",
+            "variant_category",
+            "maf_max",
+            "maf_min",
+            "extract_locus",
+            "exclude_locus",
+            "chr_interval",
+            "spark_conf",
+            "grch37",
+            "n_ldrs",
+            "voxels",
+            "annot_ht"
+        },
+        "rv_noncoding":{
+            "rv_noncoding",
+            "out"
+        },
+        "rv":{
+            "rv",
+            "out"
         }
     }
 
@@ -909,13 +1046,19 @@ def main(args, log):
         + args.gwas
         + args.relatedness
         + args.make_mt
+        + args.rv_null
+        + args.rv_annot
+        + args.rv_coding
+        + args.rv_noncoding
+        + args.rv
         != 1
     ):
         raise ValueError(
             (
                 "you must raise one and only one of following flags for doing analysis: "
                 "--heri-gc, --read-image, --fpca, --make-ldr, --ld-matrix, --sumstats, "
-                "--voxel-gwas, --gwas, --relatedness, --make-mt"
+                "--voxel-gwas, --gwas, --relatedness, --make-mt, --rv-null, --rv-annot, "
+                "--rv-coding, --rv-noncoding, --rv"
             )
         )
 
@@ -949,6 +1092,21 @@ def main(args, log):
     elif args.make_mt:
         check_accepted_args('make_mt', args, log)
         import heig.wgs.mt as module
+    elif args.rv_null:
+        check_accepted_args('rv_null', args, log)
+        import heig.wgs.null as module
+    elif args.rv_annot:
+        check_accepted_args('rv_annot', args, log)
+        import heig.wgs.annotation as module
+    elif args.rv_coding:
+        check_accepted_args('rv_coding', args, log)
+        import heig.wgs.coding as module
+    elif args.rv_noncoding:
+        check_accepted_args('rv_noncoding', args, log)
+        import heig.wgs.noncoding as module
+    elif args.rv:
+        check_accepted_args('rv', args, log)
+        import heig.wgs.general as module 
 
     process_args(args, log)
     module.run(args, log)
