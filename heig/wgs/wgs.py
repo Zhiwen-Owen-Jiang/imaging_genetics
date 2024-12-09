@@ -224,7 +224,7 @@ class RVsumstats:
 
         Parameters:
         ------------
-        idx: hail.expr of boolean indices of mask
+        idx: hail.expr of numeric indices of mask
         
         """ 
         half_ldr_score = self.half_ldr_score.filter_rows[idx].to_numpy()

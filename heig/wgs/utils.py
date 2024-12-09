@@ -709,31 +709,6 @@ def keep_ldrs(n_ldrs, resid_ldr, bases=None):
     return resid_ldr, bases
 
 
-def pandas_to_table(df, dir):
-    """
-    Converting a pd.DataFrame to hail.Table
-
-    Parameters:
-    ------------
-    df: a pd.DataFrame to convert, it must have a single index 'IID'
-    target_id: a list or np.array of ids of the another dataset
-
-    Returns:
-    ---------
-    index: a np.array of indices such that current_id[index] = target_id
-
-    """
-    if not df.index.name == "IID":
-        raise ValueError("the DataFrame must have a single index IID")
-    df.to_csv(f"{dir}.txt", sep="\t", na_rep="NA")
-
-    table = hl.import_table(
-        f"{dir}.txt", key="IID", impute=True, types={"IID": hl.tstr}, missing="NA"
-    )
-
-    return table
-
-
 def process_range(range):
     """
     Converting range from string to readable format

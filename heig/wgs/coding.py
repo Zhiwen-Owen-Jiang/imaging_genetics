@@ -30,6 +30,7 @@ class Coding:
 
         """
         self.annot = annot
+        self.annot = self.annot.add_index(name='idx')
 
         gencode_exonic_category = self.annot[
             Annotation_name_catalog["GENCODE.EXONIC.Category"]
@@ -116,6 +117,30 @@ class Coding:
 
         return category_dict
 
+    def parse_annot(self, idx):
+        """
+        Parsing annotations and converting to np.array
+
+        Parameters:
+        ------------
+        idx: boolean indices to extract variants
+        
+        """
+        if self.annot_cols is not None:
+            filtered_annot = self.annot.filter(idx)
+            numeric_idx = filtered_annot.idx.collect()
+            annot_phred = filtered_annot.select(*self.annot_cols).collect()
+            phred_cate = np.array(
+                [
+                    [getattr(row, col) for col in self.annot_cols]
+                    for row in annot_phred
+                ]
+            )
+        else:
+            numeric_idx, phred_cate = None, None
+
+        return numeric_idx, phred_cate
+
 
 def coding_vset_analysis(
     rv_sumstats, annot, variant_type, vset_test, variant_category, log
@@ -132,7 +157,6 @@ def coding_vset_analysis(
     variant_category: which category of variants to analyze,
         one of ('all', 'plof', 'plof_ds', 'missense', 'disruptive_missense',
         'synonymous', 'ptv', 'ptv_ds')
-    use_annotation_weights: if using annotation weights
     log: a logger
 
     Returns:
@@ -143,7 +167,7 @@ def coding_vset_analysis(
     # getting annotations and specific categories of variants
     annot = annot.semi_join(rv_sumstats.locus)
     rv_sumstats.semi_join(annot)
-    log.info(f"{rv_sumstats.n_variants} variants overlapping in summary statistics and annotations")
+    log.info(f"{rv_sumstats.n_variants} variants overlapping in summary statistics and annotations.")
     coding = Coding(annot, variant_type)
 
     # individual analysis
@@ -152,20 +176,11 @@ def coding_vset_analysis(
         if variant_category[0] != "all" and cate not in variant_category:
             cate_pvalues[cate] = None
         else:
-            half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(idx)
+            numeric_idx, phred_cate = coding.parse_annot(idx)
+            half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(numeric_idx)
             if maf.shape[0] <= 1:
                 log.info(f"Less than 2 variants for {OFFICIAL_NAME[cate]}, skip.")
                 continue
-            if coding.annot_cols is not None:
-                annot_phred = annot.select(*coding.annot_cols).collect()
-                phred_cate = np.array(
-                    [
-                        [getattr(row, col) for col in coding.annot_cols]
-                        for row in annot_phred
-                    ]
-                )
-            else:
-                phred_cate = None
             vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)
             log.info(
                 f"Doing analysis for {OFFICIAL_NAME[cate]} ({vset_test.n_variants} variants) ..."
@@ -285,7 +300,7 @@ def check_input(args, log):
             if category == "all":
                 variant_category = ["all"]
                 break
-            if category not in {
+            elif category not in {
                 "all",
                 "plof",
                 "plof_ds",
@@ -323,6 +338,7 @@ def run(args, log):
     rv_sumstats = RVsumstats(args.rv_sumstats)
     rv_sumstats.extract_exclude_locus(args.extract_locus, args.exclude_locus)
     rv_sumstats.extract_chr_interval(args.chr_interval)
+    rv_sumstats.extract_maf(args.max_min, args.maf_max)
     rv_sumstats.select_ldrs(args.n_ldrs)
     rv_sumstats.select_voxels(args.voxels)
 

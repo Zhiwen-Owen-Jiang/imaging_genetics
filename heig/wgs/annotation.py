@@ -120,6 +120,7 @@ class Annotation:
             self.logger.info(f"{annot_list} extracted from the annotation.")
 
     def save(self, output_dir):
+        self.annot = self.annot.annotate_globals(reference_genome=self.annot.locus.dtype.reference_genome.name)
         self.annot.write(f'{output_dir}_annot.ht', overwrite=True)
         
 

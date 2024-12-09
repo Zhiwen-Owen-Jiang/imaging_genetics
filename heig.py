@@ -910,7 +910,19 @@ def check_accepted_args(module, args, log):
         },
         "rv_noncoding":{
             "rv_noncoding",
-            "out"
+            "out",
+            "rv_sumstats",
+            "variant_category",
+            "maf_max",
+            "maf_min",
+            "extract_locus",
+            "exclude_locus",
+            "chr_interval",
+            "spark_conf",
+            "grch37",
+            "n_ldrs",
+            "voxels",
+            "annot_ht"
         },
         "rv":{
             "rv",
