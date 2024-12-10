@@ -179,6 +179,7 @@ def coding_vset_analysis(
     rv_sumstats.annotate(annot)
     log.info(f"{rv_sumstats.n_variants} variants overlapping in summary statistics and annotations.")
     coding = Coding(annot, variant_type)
+    chr, start, end = rv_sumstats.get_interval()
 
     # individual analysis
     cate_pvalues = dict()
@@ -199,6 +200,9 @@ def coding_vset_analysis(
             cate_pvalues[cate] = {
                 "n_variants": vset_test.n_variants,
                 "pvalues": pvalues,
+                "chr": chr,
+                "start": start,
+                "end": end
             }
 
     if "missense" in cate_pvalues and "disruptive_missense" in cate_pvalues:
@@ -264,33 +268,6 @@ def process_missense(m_pvalues, dm_pvalues):
     m_pvalues = {"n_variants": n_m_variants, "pvalues": m_pvalues}
 
     return m_pvalues
-
-
-def format_output(cate_pvalues, n_variants, voxels, set_name):
-    """
-    organizing pvalues to a structured format
-
-    Parameters:
-    ------------
-    cate_pvalues: a pd.DataFrame of pvalues of the variant category
-    n_variants: #variants of the category
-    voxels: zero-based voxel idxs of the image
-    set_name: can be variant category or window index
-
-    Returns:
-    ---------
-    output: a pd.DataFrame of pvalues with metadata
-
-    """
-    meta_data = pd.DataFrame(
-        {
-            "INDEX": voxels + 1,
-            "N_VARIANT": n_variants,
-            "SET_NAME": set_name,
-        }
-    )
-    output = pd.concat([meta_data, cate_pvalues], axis=1)
-    return output
 
 
 def check_input(args, log):
@@ -374,6 +351,9 @@ def run(args, log):
             cate_results["pvalues"],
             cate_results["n_variants"],
             rv_sumstats.voxel_idxs,
+            cate_results["chr"],
+            cate_results["start"],
+            cate_results["end"],
             cate,
         )
         out_path = f"{args.out}_{cate}.txt"

@@ -17,6 +17,7 @@ __all__ = [
     "get_temp_path",
     "parse_locus",
     "read_genotype_data",
+    "format_output"
 ]
 
 
@@ -743,6 +744,39 @@ def parse_locus(variant_list, geno_ref):
     variant_set = hl.literal(set(parsed_variants))
 
     return variant_set
+
+
+def format_output(cate_pvalues, n_variants, voxels, chr, start, end, set_name):
+    """
+    organizing pvalues to a structured format
+
+    Parameters:
+    ------------
+    cate_pvalues: a pd.DataFrame of pvalues of the variant category
+    n_variants: #variants of the category
+    chr: chr of the variant set
+    start: start location
+    end: end location
+    voxels: zero-based voxel idxs of the image
+    set_name: can be variant category or window index
+
+    Returns:
+    ---------
+    output: a pd.DataFrame of pvalues with metadata
+
+    """
+    meta_data = pd.DataFrame(
+        {
+            "INDEX": voxels + 1,
+            "SET_NAME": set_name,
+            "CHR": chr,
+            "START": start,
+            "END": end,
+            "N_VARIANT": n_variants,
+        }
+    )
+    output = pd.concat([meta_data, cate_pvalues], axis=1)
+    return output
 
 
 # class Table:

@@ -4,7 +4,6 @@ import numpy as np
 from heig.wgs.wgs import RVsumstats
 from heig.wgs.vsettest import VariantSetTest 
 from heig.wgs.utils import *
-from heig.wgs.coding import format_output
 
 
 class GeneralAnnotation:
@@ -109,9 +108,7 @@ class SlidingWindow(GeneralAnnotation):
         """
         super().__init__(rv_sumstats, variant_type, annot, annot_cols)
         self.geno_ref = self.rv_sumstats.locus.reference_genome.collect()[0]
-        self.chr = self.rv_sumstats.locus.aggregate(hl.agg.take(self.rv_sumstats.locus.contig, 1)[0])
-        self.start = self.rv_sumstats.locus.aggregate(hl.agg.min(self.rv_sumstats.locus))
-        self.end = self.rv_sumstats.locus.aggregate(hl.agg.max(self.rv_sumstats.locus))
+        self.chr, self.start, self.end = rv_sumstats.get_interval()
         self.window_length = window_length
         self.windows = self._partition_windows()
 
@@ -142,7 +139,7 @@ class SlidingWindow(GeneralAnnotation):
             window = interval.contains(self.rv_sumstats.locus)
             half_ldr_score, cov_mat, maf, is_rare, annot = self.parse_data(window)
 
-            yield half_ldr_score, cov_mat, maf, is_rare, annot
+            yield half_ldr_score, cov_mat, maf, is_rare, annot, self.chr, start, end
 
 
 def vset_analysis(rv_sumstats, variant_type, vset_test, 
@@ -173,7 +170,7 @@ def vset_analysis(rv_sumstats, variant_type, vset_test,
         n_windows = len(sliding_window.windows)
         log.info(f"Partitioned the variant set into {n_windows} windows")
         for i, *results in tqdm(enumerate(sliding_window.parse_window_data()), total=n_windows, desc="Analyzing windows"):
-            half_ldr_score, cov_mat, maf, is_rare, annot = results
+            half_ldr_score, cov_mat, maf, is_rare, annot, chr, start, end = results
             if maf.shape[0] <= 1:
                 log.info(f"Less than 2 variants, skip window {i+1}.")
             else:
@@ -185,6 +182,9 @@ def vset_analysis(rv_sumstats, variant_type, vset_test,
                 pvalues[f'window{i+1}'] = {
                     "n_variants": vset_test.n_variants,
                     "pvalues": pvalues,
+                    "chr": chr,
+                    "start": start,
+                    "end": end
                 }
 
     return pvalues
@@ -239,6 +239,9 @@ def run(args, log):
             pvalues["pvalues"],
             pvalues["n_variants"],
             rv_sumstats.voxel_idxs,
+            results["chr"],
+            results["start"],
+            results["end"],
             window_idx
         )
         out_path = f"{args.out}.txt"

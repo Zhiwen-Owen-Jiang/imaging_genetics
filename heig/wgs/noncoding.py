@@ -4,7 +4,6 @@ import hail as hl
 from heig.wgs.wgs import RVsumstats
 from heig.wgs.vsettest import VariantSetTest
 from heig.wgs.utils import *
-from heig.wgs.coding import format_output
 
 
 class Noncoding(ABC):
@@ -164,6 +163,7 @@ def noncoding_vset_analysis(rv_sumstats, annot, variant_type, vset_test, variant
     # rv_sumstats.semi_join(annot)
     rv_sumstats.annotate(annot)
     log.info(f"{rv_sumstats.n_variants} variants overlapping in summary statistics and annotations.")
+    chr, start, end = rv_sumstats.get_interval()
 
     # individual analysis
     cate_pvalues = dict()
@@ -183,6 +183,9 @@ def noncoding_vset_analysis(rv_sumstats, annot, variant_type, vset_test, variant
             cate_pvalues[category] = {
                 "n_variants": vset_test.n_variants,
                 "pvalues": pvalues,
+                "chr": chr,
+                "start": start,
+                "end": end
             }
 
     return cate_pvalues
@@ -262,6 +265,9 @@ def run(args, log):
             cate_results["pvalues"],
             cate_results["n_variants"],
             rv_sumstats.voxel_idxs,
+            cate_results["chr"],
+            cate_results["start"],
+            cate_results["end"],
             cate,
         )
         out_path = f"{args.out}_{cate}.txt"
