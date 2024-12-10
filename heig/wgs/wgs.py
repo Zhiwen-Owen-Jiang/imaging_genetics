@@ -191,7 +191,7 @@ class RVsumstats:
 
         """
         if chr_interval is not None:
-            chr, start, end = process_range(chr_interval)
+            chr, start, end = parse_interval(chr_interval, self.geno_ref)
             interval = hl.locus_interval(chr, start, end, reference_genome=self.geno_ref)
             self.locus = self.locus.filter(interval.contains(self.locus.locus))
             self.n_variants = self.locus.count()
@@ -210,32 +210,49 @@ class RVsumstats:
             self.n_variants = self.locus.count()
             self.logger.info(f"{self.n_variants} variants remaining after filtering by MAF.")
 
-    def semi_join(self, annot):
+    # def semi_join(self, annot):
+    #     """
+    #     Semi join with annotations
+        
+    #     """
+    #     self.locus = self.locus.semi_join(annot)
+    #     self.n_variants = self.locus.count()
+
+    def annotate(self, annot):
         """
-        Semi join with annotations
+        Annotating functional annotations to locus
+        ensuring no NA in annotations
         
         """
-        self.locus = self.locus.semi_join(annot)
+        self.locus = self.locus.annotate(annot=annot[self.locus.key])
+        self.locus = self.locus.filter(hl.is_defined(self.locus.annot))
         self.n_variants = self.locus.count()
 
-    def parse_data(self, idx):
+    def parse_data(self, numeric_idx):
         """
         Parse data for analysis, must do select_variants() before
 
         Parameters:
         ------------
-        idx: hail.expr of numeric indices of mask
+        numeric_idx: a list of numeric indices
+
+        Returns:
+        ---------
+        half_ldr_score: Z'(I-M)\Xi
+        cov_mat: Z'(I-M)Z
         
         """ 
-        half_ldr_score = self.half_ldr_score.filter_rows[idx].to_numpy()
-        vset_half_covar_proj = self.vset_half_covar_proj.filter_rows[idx]
-        inner_vset = self.inner_vset.filter[idx, idx]
+        half_ldr_score = self.half_ldr_score.filter_rows[numeric_idx].to_numpy()
+        vset_half_covar_proj = self.vset_half_covar_proj.filter_rows[numeric_idx]
+        inner_vset = self.inner_vset.filter[numeric_idx, numeric_idx]
         cov_mat = (inner_vset - vset_half_covar_proj @ vset_half_covar_proj.T).to_numpy()
-        locus = self.locus.filter(idx)
-        maf = np.array(locus.maf.collect())
-        is_rare = np.array(locus.is_rare.collect())
+        # locus_reindex = self.locus.add_index('new_idx')
+        # locus_reindex = locus_reindex.filter(hl.literal(idx).contains(locus_reindex.new_idx))
+        # locus = self.locus.filter(idx)
+        # maf = np.array(locus.maf.collect())
+        # is_rare = np.array(locus.is_rare.collect())
 
-        return half_ldr_score, cov_mat, maf, is_rare
+        return half_ldr_score, cov_mat
 
 
 def prepare_vset(snps_mt, variant_type):

@@ -12,15 +12,15 @@ class Noncoding(ABC):
         """
         Parameters:
         ------------
-        snps_mt: a hail.Table of annotations, semi_merged with locus
+        annot: a hail.Table of annotations with key ('locus', 'alleles') and hail.struct of annotations
         variant_type: variant type, one of ('variant', 'snv, 'indel')
         type: specific type of non-coding variants
 
         """
         self.annot = annot
-        self.annot = self.annot.add_index(name='idx')
+        # self.annot = self.annot.add_index(name='idx')
         self.type = type
-        self.gencode_category = self.annot[Annotation_name_catalog['GENCODE.Category']]
+        self.gencode_category = self.annot.annot[Annotation_name_catalog['GENCODE.Category']]
         self.variant_idx = self.extract_variants()
 
         if variant_type == "snv":
@@ -42,6 +42,13 @@ class Noncoding(ABC):
     def parse_annot(self):
         """
         Parsing annotations and converting to np.array
+
+        Returns:
+        ---------
+        numeric_idx: a list of numeric indices for extracting sumstats
+        phred_cate: a np.array of annotations
+        maf: a np.array of MAF
+        is_rare: a np.array of boolean indices indicating MAC < mac_threshold
         
         """
         if self.annot_cols is not None:
@@ -56,8 +63,10 @@ class Noncoding(ABC):
             )
         else:
             numeric_idx, phred_cate = None, None
+        maf = np.array(filtered_annot.maf.collect())
+        is_rare = np.array(filtered_annot.is_rare.collect())
 
-        return numeric_idx, phred_cate
+        return numeric_idx, phred_cate, maf, is_rare
 
 
 class UpDown(Noncoding):
@@ -112,9 +121,9 @@ class Enhancer(Noncoding):
         type is 'CAGE' or 'DHS'
 
         """
-        genehancer = self.annot[Annotation_name_catalog['GeneHancer']]
+        genehancer = self.annot.annot[Annotation_name_catalog['GeneHancer']]
         is_genehancer = hl.is_defined(genehancer)
-        cage = hl.is_defined(self.annot[Annotation_name_catalog[self.type.upper()]])
+        cage = hl.is_defined(self.annot.annot[Annotation_name_catalog[self.type.upper()]])
         variant_idx = cage & is_genehancer
         return variant_idx
 
@@ -126,7 +135,7 @@ def noncoding_vset_analysis(rv_sumstats, annot, variant_type, vset_test, variant
     Parameters:
     ------------
     rv_sumstats: a RVsumstats instance
-    annot: a hail.Table of annotations
+    annot: a hail.Table of locus containing annotations
     variant_type: one of ('variant', 'snv', 'indel')
     vset_test: an instance of VariantSetTest
     variant_category: which category of variants to analyze,
@@ -151,8 +160,9 @@ def noncoding_vset_analysis(rv_sumstats, annot, variant_type, vset_test, variant
     }
 
     # extracting variants in sumstats and annot
-    annot = annot.semi_join(rv_sumstats.locus)
-    rv_sumstats.semi_join(annot)
+    # annot = annot.semi_join(rv_sumstats.locus)
+    # rv_sumstats.semi_join(annot)
+    rv_sumstats.annotate(annot)
     log.info(f"{rv_sumstats.n_variants} variants overlapping in summary statistics and annotations.")
 
     # individual analysis
@@ -160,8 +170,8 @@ def noncoding_vset_analysis(rv_sumstats, annot, variant_type, vset_test, variant
     for category, (_category_class_, type) in category_class_map.items():
         if variant_category == 'all' or variant_category == category:
             category_class = _category_class_(annot, variant_type, type)
-            numeric_idx, phred_cate = category_class.parse_annot()
-            half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(numeric_idx)
+            numeric_idx, phred_cate, maf, is_rare = category_class.parse_annot()
+            half_ldr_score, cov_mat = rv_sumstats.parse_data(numeric_idx)
             if maf.shape[0] <= 1:
                 log.info(f"Less than 2 variants for {category}, skip.")
                 continue
@@ -182,6 +192,8 @@ def check_input(args, log):
     # required arguments
     if args.rv_sumstats is None:
         raise ValueError("--rv-sumstats is required")
+    if args.annot_ht is None:
+        raise ValueError("--annot-ht is required")
 
     if args.variant_category is None:
         variant_category = ["all"]

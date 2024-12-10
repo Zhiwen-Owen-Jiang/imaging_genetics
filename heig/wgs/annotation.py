@@ -226,7 +226,7 @@ def run(args, log):
         )
 
     log.info(f"Processing annotations ...")
-    annot.extract_annots(args.annot_names)
+    annot.extract_annots(args.annot_cols)
     annot.extract_by_interval(args.chr_interval)
     annot.extract_exclude_locus(args.extract_locus, args.exclude_locus)
     

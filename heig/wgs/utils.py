@@ -1,4 +1,3 @@
-import os
 import json
 import logging
 import hail as hl
@@ -14,11 +13,10 @@ __all__ = [
     "GProcessor",
     "keep_ldrs",
     "init_hail",
-    "process_range",
+    "parse_interval",
     "get_temp_path",
     "parse_locus",
     "read_genotype_data",
-    # "Table",
 ]
 
 
@@ -506,36 +504,6 @@ class GProcessor:
 
         return unique_chrs
 
-    # def extract_gene(self, chr, start, end, gene_name=None):
-    #     """
-    #     Extacting a gene with starting and end points 
-
-    #     Parameters:
-    #     ------------
-    #     chr: target chromosome
-    #     start: start position
-    #     end: end position
-    #     gene_name: gene name, if specified, start and end will be ignored
-
-    #     """
-    #     if chr is None:
-    #         return
-    #     chr = str(chr)
-    #     if self.geno_ref == "GRCh38":
-    #         chr = "chr" + chr
-
-    #     if gene_name is None:
-    #         self.snps_mt = self.snps_mt.filter_rows(
-    #             (self.snps_mt.locus.contig == chr)
-    #             & (self.snps_mt.locus.position >= start)
-    #             & (self.snps_mt.locus.position <= end)
-    #         )
-    #     else:
-    #         if "fa" not in self.snps_mt.row:
-    #             raise ValueError("--geno-mt must be annotated before doing analysis")
-    #         gencode_info = self.snps_mt.fa[Annotation_name_catalog["GENCODE.Info"]]
-    #         self.snps_mt = self.snps_mt.filter_rows(gencode_info.contains(gene_name))
-
     def extract_exclude_snps(self, extract_variants, exclude_variants):
         """
         Extracting and excluding variants
@@ -590,10 +558,7 @@ class GProcessor:
         
         """
         if chr_interval is not None:
-            self.chr, self.start, self.end = process_range(chr_interval)
-            self.chr = str(self.chr)
-            if self.geno_ref == "GRCh38":
-                self.chr = "chr" + self.chr
+            self.chr, self.start, self.end = parse_interval(chr_interval, self.geno_ref)
             # self.snps_mt = self.snps_mt.filter_rows(
             #         (self.snps_mt.locus.contig == self.chr)
             #         & (self.snps_mt.locus.position >= self.start)
@@ -709,7 +674,7 @@ def keep_ldrs(n_ldrs, resid_ldr, bases=None):
     return resid_ldr, bases
 
 
-def process_range(range):
+def parse_interval(range, geno_ref=None):
     """
     Converting range from string to readable format
 
@@ -739,6 +704,10 @@ def process_range(range):
                     "is not allowed"
                 )
             )
+        if geno_ref == 'GRCh37':
+            start_chr = str(start_chr)
+        elif geno_ref == 'GRCh38':
+            start_chr = 'chr' + str(start_chr)
     else:
         start_chr, start_pos, end_pos = None, None, None
 

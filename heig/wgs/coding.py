@@ -25,17 +25,17 @@ class Coding:
 
         Parameters:
         ------------
-        annot: a hail.Table of annotations, semi_merged with locus
+        annot: a hail.Table of annotations with key ('locus', 'alleles') and hail.struct of annotations
         variant_type: one of ('variant', 'snv', 'indel')
 
         """
         self.annot = annot
-        self.annot = self.annot.add_index(name='idx')
+        # self.annot = self.annot.add_index(name='idx')
 
-        gencode_exonic_category = self.annot[
+        gencode_exonic_category = self.annot.annot[
             Annotation_name_catalog["GENCODE.EXONIC.Category"]
         ]
-        gencode_category = self.annot[Annotation_name_catalog["GENCODE.Category"]]
+        gencode_category = self.annot.annot[Annotation_name_catalog["GENCODE.Category"]]
         valid_exonic_categories = hl.literal(
             {"stopgain", "stoploss", "nonsynonymous SNV", "synonymous SNV"}
         )
@@ -49,13 +49,13 @@ class Coding:
         if self.annot.count() == 0:
             raise ValueError("no variants remaining")
 
-        self.gencode_exonic_category = self.annot[
+        self.gencode_exonic_category = self.annot.annot[
             Annotation_name_catalog["GENCODE.EXONIC.Category"]
         ]
-        self.gencode_category = self.annot[
+        self.gencode_category = self.annot.annot[
             Annotation_name_catalog["GENCODE.Category"]
         ]
-        self.metasvm_pred = self.annot[Annotation_name_catalog["MetaSVM"]]
+        self.metasvm_pred = self.annot.annot[Annotation_name_catalog["MetaSVM"]]
         self.category_dict = self.get_category(variant_type)
 
         if variant_type == "snv":
@@ -123,7 +123,14 @@ class Coding:
 
         Parameters:
         ------------
-        idx: boolean indices to extract variants
+        idx: a hail.expr of boolean indices to extract variants
+
+        Returns:
+        ---------
+        numeric_idx: a list of numeric indices for extracting sumstats
+        phred_cate: a np.array of annotations
+        maf: a np.array of MAF
+        is_rare: a np.array of boolean indices indicating MAC < mac_threshold
         
         """
         if self.annot_cols is not None:
@@ -138,8 +145,10 @@ class Coding:
             )
         else:
             numeric_idx, phred_cate = None, None
-
-        return numeric_idx, phred_cate
+        maf = np.array(filtered_annot.maf.collect())
+        is_rare = np.array(filtered_annot.is_rare.collect())
+        
+        return numeric_idx, phred_cate, maf, is_rare
 
 
 def coding_vset_analysis(
@@ -151,7 +160,7 @@ def coding_vset_analysis(
     Parameters:
     ------------
     rv_sumstats: a RVsumstats instance
-    annot: a hail.Table of annotations
+    annot: a hail.Table of locus containing annotations
     variant_type: one of ('variant', 'snv', 'indel')
     vset_test: an instance of VariantSetTest
     variant_category: which category of variants to analyze,
@@ -165,8 +174,9 @@ def coding_vset_analysis(
 
     """
     # getting annotations and specific categories of variants
-    annot = annot.semi_join(rv_sumstats.locus)
-    rv_sumstats.semi_join(annot)
+    # annot = annot.semi_join(rv_sumstats.locus)
+    # rv_sumstats.semi_join(annot)
+    rv_sumstats.annotate(annot)
     log.info(f"{rv_sumstats.n_variants} variants overlapping in summary statistics and annotations.")
     coding = Coding(annot, variant_type)
 
@@ -176,8 +186,8 @@ def coding_vset_analysis(
         if variant_category[0] != "all" and cate not in variant_category:
             cate_pvalues[cate] = None
         else:
-            numeric_idx, phred_cate = coding.parse_annot(idx)
-            half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(numeric_idx)
+            numeric_idx, phred_cate, maf, is_rare = coding.parse_annot(idx)
+            half_ldr_score, cov_mat = rv_sumstats.parse_data(numeric_idx)
             if maf.shape[0] <= 1:
                 log.info(f"Less than 2 variants for {OFFICIAL_NAME[cate]}, skip.")
                 continue
@@ -256,7 +266,7 @@ def process_missense(m_pvalues, dm_pvalues):
     return m_pvalues
 
 
-def format_output(cate_pvalues, n_variants, voxels, variant_category):
+def format_output(cate_pvalues, n_variants, voxels, set_name):
     """
     organizing pvalues to a structured format
 
@@ -265,9 +275,7 @@ def format_output(cate_pvalues, n_variants, voxels, variant_category):
     cate_pvalues: a pd.DataFrame of pvalues of the variant category
     n_variants: #variants of the category
     voxels: zero-based voxel idxs of the image
-    variant_category: which category of variants to analyze,
-        one of ('plof', 'plof_ds', 'missense', 'disruptive_missense',
-        'synonymous', 'ptv', 'ptv_ds')
+    set_name: can be variant category or window index
 
     Returns:
     ---------
@@ -277,8 +285,8 @@ def format_output(cate_pvalues, n_variants, voxels, variant_category):
     meta_data = pd.DataFrame(
         {
             "INDEX": voxels + 1,
-            "VARIANT_CATEGORY": variant_category,
             "N_VARIANT": n_variants,
+            "SET_NAME": set_name,
         }
     )
     output = pd.concat([meta_data, cate_pvalues], axis=1)
@@ -289,6 +297,8 @@ def check_input(args, log):
     # required arguments
     if args.rv_sumstats is None:
         raise ValueError("--rv-sumstats is required")
+    if args.annot_ht is None:
+        raise ValueError("--annot-ht is required")
 
     if args.variant_category is None:
         variant_category = ["all"]
