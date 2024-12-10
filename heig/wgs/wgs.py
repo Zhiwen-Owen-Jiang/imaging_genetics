@@ -228,6 +228,13 @@ class RVsumstats:
         self.locus = self.locus.filter(hl.is_defined(self.locus.annot))
         self.n_variants = self.locus.count()
 
+    def get_interval(self):
+        chr = self.locus.aggregate(hl.agg.take(self.locus.contig, 1)[0])
+        start = self.locus.aggregate(hl.agg.min(self.locus))
+        end = self.locus.aggregate(hl.agg.max(self.locus))
+        
+        return chr, start, end
+
     def parse_data(self, numeric_idx):
         """
         Parse data for analysis, must do select_variants() before
