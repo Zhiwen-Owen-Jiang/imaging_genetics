@@ -7,15 +7,6 @@ from heig.wgs.utils import *
 from heig.wgs.coding import format_output
 
 
-"""
-1. Rare variant analysis for general annotations
-2. Sliding window w/ or w/o annotations
-
-TODO:
-1. general annotations may be transformed as FAVOR
-
-"""
-
 class GeneralAnnotation:
     """
     Rare variant analysis using general annotations
@@ -108,19 +99,19 @@ class SlidingWindow(GeneralAnnotation):
             variant_type, 
             annot=None, 
             annot_cols=None, 
-            chr_interval=None, 
             window_length=None
         ):
         """
         Parameters:
         ------------
-        chr_interval: chr interval
         window_length: size of sliding window
         
         """
         super().__init__(rv_sumstats, variant_type, annot, annot_cols)
-        geno_ref = self.rv_sumstats.locus.reference_genome.collect()[0]
-        self.chr, self.start, self.end = parse_interval(chr_interval, geno_ref)
+        self.geno_ref = self.rv_sumstats.locus.reference_genome.collect()[0]
+        self.chr = self.rv_sumstats.locus.aggregate(hl.agg.take(self.rv_sumstats.locus.contig, 1)[0])
+        self.start = self.rv_sumstats.locus.aggregate(hl.agg.min(self.rv_sumstats.locus))
+        self.end = self.rv_sumstats.locus.aggregate(hl.agg.max(self.rv_sumstats.locus))
         self.window_length = window_length
         self.windows = self._partition_windows()
 
@@ -155,7 +146,7 @@ class SlidingWindow(GeneralAnnotation):
 
 
 def vset_analysis(rv_sumstats, variant_type, vset_test, 
-                  annot, annot_cols, chr_interval, window_length, log):
+                  annot, annot_cols, window_length, log):
     # getting annotations and specific categories of variants
     rv_sumstats.annotate(annot)
     log.info(f"{rv_sumstats.n_variants} variants overlapping in summary statistics and annotations.")
@@ -178,8 +169,7 @@ def vset_analysis(rv_sumstats, variant_type, vset_test,
                 "pvalues": pvalues,
             }
     else:
-        sliding_window = SlidingWindow(rv_sumstats, variant_type, annot, annot_cols, 
-                                       chr_interval, window_length)
+        sliding_window = SlidingWindow(rv_sumstats, variant_type, annot, annot_cols, window_length)
         n_windows = len(sliding_window.windows)
         log.info(f"Partitioned the variant set into {n_windows} windows")
         for i, *results in tqdm(enumerate(sliding_window.parse_window_data()), total=n_windows, desc="Analyzing windows"):
@@ -204,11 +194,12 @@ def check_input(args, log):
     # required arguments
     if args.rv_sumstats is None:
         raise ValueError("--rv-sumstats is required")
-    if args.annot_ht is None:
-        raise ValueError("--annot-ht is required")
+    if args.spark_conf is None:
+        raise ValueError("--spark-conf is required")
     if args.maf_max is None and args.maf_min < 0.01:
         args.maf_max = 0.01
         log.info(f"Set --maf-max as default 0.01")
+
 
 def run(args, log):
     # checking if input is valid
@@ -225,7 +216,10 @@ def run(args, log):
     rv_sumstats.select_voxels(args.voxels)
 
     # reading annotation
-    annot = hl.read_table(args.annot_ht)
+    if args.annot_ht is not None:
+        annot = hl.read_table(args.annot_ht)
+    else:
+        annot = None
 
     # single gene analysis
     vset_test = VariantSetTest(rv_sumstats.bases, rv_sumstats.var)
@@ -235,7 +229,6 @@ def run(args, log):
         vset_test,
         annot, 
         args.annot_cols, 
-        args.chr_interval, 
         args.window_length, 
         log
     )

@@ -297,8 +297,10 @@ def check_input(args, log):
     # required arguments
     if args.rv_sumstats is None:
         raise ValueError("--rv-sumstats is required")
+    if args.spark_conf is None:
+        raise ValueError("--spark-conf is required")
     if args.annot_ht is None:
-        raise ValueError("--annot-ht is required")
+        raise ValueError("--annot-ht (FAVOR annotation) is required")
 
     if args.variant_category is None:
         variant_category = ["all"]

@@ -313,7 +313,7 @@ def check_input(args, log):
         raise ValueError("--sig-thresh should be greater than 0 and less than 1")
     if (
         args.chr_interval is None
-        and args.voxel is None
+        and args.voxels is None
         and args.sig_thresh is None
         and args.extract is None
     ):
@@ -390,13 +390,13 @@ def run(args, log):
 
         # getting the outpath and SNP list
         outpath = args.out
-        if args.voxel is not None:
-            if np.max(args.voxel) + 1 <= bases.shape[0] and np.min(args.voxel) >= 0:
-                log.info(f"{len(args.voxel)} voxels included.")
+        if args.voxels is not None:
+            if np.max(args.voxels) + 1 <= bases.shape[0] and np.min(args.voxels) >= 0:
+                log.info(f"{len(args.voxels)} voxels included.")
             else:
                 raise ValueError("--voxel index (one-based) out of range")
         else:
-            args.voxel = np.arange(bases.shape[0])
+            args.voxels = np.arange(bases.shape[0])
 
         if target_chr:
             snp_idxs = (
@@ -441,8 +441,8 @@ def run(args, log):
         vgwas = VGWAS(bases, ldr_cov, ldr_gwas, snp_idxs, ldr_n, args.threads)
 
         for voxel_idxs in tqdm(
-            voxel_reader(np.sum(snp_idxs), args.voxel),
-            desc=f"Doing GWAS for {len(args.voxel)} voxels in batch",
+            voxel_reader(np.sum(snp_idxs), args.voxels),
+            desc=f"Doing GWAS for {len(args.voxels)} voxels in batch",
         ):
             voxel_beta = vgwas.recover_beta(voxel_idxs, args.threads)
             voxel_se = vgwas.recover_se(voxel_idxs, voxel_beta)

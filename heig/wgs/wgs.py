@@ -282,6 +282,8 @@ def check_input(args, log):
     # required arguments
     if args.geno_mt is None and args.vcf is None and args.bfile is None:
         raise ValueError("one of --geno-mt, --vcf, or --bfile is required")
+    if args.spark_conf is None:
+        raise ValueError("--spark-conf is required")
     if args.null_model is None:
         raise ValueError("--null-model is required")
 

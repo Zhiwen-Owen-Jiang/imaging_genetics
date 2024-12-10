@@ -73,7 +73,7 @@ rv_noncoding_parser = parser.add_argument_group(
     title="Arguments specific to analyzing non-coding rare variants using FAVOR annotations"
 )
 rv_parser = parser.add_argument_group(
-    title="Arguments specific to analyzing rare variants w/ or w/o customized annotations"
+    title="Arguments specific to analyzing rare variants w/ or w/o annotations"
 )
 
 
@@ -151,7 +151,9 @@ common_parser.add_argument(
     type=int,
     help=(
         "Number of LDRs. Supported modules: "
-        "--make-ldr, --fpca, --heri-gc, --voxel-gwas."
+        "--make-ldr, --fpca, --heri-gc, --voxel-gwas, --gwas, "
+        "--relatedness, --rv-null, --make-rv-sumstats, --rv-coding, "
+        "--rv-noncoding, --rv."
     ),
 )
 common_parser.add_argument(
@@ -165,7 +167,7 @@ common_parser.add_argument(
     "--bases",
     help=(
         "Directory to functional bases. Supported modules: "
-        "--make-ldr, --heri-gc, --voxel-gwas."
+        "--make-ldr, --heri-gc, --voxel-gwas, --rv-null."
     ),
 )
 common_parser.add_argument(
@@ -185,7 +187,7 @@ common_parser.add_argument(
         "Other columns will be ignored. "
         "Each row contains only one subject. "
         "Supported modules: --read-image, --fpca, --make-ldr, --ld-matrix, "
-        "--gwas, --make-mt, --relatedness."
+        "--gwas, --make-mt, --relatedness, --rv-null, --make-rv-sumstats."
     ),
 )
 common_parser.add_argument(
@@ -199,7 +201,7 @@ common_parser.add_argument(
         "Each row contains only one subject. "
         "If a subject appears in both --keep and --remove, --remove takes precedence. "
         "Supported modules: --read-image, --fpca, --make-ldr, --gwas, --make-mt, "
-        "--relatedness."
+        "--relatedness, --rv-null, --make-rv-sumstats."
     ),
 )
 common_parser.add_argument(
@@ -224,7 +226,7 @@ common_parser.add_argument(
         "with the first column being CHR:POS. "
         "Other columns will be ignored. "
         "Each row contains only one variant. "
-        "Supported modules: --rv-coding, --rv-noncoding, --rv-annot, --rv."
+        "Supported modules: --make-mt, --rv-coding, --rv-noncoding, --rv-annot, --rv."
     ),
 )
 common_parser.add_argument(
@@ -249,7 +251,7 @@ common_parser.add_argument(
         "with the first column being CHR:POS. "
         "Other columns will be ignored. "
         "Each row contains only one variant. "
-        "Supported modules: --rv-coding, --rv-noncoding, --rv-annot, --rv."
+        "Supported modules: --make-mt, --rv-coding, --rv-noncoding, --rv-annot, --rv."
     ),
 )
 common_parser.add_argument(
@@ -258,7 +260,8 @@ common_parser.add_argument(
     help=(
         "Minimum minor allele frequency for screening SNPs. "
         "Supported modules: --ld-matrix, --sumstats, --gwas, --make-mt, "
-        "--relatedness."
+        "--relatedness, --make-rv-sumstats, --rv-coding, --rv-noncoding, "
+        "--rv."
     ),
 )
 common_parser.add_argument(
@@ -266,8 +269,9 @@ common_parser.add_argument(
     type=float,
     help=(
         "Maximum minor allele frequency for screening SNPs. "
-        "Supported modules: --ld-matrix, --sumstats, --gwas, --make-mt, "
-        "--relatedness."
+        "Supported modules: --sumstats, --gwas, --make-mt, "
+        "--relatedness, --make-rv-sumstats, --rv-coding, --rv-noncoding, "
+        "--rv."
     ),
 )
 common_parser.add_argument(
@@ -278,6 +282,7 @@ common_parser.add_argument(
         "Variants with a HWE p-value less than the threshold "
         "will be removed."
         "Supported modules: --make-mt, --gwas, --relatedness. "
+        "--make-rv-sumstats."
     ),
 )
 common_parser.add_argument(
@@ -287,7 +292,8 @@ common_parser.add_argument(
         "A genotype call rate threshold, equivalent to 1 - missing rate. "
         "Variants with a call rate less than the threshold "
         "will be removed."
-        "Supported modules: --annot, --coding. " # TODO: add to more modules
+        "Supported modules: --gwas, --relatedness, --make-mt, "
+        "--make-rv-sumstats."
     ),
 )
 common_parser.add_argument(
@@ -295,7 +301,7 @@ common_parser.add_argument(
     help=(
         "Directory to covariate file. "
         "The file should be tab or space delimited, with each row only one subject. "
-        "Supported modules: --make-ldr, --gwas, --rv-null, --relatedness."
+        "Supported modules: --make-ldr, --gwas, --relatedness, --rv-null."
     ),
 )
 common_parser.add_argument(
@@ -303,7 +309,7 @@ common_parser.add_argument(
     help=(
         "List of categorical covariates to include in the analysis. "
         "Multiple covariates are separated by comma. "
-        "Supported modules: --make-ldr, --gwas, --rv-null, --relatedness."
+        "Supported modules: --make-ldr, --gwas, --relatedness, --rv-null."
     ),
 )
 common_parser.add_argument(
@@ -313,14 +319,15 @@ common_parser.add_argument(
         "When estimating LD matrix and its inverse, two prefices should be provided "
         "and seperated by a comma, e.g., `prefix1,prefix2`. "
         "When doing GWAS, only one prefix is allowed. "
-        "Supported modules: --ld-matrix, --gwas, --relatedness."
+        "Supported modules: --ld-matrix, --gwas, --relatedness, --make-mt, "
+        "--make-rv-sumstats."
     ),
 )
 common_parser.add_argument(
     "--vcf",
     help=(
         "Direcotory to a VCF file. "
-        "Supported modules: --make-mt, --gwas, --relatedness."
+        "Supported modules: --make-mt, --gwas, --relatedness, --make-rv-sumstats."
     ),
 )
 common_parser.add_argument(
@@ -330,28 +337,30 @@ common_parser.add_argument(
         "from chromosome 3 bp 1000000 to chromosome 3 bp 2000000. "
         "Cross-chromosome is not allowed. And the end position must "
         "be greater than the start position. "
-        "Supported modules: --voxel-gwas, --gwas, --make-mt."
+        "Supported modules: --voxel-gwas, --gwas, --make-mt, --make-rv-sumstats, "
+        "--rv-coding, --rv-noncoding, --rv."
     ),
 )
 common_parser.add_argument(
-    "--voxel",
+    "--voxels", "--voxel",
     help=(
         "one-based index of voxel or a file containing voxels. "
-        "Supported modules: --voxel-gwas."
+        "Supported modules: --voxel-gwas, --rv-coding, --rv-noncoding, --rv."
     ),
 )
 common_parser.add_argument(
     "--ldrs",
     help=(
         "Directory to LDR file. "
-        "Supported modules: --gwas, --relatedness."
+        "Supported modules: --gwas, --relatedness, --rv-null."
     ),
 )
 common_parser.add_argument(
     "--geno-mt",
     help=(
         "Directory to genotype MatrixTable. "
-        "Supported modules: --gwas, --make-mt, --relatedness."
+        "Supported modules: --gwas, --make-mt, --relatedness, "
+        "--make-rv-sumstats."
     ),
 )
 common_parser.add_argument(
@@ -359,7 +368,8 @@ common_parser.add_argument(
     action="store_true",
     help=(
         "Using reference genome GRCh37. Otherwise using GRCh38. "
-        "Supported modules: --gwas, --make-mt,  --relatedness."
+        "Supported modules: --gwas, --make-mt,  --relatedness, --rv-annot, "
+        "--make-rv-sumstats, --rv-coding, --rv-noncoding, --rv."
     ),
 )
 common_parser.add_argument(
@@ -367,7 +377,8 @@ common_parser.add_argument(
     help=(
         "Variant type (case insensitive), "
         "must be one of ('variant', 'snv', 'indel'). "
-        "Supported modules: --gwas, --make-mt,  --relatedness."
+        "Supported modules: --gwas, --make-mt,  --relatedness, "
+        "--make-rv-sumstats."
     ),
 )
 common_parser.add_argument(
@@ -396,22 +407,22 @@ common_parser.add_argument(
     help=(
         "number of threads. "
         "Supported modules: --read-image, --sumstats, --fpca, "
-        "--voxel-gwas, --heri-gc, --make-ldr, --relatedness, "
-        "--gwas."
+        "--voxel-gwas, --heri-gc, --make-ldr, --relatedness."
     ),
 ),
 common_parser.add_argument(
     "--spark-conf",
     help=(
         "Spark configuration file. "
-        "Supported modules: --relatedness, --gwas, --make-mt."
+        "Supported modules: --relatedness, --gwas, --make-mt, "
+        "--make-rv-sumstats, --rv-annot, --rv-coding, --rv-noncoding, --rv."
     ),
 ),
 common_parser.add_argument(
     "--loco-preds",
     help=(
         "Leave-one-chromosome-out prediction file. "
-        "Supported modules: --gwas."
+        "Supported modules: --gwas, --make-rv-sumstats"
     ),
 )
 common_parser.add_argument(
@@ -428,6 +439,13 @@ common_parser.add_argument(
         "Prefix of rare variant summary statistics. "
         "Supported modules: --rv-coding, --rv-noncoding, --rv."
     )
+)
+common_parser.add_argument(
+    "--annot-cols",
+    help=(
+        "Annotation columns. Multiple columns are separated by comma. "
+        "Supported modules: --rv-annot, --rv."
+    ),
 )
 
 
@@ -655,15 +673,13 @@ rv_annotation_parser.add_argument(
     ),
 )
 
-rv_annotation_parser.add_argument(
-    "--annot-names",
+# arguments for slidingwindow.py
+rv_parser.add_argument(
+    "--window-length",
     help=(
-        "Annotation column names. Multiple names are separated by comma."
+        "Length of sliding window."
     ),
 )
-
-# arguments for coding.py
-
 
 
 def check_accepted_args(module, args, log):
@@ -790,7 +806,6 @@ def check_accepted_args(module, args, log):
             "ldrs",
             "n_ldrs",
             "grch37",
-            "threads",
             "geno_mt",
             "covar",
             "cat_covar_list",
@@ -833,6 +848,8 @@ def check_accepted_args(module, args, log):
             "remove",
             "extract",
             "exclude",
+            "extract_locus",
+            "exclude_locus",
             "bfile",
             "vcf",
             "geno_mt",
@@ -890,7 +907,7 @@ def check_accepted_args(module, args, log):
             "grch37",
             "favor_annot",
             "general_annot",
-            "annot_names"
+            "annot_cols"
         },
         "rv_coding":{
             "rv_coding",
@@ -926,7 +943,20 @@ def check_accepted_args(module, args, log):
         },
         "rv":{
             "rv",
-            "out"
+            "out",
+            "rv_sumstats",
+            "maf_max",
+            "maf_min",
+            "extract_locus",
+            "exclude_locus",
+            "chr_interval",
+            "spark_conf",
+            "grch37",
+            "n_ldrs",
+            "voxels",
+            "annot_ht",
+            "annot_cols",
+            "window_length"
         }
     }
 
@@ -966,7 +996,11 @@ def process_args(args, log):
     ds.check_existence(args.covar)
     ds.check_existence(args.partition)
     ds.check_existence(args.ldrs)
+    ds.check_existence(args.spark_conf)
+    ds.check_existence(args.loco_preds)
     ds.check_existence(args.geno_mt)
+    ds.check_existence(args.rv_sumstats)
+    ds.check_existence(args.annot_ht)
 
     if args.n_ldrs is not None and args.n_ldrs <= 0:
         raise ValueError("--n-ldrs must be greater than 0")
@@ -981,46 +1015,46 @@ def process_args(args, log):
     if args.keep is not None:
         args.keep = split_files(args.keep)
         args.keep = ds.read_keep(args.keep)
-        log.info(f"{len(args.keep)} subject(s) in --keep (logical and for multiple files).")
+        log.info(f"{len(args.keep)} subject(s) in --keep (logical 'and' for multiple files).")
 
     if args.remove is not None:
         args.remove = split_files(args.remove)
         args.remove = ds.read_remove(args.remove)
-        log.info(f"{len(args.remove)} subject(s) in --remove (logical or for multiple files).")
+        log.info(f"{len(args.remove)} subject(s) in --remove (logical 'or' for multiple files).")
 
     if args.extract is not None:
         args.extract = split_files(args.extract)
         args.extract = ds.read_extract(args.extract)
-        log.info(f"{len(args.extract)} SNP(s) in --extract (logical and for multiple files).")
+        log.info(f"{len(args.extract)} SNP(s) in --extract (logical 'and' for multiple files).")
         
     if args.exclude is not None:
         args.exclude = split_files(args.exclude)
         args.exclude = ds.read_exclude(args.exclude)
-        log.info(f"{len(args.exclude)} SNP(s) in --exclude (logical or for multiple files).")
+        log.info(f"{len(args.exclude)} SNP(s) in --exclude (logical 'or' for multiple files).")
 
     if args.extract_locus is not None:
         args.extract_locus = split_files(args.extract_locus)
         args.extract_locus = ds.read_extract(args.extract_locus, locus=True)
-        log.info(f"{len(args.extract_locus)} SNP(s) in --extract-locus (logical and for multiple files).")
+        log.info(f"{len(args.extract_locus)} SNP(s) in --extract-locus (logical 'and' for multiple files).")
         
     if args.exclude_locus is not None:
         args.exclude_locus = split_files(args.exclude_locus)
         args.exclude_locus = ds.read_exclude(args.exclude_locus, locus=True)
-        log.info(f"{len(args.exclude_locus)} SNP(s) in --exclude-locus (logical or for multiple files).")
+        log.info(f"{len(args.exclude_locus)} SNP(s) in --exclude-locus (logical 'or' for multiple files).")
     
     if args.bfile is not None:
         for suffix in [".bed", ".fam", ".bim"]:
             ds.check_existence(args.bfile, suffix)
 
-    if args.voxel is not None:
+    if args.voxels is not None:
         try:
-            args.voxel = np.array(
-                [int(voxel) - 1 for voxel in ds.parse_input(args.voxel)]
+            args.voxels = np.array(
+                [int(voxel) - 1 for voxel in ds.parse_input(args.voxels)]
             )
         except ValueError:
-            ds.check_existence(args.voxel)
-            args.voxel = ds.read_voxel(args.voxel)
-        if np.min(args.voxel) <= -1:
+            ds.check_existence(args.voxels)
+            args.voxels = ds.read_voxel(args.voxels)
+        if np.min(args.voxels) <= -1:
             raise ValueError("voxel index must be one-based")
 
     if args.maf_min is not None:
@@ -1057,6 +1091,7 @@ def main(args, log):
         + args.gwas
         + args.relatedness
         + args.make_mt
+        + args.make_rv_sumstats
         + args.rv_null
         + args.rv_annot
         + args.rv_coding
@@ -1066,10 +1101,10 @@ def main(args, log):
     ):
         raise ValueError(
             (
-                "you must raise one and only one of following flags for doing analysis: "
-                "--heri-gc, --read-image, --fpca, --make-ldr, --ld-matrix, --sumstats, "
-                "--voxel-gwas, --gwas, --relatedness, --make-mt, --rv-null, --rv-annot, "
-                "--rv-coding, --rv-noncoding, --rv"
+                "must raise one and only one of following module flags: "
+                "--read-image, --fpca, --make-ldr, --heri-gc, --ld-matrix, --sumstats, "
+                "--voxel-gwas, --gwas, --relatedness, --make-mt, --rv-null, --make-rv-sumstats, "
+                "--rv-annot, --rv-coding, --rv-noncoding, --rv"
             )
         )
 
@@ -1103,6 +1138,9 @@ def main(args, log):
     elif args.make_mt:
         check_accepted_args('make_mt', args, log)
         import heig.wgs.mt as module
+    elif args.make_rv_sumstats:
+        check_accepted_args('make_rv_sumstats', args, log)
+        import heig.wgs.wgs as module
     elif args.rv_null:
         check_accepted_args('rv_null', args, log)
         import heig.wgs.null as module
@@ -1117,7 +1155,7 @@ def main(args, log):
         import heig.wgs.noncoding as module
     elif args.rv:
         check_accepted_args('rv', args, log)
-        import heig.wgs.general as module 
+        import heig.wgs.slidingwindow as module 
 
     process_args(args, log)
     module.run(args, log)
