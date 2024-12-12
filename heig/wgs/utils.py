@@ -11,7 +11,6 @@ __all__ = [
     "Annotation_catalog_name",
     "Annotation_name",
     "GProcessor",
-    "keep_ldrs",
     "init_hail",
     "parse_interval",
     "get_temp_path",
@@ -647,32 +646,6 @@ def read_genotype_data(args, log):
     )
     
     return gprocessor
-
-
-def keep_ldrs(n_ldrs, resid_ldr, bases=None):
-    """
-    Keeping top LDRs
-
-    Parameters:
-    ------------
-    n_ldrs: a int number
-    resid_ldr: LDR residuals (n, r)
-    bases: functional bases (N, N)
-
-    Returns:
-    ---------
-    resid_ldr: LDR residuals (n, n_ldrs)
-    bases: functional bases (N, n_ldrs) or None
-
-    """
-    if bases is not None:
-        if bases.shape[1] < n_ldrs:
-            raise ValueError("the number of bases is less than --n-ldrs")
-        bases = bases[:, :n_ldrs]
-    if resid_ldr.shape[1] < n_ldrs:
-        raise ValueError("LDR residuals are less than --n-ldrs")
-    resid_ldr = resid_ldr[:, :n_ldrs]
-    return resid_ldr, bases
 
 
 def parse_interval(range, geno_ref=None):

@@ -912,7 +912,7 @@ def run(args, log):
 
         # keep selected LDRs
         if args.n_ldrs is not None:
-            bases, ldr_cov, ldr_gwas = ds.keep_ldrs(
+            bases, ldr_cov, ldr_gwas, _ = ds.keep_ldrs(
                 args.n_ldrs, bases, ldr_cov, ldr_gwas
             )
             log.info(f"Keep the top {args.n_ldrs} LDRs.")

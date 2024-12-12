@@ -592,24 +592,42 @@ def parse_input(arg):
         return [arg]
 
 
-def keep_ldrs(n_ldrs, bases, ldr_cov, ldr_gwas):
+def keep_ldrs(n_ldrs, bases=None, ldr_cov=None, ldr_gwas=None, resid_ldrs=None):
     """
     Extracting a specific number of LDRs
 
-    """
-    if bases.shape[1] < n_ldrs:
-        raise ValueError("the number of bases is less than --n-ldrs")
-    if ldr_cov.shape[0] < n_ldrs:
-        raise ValueError(
-            "the dimension of variance-covariance matrix of LDR is less than --n-ldrs"
-        )
-    if ldr_gwas.n_gwas < n_ldrs:
-        raise ValueError("LDRs in summary statistics is less than --n-ldrs")
-    bases = bases[:, :n_ldrs]
-    ldr_cov = ldr_cov[:n_ldrs, :n_ldrs]
-    ldr_gwas.n_gwas = n_ldrs
+    Parameters:
+    ------------
+    bases: a np.array
+    ldr_cov: a np.array
+    ldr_gwas: a GWAS instance
+    resid_ldrs: a pd.DataFrame
 
-    return bases, ldr_cov, ldr_gwas
+    """
+    if bases is not None:
+        if bases.shape[1] < n_ldrs:
+            raise ValueError("the number of bases less than --n-ldrs")
+        else:
+            bases = bases[:, :n_ldrs]
+    if ldr_cov is not None:
+        if ldr_cov.shape[0] < n_ldrs:
+            raise ValueError(
+                "the dimension of variance-covariance matrix of LDR less than --n-ldrs"
+            )
+        else:
+            ldr_cov = ldr_cov[:n_ldrs, :n_ldrs]
+    if ldr_gwas is not None:
+        if ldr_gwas.n_gwas < n_ldrs:
+            raise ValueError("LDRs in summary statistics less than --n-ldrs")
+        else:
+            ldr_gwas.n_gwas = n_ldrs
+    if resid_ldrs is not None:
+        if resid_ldrs.shape[1] < n_ldrs:
+            raise ValueError("LDRs less than --n-ldrs")
+        else:
+            resid_ldrs = resid_ldrs.iloc[:, :n_ldrs]
+
+    return bases, ldr_cov, ldr_gwas, resid_ldrs
 
 
 def check_existence(arg, suffix=""):

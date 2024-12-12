@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 from scipy.linalg import cho_solve, cho_factor
 import heig.input.dataset as ds
-from heig.wgs.utils import keep_ldrs
 
 
 def check_input(args):
@@ -149,7 +148,7 @@ def run(args, log):
         n_ldrs = args.n_ldrs
     else:
         n_ldrs = np.min((ldrs.data.shape[1], bases.shape[1]))
-    ldrs.data, bases = keep_ldrs(n_ldrs, ldrs.data, bases)
+    bases, _, _, ldrs.data = ds.keep_ldrs(n_ldrs, bases, resid_ldrs=ldrs.data)
     log.info(f"Keep the top {n_ldrs} LDRs and bases.")
 
     # fit the null model
