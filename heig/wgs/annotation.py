@@ -8,10 +8,6 @@ Headers are required in annotation files
 The first column must be variant string
 Each variant is in `chr:pos:ref:alt` format
 
-TODO:
-1. provide arguments for annot-names and extract-chr-pos
-2. why is it `interval-list`?
-
 """
 
 class Annotation:
@@ -92,20 +88,19 @@ class Annotation:
             self.n_variants = self.annot.count()
             self.logger.info(f"{self.n_variants} variants remaining after --exclude-locus.")
 
-    def extract_by_interval(self, interval_list=None):
+    def extract_by_interval(self, chr_interval=None):
         """
-        interval_list: a list/array/series of interval strings in format: `chr:start-end`,
-        where `chr`, `start`, and `end` are integers, and `start` < `end`.
-        
+        Extacting a chr interval
+
+        Parameters:
+        ------------
+        chr_interval: chr interval to extract
+
         """
-        if interval_list is not None:
-            interval_list = list(interval_list)
-            parsed_intervals = [
-                hl.parse_locus_interval(v, reference_genome=self.geno_ref)
-                for v in interval_list
-            ]
-            interval_expr = hl.literal(parsed_intervals)
-            self.annot = self.annot.filter(hl.any(lambda interval: interval.contains(self.annot.locus), interval_expr))
+        if chr_interval is not None:
+            chr, start, end = parse_interval(chr_interval, self.geno_ref)
+            interval = hl.locus_interval(chr, start, end, reference_genome=self.geno_ref)
+            self.annot = self.annot.filter(interval.contains(self.annot.locus))
             self.n_variants = self.annot.count()
             self.logger.info(f"{self.n_variants} variants remaining in --chr-interval.")
 
