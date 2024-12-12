@@ -75,6 +75,9 @@ rv_noncoding_parser = parser.add_argument_group(
 rv_parser = parser.add_argument_group(
     title="Arguments specific to analyzing rare variants w/ or w/o annotations"
 )
+cluster_parser = parser.add_argument_group(
+    title="Arguments specific to cluster inference"
+)
 
 
 # module arguments
@@ -135,6 +138,11 @@ rv_parser.add_argument(
     "--rv",
     action="store_true",
     help="Analyzing rare variants w/ or w/o customized annotations.",
+)
+cluster_parser.add_argument(
+    "--cluster",
+    action="store_true",
+    help="Generating null distribution of cluster size (number of associated voxels).",
 )
 
 # common arguments
@@ -676,11 +684,14 @@ rv_annotation_parser.add_argument(
 # arguments for slidingwindow.py
 rv_parser.add_argument(
     "--window-length",
-    help=(
-        "Length of sliding window."
-    ),
+    help="Length of sliding window."
 )
 
+# arguments for cluster.py
+cluster_parser.add_argument(
+    "--n-bootstrap",
+    help="Number of bootstrap samples. Default 1000."
+)
 
 def check_accepted_args(module, args, log):
     """
@@ -956,7 +967,31 @@ def check_accepted_args(module, args, log):
             "voxels",
             "annot_ht",
             "annot_cols",
-            "window_length"
+            "window_length",
+        },
+        "cluster":{
+            "cluster",
+            "out",
+            "ldrs",
+            "covar",
+            "cat_covar_list",
+            "spark_conf",
+            "grch37",
+            "bfile",
+            "geno_mt",
+            "vcf",
+            "bases",
+            "ldr_cov",
+            "sig_thresh",
+            "n_bootstrap",
+            "n_ldrs",
+            "keep",
+            "remove",
+            "extract",
+            "exclude",
+            "chr_interval",
+            "loco_preds",
+            "not_save_genotype_data"
         }
     }
 
@@ -1097,6 +1132,7 @@ def main(args, log):
         + args.rv_coding
         + args.rv_noncoding
         + args.rv
+        + args.cluster
         != 1
     ):
         raise ValueError(
@@ -1104,7 +1140,7 @@ def main(args, log):
                 "must raise one and only one of following module flags: "
                 "--read-image, --fpca, --make-ldr, --heri-gc, --ld-matrix, --sumstats, "
                 "--voxel-gwas, --gwas, --relatedness, --make-mt, --rv-null, --make-rv-sumstats, "
-                "--rv-annot, --rv-coding, --rv-noncoding, --rv"
+                "--rv-annot, --rv-coding, --rv-noncoding, --rv, --cluster"
             )
         )
 
@@ -1156,6 +1192,9 @@ def main(args, log):
     elif args.rv:
         check_accepted_args('rv', args, log)
         import heig.wgs.slidingwindow as module 
+    elif args.cluster:
+        check_accepted_args('cluster', args, log)
+        import heig.wgs.cluster as module
 
     process_args(args, log)
     module.run(args, log)
