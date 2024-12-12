@@ -105,35 +105,36 @@ class DoGWAS:
 
     """
 
-    def __init__(self, gprocessor, ldrs, covar, temp_path, loco_preds=None):
+    def __init__(self, gprocessor, ldrs, covar, temp_path, loco_preds=None, rand_v=1):
         """
         Parameters:
         ------------
         gprocessor: a GProcessor instance including hail.MatrixTable
-        ldrs: a Dataset instance of LDRs
-        covar: a Covar instance of covariates
+        ldrs: a pd.DataFrame of LDRs with a single index 'IID'
+        covar: a pd.DataFrame of covariates with a single index 'IID'
         temp_path: a temporary path for saving interim data
         loco_preds: a LOCOpreds instance of loco predictions
             loco_preds.data_reader(j) returns loco preds for chrj with matched subjects
+        rand_v (n, 1): a np.array of random standard normal variable for wild bootstrap
 
         """
         self.gprocessor = gprocessor
         self.ldrs = ldrs
         self.covar = covar
-        self.n_ldrs = self.ldrs.data.shape[1]
-        self.n_covar = self.covar.data.shape[1]
+        self.n_ldrs = self.ldrs.shape[1]
+        self.n_covar = self.covar.shape[1]
         self.temp_path = temp_path
         self.loco_preds = loco_preds
         self.logger = logging.getLogger(__name__)
 
-        covar_table = pandas_to_table(self.covar.data, f"{temp_path}_covar")
+        covar_table = pandas_to_table(self.covar, f"{temp_path}_covar")
         self.gprocessor.annotate_cols(covar_table, "covar")
 
         if self.loco_preds is None:
             self.logger.info(
                 f"Doing GWAS for {self.n_ldrs} LDRs without relatedness ..."
             )
-            ldrs_table = pandas_to_table(self.ldrs.data, f"{temp_path}_ldr")
+            ldrs_table = pandas_to_table(self.ldrs * rand_v, f"{temp_path}_ldr")
             self.gprocessor.annotate_cols(ldrs_table, "ldrs")
             self.gwas = self.do_gwas(self.gprocessor.snps_mt)
         else:
@@ -144,7 +145,7 @@ class DoGWAS:
             self.gwas = []
             for chr in unique_chrs:
                 chr_mt = self._extract_chr(chr)
-                resid_ldrs = self.ldrs.data - self.loco_preds.data_reader(chr)
+                resid_ldrs = (self.ldrs - self.loco_preds.data_reader(chr)) * rand_v
                 ldrs_table = pandas_to_table(resid_ldrs, f"{temp_path}_ldr")
                 chr_mt = self._annotate_cols(chr_mt, ldrs_table, "ldrs")
                 self.gwas.append(self.do_gwas(chr_mt))
@@ -330,7 +331,7 @@ def run(args, log):
         )
 
         # gwas
-        gwas = DoGWAS(gprocessor, ldrs, covar, temp_path, loco_preds)
+        gwas = DoGWAS(gprocessor, ldrs.data, covar.data, temp_path, loco_preds)
 
         # save gwas results
         gwas.save(args.out)
