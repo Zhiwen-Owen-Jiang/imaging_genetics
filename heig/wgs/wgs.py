@@ -324,7 +324,7 @@ def run(args, log):
         if args.loco_preds is not None:
             log.info(f"Read LOCO predictions from {args.loco_preds}")
             loco_preds = LOCOpreds(args.loco_preds)
-            loco_preds.select_ldrs(args.n_ldrs)
+            loco_preds.select_ldrs(list(range(args.n_ldrs)))
             if loco_preds.n_ldrs != null_model.n_ldrs:
                 raise ValueError(
                     (

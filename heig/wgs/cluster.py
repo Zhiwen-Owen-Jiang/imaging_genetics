@@ -3,6 +3,7 @@ import time
 import shutil
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 import heig.input.dataset as ds
 from heig.wgs.gwas import DoGWAS
 from heig.wgs.null import fit_null_model
@@ -197,6 +198,10 @@ class Cluster:
 
 def calculate_resid_ldrs(ldrs, covar):
     """
+    Calculating LDR residuals
+
+    Parameters:
+    ------------
     resid_ldrs: a pd.DataFrame of LDR residuals with a single index 'IID'
     covar: a pd.DataFrame of covariates with a single index 'IID'
     
@@ -210,7 +215,6 @@ def calculate_resid_ldrs(ldrs, covar):
     return resid_ldrs
 
 
-
 def check_input(args, log):
     # required arguments
     if args.ldrs is None:
@@ -219,33 +223,16 @@ def check_input(args, log):
         raise ValueError("--covar is required")
     if args.spark_conf is None:
         raise ValueError("--spark-conf is required")
-    if args.bfile is None and args.geno_mt is None:
-        raise ValueError("either --bfile or --geno-mt is required")
-    elif args.bfile is not None and args.geno_mt is not None:
-        log.info("WARNING: --bfile is ignored if --geno-mt is provided")
-        args.bfile = None
+    if args.bfile is None and args.geno_mt is None and args.vcf is None:
+        raise ValueError("--geno-mt, --bfile or --vcf is required")
     if args.bases is None:
         raise ValueError("--bases is required")
     if args.ldr_cov is None:
         raise ValueError("--ldr-cov is required")
     if args.sig_thresh is None:
         raise ValueError("--sig-thresh is required")
-    
     if args.n_bootstrap is None:
         args.n_bootstrap = 1000
-    args.voxels
-    args.keep
-    args.remove
-    args.extract
-    args.exclude
-    args.threads
-    args.n_bootstrap
-    args.sig_thresh
-    args.spark_conf
-    args.grch37
-    args.n_ldrs
-    args.not_save_genotype_data
-    pass
 
 
 def run(args, log):
@@ -267,6 +254,16 @@ def run(args, log):
     if args.n_ldrs is not None:
         bases, ldr_cov, _, ldrs.data= ds.keep_ldrs(args.n_ldrs, bases, ldr_cov, ldrs.data)
         log.info(f"Keep the top {args.n_ldrs} LDRs.")
+        
+    # check numbers of LDRs are the same
+    if bases.shape[1] != ldr_cov.shape[0] or bases.shape[1] != ldrs.data.shape[1]:
+        raise ValueError(
+            (
+                "inconsistent dimension in bases, variance-covariance matrix of LDRs, "
+                "and LDRs. "
+                "Try to use --n-ldrs"
+            )
+        )
 
     try:
         # read loco preds
@@ -329,15 +326,16 @@ def run(args, log):
         resid_ldrs = calculate_resid_ldrs(ldrs.data, covar.data)
 
         # wild bootstrap
-        null_cluster_size_list = list()
         cluster = Cluster(gprocessor, resid_ldrs, covar.data, temp_path, loco_preds)
-        for _ in range(args.n_bootstrap):
+        for _ in tqdm(
+            range(args.n_bootstrap), 
+            desc=f"{args.n_bootstrap} bootstrap samples"
+        ):
             null_cluster_size = cluster.cluster_analysis()
-            null_cluster_size_list.append(null_cluster_size)
-        null_cluster_size_pd = pd.DataFrame(null_cluster_size_list)
+            with open(args.out, "a") as file:
+                file.write("\n".join(str(x) for x in null_cluster_size) + "\n")
 
         # save results
-        null_cluster_size_pd.to_csv(args.out, header=None, sep="\t", index=None)
         log.info(f"\nSave null distribution of cluster size to {args.out}")
 
     finally:
@@ -365,7 +363,3 @@ def run(args, log):
                 os.remove(f"{temp_path}_bootstrap_vgwas.txt")
         if args.loco_preds is not None:
             loco_preds.close()
-
-    
-
-    

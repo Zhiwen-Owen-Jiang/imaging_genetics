@@ -541,8 +541,8 @@ class LOCOpreds:
 
 def check_input(args):
     # required arguments
-    if args.bfile is None and args.geno_mt is None:
-        raise ValueError("--bfile or --geno-mt is required.")
+    if args.bfile is None and args.geno_mt is None and args.vcf is None:
+        raise ValueError("--geno-mt, --bfile or --vcf is required")
     if args.covar is None:
         raise ValueError("--covar is required.")
     if args.ldrs is None:
