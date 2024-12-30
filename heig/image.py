@@ -58,11 +58,14 @@ class ImageReader(ABC):
                 executor.submit(self._read_save_image, idx, img_file)
                 for idx, img_file in enumerate(self.img_files)
             ]
-            for future in tqdm(
+            for _ in tqdm(
                 concurrent.futures.as_completed(futures),
                 total=len(futures),
                 desc=f"{len(futures)} images",
             ):
+                pass
+
+            for future in concurrent.futures.as_completed(futures):
                 try:
                     future.result()
                 except Exception as exc:
