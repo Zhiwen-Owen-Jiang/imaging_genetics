@@ -1,6 +1,5 @@
 import os
 import h5py
-import ast
 import logging
 import concurrent.futures
 import math
@@ -700,14 +699,11 @@ class GWASLDR(ProcessGWAS):
                     )
                 )
 
-            for _ in tqdm(
+            for future in tqdm(
                 concurrent.futures.as_completed(futures),
                 total=len(futures),
                 desc=f"{len(futures)} blocks",
             ):
-                pass
-
-            for future in concurrent.futures.as_completed(futures):
                 try:
                     future.result()
                 except Exception as exc:
