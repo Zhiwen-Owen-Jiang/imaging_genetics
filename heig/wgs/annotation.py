@@ -1,3 +1,4 @@
+import os
 import logging
 import hail as hl
 from heig.wgs.utils import *
@@ -7,6 +8,8 @@ from heig.wgs.utils import *
 Headers are required in annotation files
 The first column must be variant string
 Each variant is in `chr:pos:ref:alt` format
+
+TODO: test general annotations
 
 """
 
@@ -25,7 +28,7 @@ class Annotation:
 
         """
         self.annot = annot
-        self.n_variants = annot.count()
+        # self.n_variants = annot.count()
         self.geno_ref = "GRCh37" if grch37 else "GRCh38"
         self._parse_variant()
         self._create_keys()
@@ -80,13 +83,13 @@ class Annotation:
         if extract_locus is not None:
             extract_locus = parse_locus(extract_locus["locus"], self.geno_ref)
             self.annot = self.annot.filter(extract_locus.contains(self.annot.locus))
-            self.n_variants = self.annot.count()
-            self.logger.info(f"{self.n_variants} variants remaining after --extract-locus.")
+            # self.n_variants = self.annot.count()
+            # self.logger.info(f"{self.n_variants} variants remaining after --extract-locus.")
         if exclude_locus is not None:
             exclude_locus = parse_locus(exclude_locus["locus"], self.geno_ref)
             self.annot = self.annot.filter(~exclude_locus.contains(self.annot.locus))
-            self.n_variants = self.annot.count()
-            self.logger.info(f"{self.n_variants} variants remaining after --exclude-locus.")
+            # self.n_variants = self.annot.count()
+            # self.logger.info(f"{self.n_variants} variants remaining after --exclude-locus.")
 
     def extract_by_interval(self, chr_interval=None):
         """
@@ -101,8 +104,8 @@ class Annotation:
             chr, start, end = parse_interval(chr_interval, self.geno_ref)
             interval = hl.locus_interval(chr, start, end, reference_genome=self.geno_ref)
             self.annot = self.annot.filter(interval.contains(self.annot.locus))
-            self.n_variants = self.annot.count()
-            self.logger.info(f"{self.n_variants} variants remaining in --chr-interval.")
+            # self.n_variants = self.annot.count()
+            # self.logger.info(f"{self.n_variants} variants remaining in --chr-interval.")
 
     def extract_annots(self, annot_list=None):
         """
@@ -151,9 +154,9 @@ class AnnotationFAVOR(Annotation):
         self._add_more_annot()
 
     def _parse_variant(self):
-        parse_variant = hl.variant_str(hl.locus(self.annot.chromosome, self.annot.position), 
-                                       self.annot.ref_vcf, self.annot.alt_vcf)
-        self.annot = self.annot.annotate(parsed_variant=parse_variant)
+        parsed_variant = hl.variant_str(hl.locus(self.annot.chromosome, hl.int(self.annot.position)), 
+                                       [self.annot.ref_vcf, self.annot.alt_vcf])
+        self.annot = self.annot.annotate(parsed_variant=hl.parse_variant(parsed_variant))
 
     def _drop_rename(self):
         """
@@ -203,6 +206,15 @@ def check_input(args, log):
         log.info("WARNING: ignore --general-annot as --favor-annot specified.")
 
 
+def check_valid(annot):
+    non_key_columns = len(annot.row) - len(annot.key)
+    n_variants = annot.count()
+    if non_key_columns == 0:
+        raise ValueError('no annotation remaining after preprocessing')
+    if n_variants == 0:
+        raise ValueError('no variant remaining after preprocessing')
+
+
 def run(args, log):
     # check input and init
     check_input(args, log)
@@ -225,5 +237,11 @@ def run(args, log):
     annot.extract_by_interval(args.chr_interval)
     annot.extract_exclude_locus(args.extract_locus, args.exclude_locus)
     
-    annot.write(args.out)
+    annot.save(args.out)
+    annot = hl.read_table(f"{args.out}_annot.ht")
+    try:
+        check_valid(annot)
+    except:
+        os.remove(f"{args.out}_annot.ht")
+        raise
     log.info(f"\nSave the annotations to {args.out}_annot.ht")

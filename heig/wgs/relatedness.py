@@ -598,7 +598,7 @@ def run(args, log):
             gprocessor.save_interim_data(temp_path)
 
         # get common subjects
-        gprocessor.check_valid()
+        # gprocessor.check_valid()
         snps_mt_ids = gprocessor.subject_id()
         ldrs.to_single_index()
         covar.to_single_index()

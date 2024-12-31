@@ -304,7 +304,7 @@ def run(args, log):
         gprocessor.extract_chr_interval(args.chr_interval)
         gprocessor.keep_remove_idvs(common_ids)
         gprocessor.do_processing(mode="gwas")
-        gprocessor.check_valid()
+        # gprocessor.check_valid()
 
         temp_path = get_temp_path()
         if not args.not_save_genotype_data:
