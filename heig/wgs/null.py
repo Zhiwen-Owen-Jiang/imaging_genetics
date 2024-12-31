@@ -76,6 +76,8 @@ class NullModel:
         id_idxs = ids_df["id"].values
         self.resid_ldr = self.resid_ldr[id_idxs]
         self.covar = self.covar[id_idxs]
+        if self.resid_ldr.shape[0] == 0 or self.covar.shape[0] == 0:
+            raise ValueError("no subject remaining in the null model")
 
     def remove_dependent_columns(self):
         """
@@ -87,6 +89,8 @@ class NullModel:
             _, R = np.linalg.qr(self.covar)
             independent_columns = np.where(np.abs(np.diag(R)) > 1e-10)[0]
             self.covar = self.covar[:, independent_columns]
+            if self.covar.shape[1] == 0:
+                raise ValueError("no covariate remaining in the null model")
 
 
 def fit_null_model(covar, ldrs):

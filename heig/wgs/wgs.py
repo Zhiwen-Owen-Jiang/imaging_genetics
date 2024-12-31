@@ -30,17 +30,27 @@ class RV:
 
     """
 
-    def __init__(self, bases, resid_ldr, covar, loco_preds=None):
+    def __init__(self, bases, resid_ldr, covar, locus, loco_preds=None):
         """
         Parameters:
         ------------
         bases: (N, r) np.array, functional bases
         resid_ldr: (n, r) np.array, LDR residuals
         covar: (n, p) np.array, the same as those used to do projection
+        locus: hail.Table including locus, maf, is_rare, grch37, variant_type, 
+                chr, start, and end
         loco_preds: a LOCOpreds instance of loco predictions
             loco_preds.data_reader(j) returns loco preds for chrj with matched subjects
 
         """
+        # extract chr
+        self.locus = locus
+        chr = self.locus.aggregate(hl.agg.take(self.locus.locus.contig, 1)[0])
+        if locus.locus.dtype.reference_genome.name == "GRCh38":
+            chr = int(chr.replace("chr", ""))
+        else:
+            chr = int(chr)
+        
         # adjust for relatedness
         if loco_preds is not None:
             resid_ldr -= loco_preds.data_reader(chr) # (I-M)\Xi, (n, r)
@@ -60,27 +70,24 @@ class RV:
         self.bases = bases
         self.n_subs = covar.shape[0]
         
-    def sumstats(self, vset, locus):
+    def sumstats(self, vset):
         """
         Computing and writing summary statistics for rare variants
 
         Parameters:
         ------------
         vset: (m, n) blockmatrix of genotype data
-        locus: hail.Table including locus, maf, is_rare, grch37, variant_type, 
-                chr, start, and end
 
         """
         # n_variants and locus
         self.n_variants = vset.shape[0]
-        self.locus = locus
 
         # half ldr score
         self.half_ldr_score = vset @ self.resid_ldr # Z'(I-M)\Xi, (m, r)
 
         # Z'Z
         inner_vset = vset @ vset.T  # Z'Z, sparse matrix (m, m)
-        self.inner_vset = inner_vset.sparsify_band(-500000, 500000) # band size 500k
+        self.inner_vset = inner_vset.sparsify_band(-2500, 2500) # band size 5000
 
         # Z'X(X'X)^{-1/2} = Z'UV', where X = UDV'
         self.vset_half_covar_proj = vset @ self.half_covar_proj # Z'UV', (m, p)
@@ -96,9 +103,9 @@ class RV:
             file.attrs['n_subs'] = self.n_subs
             file.attrs['n_variants'] = self.n_variants
 
-        self.half_ldr_score.write(f"{output_dir}_half_ldr_score.bm")
-        self.inner_vset.write(f"{output_dir}_vset_ld.bm")
-        self.vset_half_covar_proj.write(f"{output_dir}_vset_half_covar.bm")
+        self.half_ldr_score.write(f"{output_dir}_half_ldr_score.bm", overwrite=True)
+        self.inner_vset.write(f"{output_dir}_vset_ld.bm", overwrite=True)
+        self.vset_half_covar_proj.write(f"{output_dir}_vset_half_covar.bm", overwrite=True)
         self.locus.write(f'{output_dir}_locus_info.ht', overwrite=True)
 
 
@@ -229,9 +236,10 @@ class RVsumstats:
         self.n_variants = self.locus.count()
 
     def get_interval(self):
-        chr = self.locus.aggregate(hl.agg.take(self.locus.contig, 1)[0])
-        start = self.locus.aggregate(hl.agg.min(self.locus))
-        end = self.locus.aggregate(hl.agg.max(self.locus))
+        # TODO: error here
+        chr = self.locus.aggregate(hl.agg.take(self.locus.locus.contig, 1)[0])
+        start = self.locus.aggregate(hl.agg.take(self.locus.locus.position, 1)[0])
+        end = self.locus.order_by(hl.desc(self.locus.locus)).head(1).collect()[0].locus.position
         
         return chr, start, end
 
@@ -282,6 +290,9 @@ def prepare_vset(snps_mt, variant_type):
     vset = BlockMatrix.from_entry_expr(
         snps_mt.flipped_n_alt_alleles, mean_impute=True
     )
+    if vset.shape[0] == 0 or vset.shape[1] == 0:
+        raise ValueError("no variant in the genotype data")
+    
     return vset, locus
 
 
@@ -298,9 +309,10 @@ def check_input(args, log):
         args.variant_type = "snv"
         log.info(f"Set --variant-type as default 'snv'.")
 
-    if args.maf_max is None and args.maf_min < 0.01:
-        args.maf_max = 0.01
-        log.info(f"Set --maf-max as default 0.01")
+    if args.maf_max is None:
+        if args.maf_min is not None and args.maf_min < 0.01 or args.maf_min is None:
+            args.maf_max = 0.01
+            log.info(f"Set --maf-max as default 0.01")
 
     if args.mac_thresh is None:
         args.mac_thresh = 10
@@ -324,8 +336,9 @@ def run(args, log):
         if args.loco_preds is not None:
             log.info(f"Read LOCO predictions from {args.loco_preds}")
             loco_preds = LOCOpreds(args.loco_preds)
-            loco_preds.select_ldrs(list(range(args.n_ldrs)))
-            if loco_preds.n_ldrs != null_model.n_ldrs:
+            if args.n_ldrs is not None:
+                loco_preds.select_ldrs((0, args.n_ldrs))
+            if loco_preds.ldr_col[1] - loco_preds.ldr_col[0] != null_model.n_ldrs:
                 raise ValueError(
                     (
                         "inconsistent dimension in LDRs and LDR LOCO predictions. "
@@ -350,7 +363,7 @@ def run(args, log):
         gprocessor.extract_chr_interval(args.chr_interval)
         gprocessor.keep_remove_idvs(common_ids)
         gprocessor.do_processing(mode="wgs")
-        gprocessor.check_valid()
+        # gprocessor.check_valid()
 
         # extract and align subjects with the genotype data
         snps_mt_ids = gprocessor.subject_id()
@@ -369,8 +382,8 @@ def run(args, log):
 
         log.info('Computing summary statistics ...\n')
         vset, locus = prepare_vset(gprocessor.snps_mt, gprocessor.variant_type) 
-        process_wgs = RV(null_model.bases, null_model.resid_ldr, null_model.covar, loco_preds)
-        process_wgs.sumstats(vset, locus)
+        process_wgs = RV(null_model.bases, null_model.resid_ldr, null_model.covar, locus, loco_preds)
+        process_wgs.sumstats(vset)
         process_wgs.save(args.out)
 
         log.info((f'Save summary statistics to\n'

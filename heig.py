@@ -60,7 +60,7 @@ make_mt_parser = parser.add_argument_group(
 rv_null_parser = parser.add_argument_group(
     title="Arguments specific to the null model of rare variant analysis"
 )
-rv_sumstats_parser = parser.add_argument_group(
+rv_sumstats_parser= parser.add_argument_group(
     title="Arguments specific to generating summary statistics for rare variant analysis"
 )
 rv_annotation_parser = parser.add_argument_group(
@@ -681,6 +681,23 @@ rv_annotation_parser.add_argument(
     ),
 )
 
+# arguments for wgs.py
+rv_sumstats_parser.add_argument(
+    "--null-model",
+    help="Directory to null model.",
+)
+
+rv_sumstats_parser.add_argument(
+    "--mac-thresh",
+    type=int,
+    help=(
+        "A minor allele count threshold. "
+        "Variants with a MAC less than the threshold "
+        "will be marked as a super rare variants in ACAT-V analysis. "
+        "Default is 10."
+    ),
+)
+
 # arguments for slidingwindow.py
 rv_parser.add_argument(
     "--window-length",
@@ -897,7 +914,6 @@ def check_accepted_args(module, args, log):
             "variant_type",
             "maf_max",
             "maf_min",
-            "mac_thresh",
             "hwe",
             "call_rate",
             "mac_thresh",

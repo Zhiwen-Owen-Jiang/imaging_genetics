@@ -529,6 +529,8 @@ class LOCOpreds:
         )
         ids_df = ids_df.loc[common_ids]
         self.id_idxs = ids_df["id"].values
+        if len(self.id_idxs) == 0:
+            raise ValueError("no subject remaining in LOCO predictions")
 
     def data_reader(self, chr):
         """

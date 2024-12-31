@@ -1,4 +1,5 @@
-from heig.wgs.utils import init_hail, read_genotype_data
+import shutil
+from heig.wgs.utils import init_hail, read_genotype_data, GProcessor
 
 
 def check_input(args, log):
@@ -30,8 +31,16 @@ def run(args, log):
     gprocessor.extract_chr_interval(args.chr_interval)
     gprocessor.keep_remove_idvs(args.keep, args.remove)
     gprocessor.do_processing(mode=args.qc_mode)
-    gprocessor.check_valid()
+    # gprocessor.check_valid()
 
     # save
-    gprocessor.snps_mt.write(args.out, overwrite=True)
-    log.info(f"\nSave genotype data at {args.out}")
+    gprocessor.snps_mt.write(f"{args.out}.mt", overwrite=True)
+
+    # post check
+    gprocessor = GProcessor.read_matrix_table(f"{args.out}.mt")
+    try:
+        gprocessor.check_valid()
+    except:
+        shutil.rmtree(f"{args.out}.mt")
+        raise
+    log.info(f"Save genotype data at {args.out}.mt")
