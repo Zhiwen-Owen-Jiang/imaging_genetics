@@ -28,7 +28,6 @@ class Annotation:
 
         """
         self.annot = annot
-        # self.n_variants = annot.count()
         self.geno_ref = "GRCh37" if grch37 else "GRCh38"
         self._parse_variant()
         self._create_keys()
@@ -46,7 +45,7 @@ class Annotation:
         grch37: if the reference genome is GRCh37
 
         """
-        annot = hl.import_table(annot_dir, *args, **kwargs)
+        annot = hl.import_table(annot_dir, *args, impute=True, **kwargs)
         return cls(annot, grch37)
 
     def _parse_variant(self):
@@ -83,13 +82,9 @@ class Annotation:
         if extract_locus is not None:
             extract_locus = parse_locus(extract_locus["locus"], self.geno_ref)
             self.annot = self.annot.filter(extract_locus.contains(self.annot.locus))
-            # self.n_variants = self.annot.count()
-            # self.logger.info(f"{self.n_variants} variants remaining after --extract-locus.")
         if exclude_locus is not None:
             exclude_locus = parse_locus(exclude_locus["locus"], self.geno_ref)
             self.annot = self.annot.filter(~exclude_locus.contains(self.annot.locus))
-            # self.n_variants = self.annot.count()
-            # self.logger.info(f"{self.n_variants} variants remaining after --exclude-locus.")
 
     def extract_by_interval(self, chr_interval=None):
         """
@@ -104,8 +99,6 @@ class Annotation:
             chr, start, end = parse_interval(chr_interval, self.geno_ref)
             interval = hl.locus_interval(chr, start, end, reference_genome=self.geno_ref)
             self.annot = self.annot.filter(interval.contains(self.annot.locus))
-            # self.n_variants = self.annot.count()
-            # self.logger.info(f"{self.n_variants} variants remaining in --chr-interval.")
 
     def extract_annots(self, annot_list=None):
         """
@@ -154,9 +147,18 @@ class AnnotationFAVOR(Annotation):
         self._add_more_annot()
 
     def _parse_variant(self):
-        parsed_variant = hl.variant_str(hl.locus(self.annot.chromosome, hl.int(self.annot.position)), 
-                                       [self.annot.ref_vcf, self.annot.alt_vcf])
-        self.annot = self.annot.annotate(parsed_variant=hl.parse_variant(parsed_variant))
+        self.annot = self.annot.annotate(chromosome=hl.str("chr") + hl.str(self.annot.chromosome))
+        parsed_variant = hl.variant_str(
+            hl.locus(
+                self.annot.chromosome, 
+                self.annot.position, 
+                reference_genome=self.geno_ref
+            ), 
+            [self.annot.ref_vcf, self.annot.alt_vcf]
+        )
+        self.annot = self.annot.annotate(
+            parsed_variant=hl.parse_variant(parsed_variant, reference_genome=self.geno_ref)
+        )
 
     def _drop_rename(self):
         """
@@ -185,15 +187,11 @@ class AnnotationFAVOR(Annotation):
         Filling NA for cadd_phred and creating a new annotation
 
         """
-        self.annot = self.annot.annotate(apc_local_nucleotide_diversity=hl.float32(
-                self.annot.apc_local_nucleotide_diversity
-            )
-        )
         annot_local_div = -10 * hl.log10(
             1 - 10 ** (-self.annot.apc_local_nucleotide_diversity / 10)
         )
         self.annot = self.annot.annotate(
-            cadd_phred=hl.coalesce(self.annot.cadd_phred, '0'),
+            cadd_phred=hl.coalesce(self.annot.cadd_phred, 0),
             apc_local_nucleotide_diversity2=annot_local_div,
         )
 
@@ -206,13 +204,15 @@ def check_input(args, log):
         log.info("WARNING: ignore --general-annot as --favor-annot specified.")
 
 
-def check_valid(annot):
+def check_valid(annot, log):
     non_key_columns = len(annot.row) - len(annot.key)
     n_variants = annot.count()
     if non_key_columns == 0:
         raise ValueError('no annotation remaining after preprocessing')
     if n_variants == 0:
         raise ValueError('no variant remaining after preprocessing')
+    log.info((f"{n_variants} variants (including varying alleles) "
+             f"with {non_key_columns} annotations processed."))
 
 
 def run(args, log):
@@ -240,7 +240,7 @@ def run(args, log):
     annot.save(args.out)
     annot = hl.read_table(f"{args.out}_annot.ht")
     try:
-        check_valid(annot)
+        check_valid(annot, log)
     except:
         os.remove(f"{args.out}_annot.ht")
         raise

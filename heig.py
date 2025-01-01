@@ -455,6 +455,16 @@ common_parser.add_argument(
         "Supported modules: --rv-annot, --rv."
     ),
 )
+common_parser.add_argument(
+    "--variant-category",
+    help=(
+        "Variant category (case insensitive), "
+        "must be one or some of ('all', 'plof', 'plof_ds', 'missense', "
+        "'disruptive_missense', 'synonymous', 'ptv', 'ptv_ds'); "
+        "where 'all' means all categories; "
+        "multiple categories should be separated by comma."
+    ),
+)
 
 
 # arguments for herigc.py
@@ -1050,7 +1060,7 @@ def process_args(args, log):
     ds.check_existence(args.spark_conf)
     ds.check_existence(args.loco_preds)
     ds.check_existence(args.geno_mt)
-    ds.check_existence(args.rv_sumstats)
+    # ds.check_existence(args.rv_sumstats)
     ds.check_existence(args.annot_ht)
 
     if args.n_ldrs is not None and args.n_ldrs <= 0:
@@ -1192,7 +1202,7 @@ def main(args, log):
         import heig.wgs.mt as module
     elif args.make_rv_sumstats:
         check_accepted_args('make_rv_sumstats', args, log)
-        import heig.wgs.wgs as module
+        import heig.wgs.wgs2 as module
     elif args.rv_null:
         check_accepted_args('rv_null', args, log)
         import heig.wgs.null as module

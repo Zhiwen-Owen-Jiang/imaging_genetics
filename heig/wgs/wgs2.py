@@ -87,8 +87,8 @@ class RV:
         self.half_ldr_score = vset @ self.resid_ldr # Z'(I-M)\Xi, (m, r)
 
         # Z'Z
-        inner_vset = vset @ vset.T  # Z'Z, sparse matrix (m, m)
-        self.inner_vset = self._make_sparse_banded(inner_vset, 5000) # band size 10000
+        vset_ld = vset @ vset.T  # Z'Z, sparse matrix (m, m)
+        self.vset_ld = self._make_sparse_banded(vset_ld, 5000) # band size 10000
 
         # Z'X(X'X)^{-1/2} = Z'UV', where X = UDV'
         self.vset_half_covar_proj = vset @ self.half_covar_proj # Z'UV', (m, p)
@@ -136,10 +136,10 @@ class RV:
             file.create_dataset('var', data=self.var, dtype='float32')
             file.create_dataset('half_ldr_score', data=self.half_ldr_score, dtype='float32')
             file.create_dataset('vset_half_covar_proj', data=self.vset_half_covar_proj, dtype='float32')
-            file.create_dataset('vset_ld_data', data=self.inner_vset.data, dtype='float32')
-            file.create_dataset('vset_ld_indices', data=self.inner_vset.indices)
-            file.create_dataset('vset_ld_indptr', data=self.inner_vset.indptr)
-            file.create_dataset('vset_ld_shape', data=np.array(self.inner_vset.shape))
+            file.create_dataset('vset_ld_data', data=self.vset_ld.data, dtype='float32')
+            file.create_dataset('vset_ld_indices', data=self.vset_ld.indices)
+            file.create_dataset('vset_ld_indptr', data=self.vset_ld.indptr)
+            file.create_dataset('vset_ld_shape', data=np.array(self.vset_ld.shape))
             file.attrs['n_subs'] = self.n_subs
             file.attrs['n_variants'] = self.n_variants
         self.locus.write(f'{output_dir}_locus_info.ht', overwrite=True)
@@ -156,6 +156,8 @@ class RVsumstats:
         self.locus = self.locus.add_index('idx')
         self.geno_ref = self.locus.reference_genome.collect()[0]
         self.variant_type = self.locus.variant_type.collect()[0]
+        self.maf = np.array(self.locus.maf.collect())
+        self.is_rare = np.array(self.locus.is_rare.collect())
 
         with h5py.File(f"{prefix}_rv_sumstats.h5", 'r') as file:
             self.bases = file['bases'][:] # (N, r)
@@ -172,7 +174,6 @@ class RVsumstats:
             self.vset_ld = csr_matrix((vset_ld_data, vset_ld_indices, vset_ld_indptr), 
                                       shape=vset_ld_shape)
 
-        # self.variant_idxs = None
         self.voxel_idxs = np.arange(self.bases.shape[0])
         self.logger = logging.getLogger(__name__)
 
@@ -194,17 +195,6 @@ class RVsumstats:
             else:
                 raise ValueError("--voxel index (one-based) out of range")
             
-    # def select_variants(self):
-    #     """
-    #     Selecting variants from summary statistics
-        
-    #     """
-    #     if self.n_variants < self.half_ldr_score.shape[0]:
-    #         self.variant_idxs = self.locus.idx.collect()
-    #         self.half_ldr_score = self.half_ldr_score[self.variant_idxs]
-    #         self.inner_vset = self.inner_vset[self.variant_idxs, self.variant_idxs]
-    #         self.vset_half_covar_proj = self.vset_half_covar_proj[self.variant_idxs]
-
     def extract_exclude_locus(self, extract_locus, exclude_locus):
         """
         Extracting and excluding variants by locus
@@ -235,8 +225,6 @@ class RVsumstats:
             chr, start, end = parse_interval(chr_interval, self.geno_ref)
             interval = hl.locus_interval(chr, start, end, reference_genome=self.geno_ref)
             self.locus = self.locus.filter(interval.contains(self.locus.locus))
-            self.n_variants = self.locus.count()
-            self.logger.info(f"{self.n_variants} variants remaining after --chr-interval.")
     
     def extract_maf(self, maf_min=None, maf_max=None):
         """
@@ -256,7 +244,9 @@ class RVsumstats:
         """
         self.locus = self.locus.annotate(annot=annot[self.locus.key])
         self.locus = self.locus.filter(hl.is_defined(self.locus.annot))
-        # self.n_variants = self.locus.count()
+        self.n_variants = self.locus.count()
+        if self.n_variants == 0:
+            raise ValueError("no variant overlapping in summary statistics and annotations")
 
     def get_interval(self):
         all_locus = self.locus.locus.collect()
@@ -266,6 +256,7 @@ class RVsumstats:
         
         if self.geno_ref == "GRCh38":
             chr = chr[3:]
+        chr = int(chr)
         
         return chr, start, end
 
@@ -282,14 +273,18 @@ class RVsumstats:
         ---------
         half_ldr_score: Z'(I-M)\Xi
         cov_mat: Z'(I-M)Z
+        maf: a np.array of MAF
+        is_rare: a np.array of boolean indices indicating MAC < mac_threshold
         
         """ 
-        half_ldr_score = self.half_ldr_score[numeric_idx]
-        vset_half_covar_proj = self.vset_half_covar_proj[numeric_idx]
-        inner_vset = self.inner_vset[numeric_idx, numeric_idx]
-        cov_mat = (inner_vset - vset_half_covar_proj @ vset_half_covar_proj.T)
+        half_ldr_score = np.array(self.half_ldr_score[numeric_idx])
+        vset_half_covar_proj = np.array(self.vset_half_covar_proj[numeric_idx])
+        vset_ld = np.array(self.vset_ld[numeric_idx, numeric_idx])
+        cov_mat = np.array((vset_ld - vset_half_covar_proj @ vset_half_covar_proj.T))
+        maf = self.maf[numeric_idx]
+        is_rare = self.is_rare[numeric_idx]
 
-        return half_ldr_score, cov_mat
+        return half_ldr_score, cov_mat, maf, is_rare
 
 
 def prepare_vset(snps_mt, variant_type):

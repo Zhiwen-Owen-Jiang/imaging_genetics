@@ -20,10 +20,12 @@ class VariantSetTest:
 
         Parameters:
         ------------
+        N: number of voxels
         bases: (N, r) np.array, functional bases
         var: (N, ) np.array, voxel variance
 
         """
+        self.N = bases.shape[0]
         self.bases = bases
         self.var = var
 

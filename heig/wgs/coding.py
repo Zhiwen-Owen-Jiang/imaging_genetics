@@ -1,8 +1,7 @@
 import hail as hl
 import numpy as np
-import pandas as pd
 from functools import reduce
-from heig.wgs.wgs import RVsumstats
+from heig.wgs.wgs2 import RVsumstats
 from heig.wgs.vsettest import VariantSetTest, cauchy_combination
 from heig.wgs.utils import *
 
@@ -30,7 +29,6 @@ class Coding:
 
         """
         self.annot = annot
-        # self.annot = self.annot.add_index(name='idx')
 
         gencode_exonic_category = self.annot.annot[
             Annotation_name_catalog["GENCODE.EXONIC.Category"]
@@ -46,8 +44,6 @@ class Coding:
             gencode_exonic_category
         ) | valid_categories.contains(gencode_category)
         self.annot = self.annot.filter(lof_in_coding_annot)
-        if self.annot.count() == 0:
-            raise ValueError("no variants remaining")
 
         self.gencode_exonic_category = self.annot.annot[
             Annotation_name_catalog["GENCODE.EXONIC.Category"]
@@ -129,14 +125,12 @@ class Coding:
         ---------
         numeric_idx: a list of numeric indices for extracting sumstats
         phred_cate: a np.array of annotations
-        maf: a np.array of MAF
-        is_rare: a np.array of boolean indices indicating MAC < mac_threshold
         
         """
         if self.annot_cols is not None:
             filtered_annot = self.annot.filter(idx)
             numeric_idx = filtered_annot.idx.collect()
-            annot_phred = filtered_annot.select(*self.annot_cols).collect()
+            annot_phred = filtered_annot.annot.select(*self.annot_cols).collect()
             phred_cate = np.array(
                 [
                     [getattr(row, col) for col in self.annot_cols]
@@ -145,10 +139,8 @@ class Coding:
             )
         else:
             numeric_idx, phred_cate = None, None
-        maf = np.array(filtered_annot.maf.collect())
-        is_rare = np.array(filtered_annot.is_rare.collect())
         
-        return numeric_idx, phred_cate, maf, is_rare
+        return numeric_idx, phred_cate
 
 
 def coding_vset_analysis(
@@ -173,12 +165,9 @@ def coding_vset_analysis(
     cate_pvalues: a dict (keys: category, values: p-value)
 
     """
-    # getting annotations and specific categories of variants
-    # annot = annot.semi_join(rv_sumstats.locus)
-    # rv_sumstats.semi_join(annot)
     rv_sumstats.annotate(annot)
     log.info(f"{rv_sumstats.n_variants} variants overlapping in summary statistics and annotations.")
-    coding = Coding(annot, variant_type)
+    coding = Coding(rv_sumstats.locus, variant_type)
     chr, start, end = rv_sumstats.get_interval()
 
     # individual analysis
@@ -187,8 +176,8 @@ def coding_vset_analysis(
         if variant_category[0] != "all" and cate not in variant_category:
             cate_pvalues[cate] = None
         else:
-            numeric_idx, phred_cate, maf, is_rare = coding.parse_annot(idx)
-            half_ldr_score, cov_mat = rv_sumstats.parse_data(numeric_idx)
+            numeric_idx, phred_cate = coding.parse_annot(idx)
+            half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(numeric_idx)
             if maf.shape[0] <= 1:
                 log.info(f"Less than 2 variants for {OFFICIAL_NAME[cate]}, skip.")
                 continue
@@ -209,6 +198,9 @@ def coding_vset_analysis(
         cate_pvalues["missense"] = process_missense(
             cate_pvalues["missense"], cate_pvalues["disruptive_missense"]
         )
+        cate_pvalues["missense"]["chr"] = chr
+        cate_pvalues["missense"]["start"] = start
+        cate_pvalues["missense"]["end"] = end
 
     return cate_pvalues
 
@@ -310,9 +302,10 @@ def check_input(args, log):
         ):
             variant_category.append("disruptive_missense")
 
-    if args.maf_max is None and args.maf_min < 0.01:
-        args.maf_max = 0.01
-        log.info(f"Set --maf-max as default 0.01")
+    # if args.maf_max is None:
+    #     if args.maf_min is not None and args.maf_min < 0.01 or args.maf_min is None:
+    #         args.maf_max = 0.01
+    #         log.info(f"Set --maf-max as default 0.01")
 
     return variant_category
 
@@ -327,7 +320,7 @@ def run(args, log):
     rv_sumstats = RVsumstats(args.rv_sumstats)
     rv_sumstats.extract_exclude_locus(args.extract_locus, args.exclude_locus)
     rv_sumstats.extract_chr_interval(args.chr_interval)
-    rv_sumstats.extract_maf(args.max_min, args.maf_max)
+    rv_sumstats.extract_maf(args.maf_min, args.maf_max)
     rv_sumstats.select_ldrs(args.n_ldrs)
     rv_sumstats.select_voxels(args.voxels)
 
