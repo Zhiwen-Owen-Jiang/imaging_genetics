@@ -104,9 +104,13 @@ class RV:
             file.attrs['n_variants'] = self.n_variants
 
         self.half_ldr_score.write(f"{output_dir}_half_ldr_score.bm", overwrite=True)
+        # print("checkpoint ...")
+        # self.inner_vset = self.inner_vset.checkpoint(f"{output_dir}_inner_vset_checkpoint", overwrite=True)
+        # print("writing ...")
         self.inner_vset.write(f"{output_dir}_vset_ld.bm", overwrite=True)
         self.vset_half_covar_proj.write(f"{output_dir}_vset_half_covar.bm", overwrite=True)
         self.locus.write(f'{output_dir}_locus_info.ht', overwrite=True)
+        # self.locus.export(f'{output_dir}_locus_info.txt')
 
 
 class RVsumstats:
@@ -124,7 +128,7 @@ class RVsumstats:
         self.geno_ref = self.locus.reference_genome.collect()[0]
         self.variant_type = self.locus.variant_type.collect()[0]
 
-        with h5py.File(f"{self.output_dir}_misc.h5", 'r') as file:
+        with h5py.File(f"{prefix}_misc.h5", 'r') as file:
             self.bases = file['bases'][:] # (N, r)
             self.var = file['var'][:] # (N, )
             self.n_variants = file.attrs['n_variants']
@@ -178,15 +182,15 @@ class RVsumstats:
             # extract_locus = extract_locus.annotate(locus=hl.parse_locus(extract_locus.locus))
             extract_locus = parse_locus(extract_locus["locus"], self.geno_ref)
             self.locus = self.locus.filter(extract_locus.contains(self.locus.locus))
-            self.n_variants = self.locus.count()
-            self.logger.info(f"{self.n_variants} variants remaining after --extract-locus.")
+            # self.n_variants = self.locus.count()
+            # self.logger.info(f"{self.n_variants} variants remaining after --extract-locus.")
         if exclude_locus is not None:
             # exclude_locus = hl.Table.from_pandas(exclude_locus[["locus"]])
             # exclude_locus = exclude_locus.annotate(locus=hl.parse_locus(exclude_locus.locus))
             exclude_locus = parse_locus(exclude_locus["locus"], self.geno_ref)
             self.locus = self.locus.filter(~exclude_locus.contains(self.locus.locus))
-            self.n_variants = self.locus.count()
-            self.logger.info(f"{self.n_variants} variants remaining after --exclude-locus.")
+            # self.n_variants = self.locus.count()
+            # self.logger.info(f"{self.n_variants} variants remaining after --exclude-locus.")
 
     def extract_chr_interval(self, chr_interval=None):
         """
@@ -213,9 +217,9 @@ class RVsumstats:
             self.locus = self.locus.filter(self.locus.maf < maf_min)
         if maf_max is not None:
             self.locus = self.locus.filter(self.locus.maf >= maf_max)
-        if maf_min is not None or maf_max is not None:
-            self.n_variants = self.locus.count()
-            self.logger.info(f"{self.n_variants} variants remaining after filtering by MAF.")
+        # if maf_min is not None or maf_max is not None:
+            # self.n_variants = self.locus.count()
+            # self.logger.info(f"{self.n_variants} variants remaining after filtering by MAF.")
 
     # def semi_join(self, annot):
     #     """
@@ -233,7 +237,7 @@ class RVsumstats:
         """
         self.locus = self.locus.annotate(annot=annot[self.locus.key])
         self.locus = self.locus.filter(hl.is_defined(self.locus.annot))
-        self.n_variants = self.locus.count()
+        # self.n_variants = self.locus.count()
 
     def get_interval(self):
         # TODO: error here
@@ -380,16 +384,17 @@ def run(args, log):
         else:
             loco_preds = None
 
-        log.info('Computing summary statistics ...\n')
-        vset, locus = prepare_vset(gprocessor.snps_mt, gprocessor.variant_type) 
+        log.info('Preparing data ...')
+        vset, locus = prepare_vset(gprocessor.snps_mt, gprocessor.variant_type)
+        log.info(f'Computing summary statistics for {vset.shape[0]} variants ...\n') 
         process_wgs = RV(null_model.bases, null_model.resid_ldr, null_model.covar, locus, loco_preds)
         process_wgs.sumstats(vset)
         process_wgs.save(args.out)
 
         log.info((f'Save summary statistics to\n'
                   f'{args.out}_half_ldr_score.bm\n'
-                  f'{args.out}_inner_vset.bm\n'
-                  f'{args.out}_vset_U.bm\n'
+                  f'{args.out}_vset_ld.bm\n'
+                  f'{args.out}_vset_half_covar.bm\n'
                   f'{args.out}_misc.h5\n'
                   f'{args.out}_locus_info.ht'))
 

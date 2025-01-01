@@ -87,11 +87,44 @@ class RV:
         self.half_ldr_score = vset @ self.resid_ldr # Z'(I-M)\Xi, (m, r)
 
         # Z'Z
-        self.inner_vset = vset @ vset.T  # Z'Z, sparse matrix (m, m)
-        # self.inner_vset = inner_vset.sparsify_band(-2500, 2500) # band size 5000
+        inner_vset = vset @ vset.T  # Z'Z, sparse matrix (m, m)
+        self.inner_vset = self._make_sparse_banded(inner_vset, 5000) # band size 10000
 
         # Z'X(X'X)^{-1/2} = Z'UV', where X = UDV'
         self.vset_half_covar_proj = vset @ self.half_covar_proj # Z'UV', (m, p)
+        
+    @staticmethod
+    def _make_sparse_banded(matrix, bandwidth):
+        """
+        Convert a sparse matrix into a sparse banded matrix.
+
+        Parameters:
+        ------------
+        matrix (csr_matrix): Input sparse matrix.
+        bandwidth (int): Bandwidth around the diagonal to retain.
+
+        Returns:
+        ---------
+        csr_matrix: Sparse banded matrix.
+
+        """
+        if not isinstance(matrix, csr_matrix):
+            raise ValueError("Input matrix must be a csr_matrix.")
+        
+        # Get the row, column indices and data of nonzero elements
+        row, col = matrix.nonzero()
+        data = matrix.data
+        
+        # Filter elements within the specified bandwidth
+        mask = np.abs(row - col) <= bandwidth
+        banded_row = row[mask]
+        banded_col = col[mask]
+        banded_data = data[mask]
+        
+        # Create the new sparse banded matrix
+        banded_matrix = csr_matrix((banded_data, (banded_row, banded_col)), shape=matrix.shape)
+        
+        return banded_matrix
 
     def save(self, output_dir):
         """
@@ -102,7 +135,7 @@ class RV:
             file.create_dataset('bases', data=self.bases, dtype='float32')
             file.create_dataset('var', data=self.var, dtype='float32')
             file.create_dataset('half_ldr_score', data=self.half_ldr_score, dtype='float32')
-            file.create_dataset('vset_half_covar', data=self.vset_half_covar_proj, dtype='float32')
+            file.create_dataset('vset_half_covar_proj', data=self.vset_half_covar_proj, dtype='float32')
             file.create_dataset('vset_ld_data', data=self.inner_vset.data, dtype='float32')
             file.create_dataset('vset_ld_indices', data=self.inner_vset.indices)
             file.create_dataset('vset_ld_indptr', data=self.inner_vset.indptr)
@@ -119,21 +152,27 @@ class RVsumstats:
     """
 
     def __init__(self, prefix):
-        self.half_ldr_score = BlockMatrix.read(f"{prefix}_half_ldr_score.bm") # (m, r)
-        self.inner_vset = BlockMatrix.read(f"{prefix}_vset_ld.bm") # (m, m)
-        self.vset_half_covar_proj = BlockMatrix.read(f"{prefix}_vset_half_covar.bm") # (m, p)
         self.locus = hl.read_table(f'{prefix}_locus_info.ht').key_by('locus', 'alleles')
         self.locus = self.locus.add_index('idx')
         self.geno_ref = self.locus.reference_genome.collect()[0]
         self.variant_type = self.locus.variant_type.collect()[0]
 
-        with h5py.File(f"{prefix}_misc.h5", 'r') as file:
+        with h5py.File(f"{prefix}_rv_sumstats.h5", 'r') as file:
             self.bases = file['bases'][:] # (N, r)
             self.var = file['var'][:] # (N, )
+            self.half_ldr_score = file['half_ldr_score'][:]
+            self.vset_half_covar_proj = file['vset_half_covar_proj'][:]
             self.n_variants = file.attrs['n_variants']
             self.n_subs = file.attrs['n_subs']
 
-        self.variant_idxs = None
+            vset_ld_data = file['vset_ld_data'][:]
+            vset_ld_indices = file['vset_ld_indices'][:]
+            vset_ld_indptr = file['vset_ld_indptr'][:]
+            vset_ld_shape = file['vset_ld_shape'][:]
+            self.vset_ld = csr_matrix((vset_ld_data, vset_ld_indices, vset_ld_indptr), 
+                                      shape=vset_ld_shape)
+
+        # self.variant_idxs = None
         self.voxel_idxs = np.arange(self.bases.shape[0])
         self.logger = logging.getLogger(__name__)
 
@@ -155,16 +194,16 @@ class RVsumstats:
             else:
                 raise ValueError("--voxel index (one-based) out of range")
             
-    def select_variants(self):
-        """
-        Selecting variants from summary statistics
+    # def select_variants(self):
+    #     """
+    #     Selecting variants from summary statistics
         
-        """
-        if self.n_variants < self.half_ldr_score.shape[0]:
-            self.variant_idxs = self.locus.idx.collect()
-            self.half_ldr_score = self.half_ldr_score.filter_rows(self.variant_idxs)
-            self.inner_vset = self.inner_vset.filter(self.variant_idxs, self.variant_idxs)
-            self.vset_half_covar_proj = self.vset_half_covar_proj.filter_rows(self.variant_idxs)
+    #     """
+    #     if self.n_variants < self.half_ldr_score.shape[0]:
+    #         self.variant_idxs = self.locus.idx.collect()
+    #         self.half_ldr_score = self.half_ldr_score[self.variant_idxs]
+    #         self.inner_vset = self.inner_vset[self.variant_idxs, self.variant_idxs]
+    #         self.vset_half_covar_proj = self.vset_half_covar_proj[self.variant_idxs]
 
     def extract_exclude_locus(self, extract_locus, exclude_locus):
         """
@@ -177,19 +216,11 @@ class RVsumstats:
 
         """
         if extract_locus is not None:
-            # extract_locus = hl.Table.from_pandas(extract_locus[["locus"]])
-            # extract_locus = extract_locus.annotate(locus=hl.parse_locus(extract_locus.locus))
             extract_locus = parse_locus(extract_locus["locus"], self.geno_ref)
             self.locus = self.locus.filter(extract_locus.contains(self.locus.locus))
-            self.n_variants = self.locus.count()
-            self.logger.info(f"{self.n_variants} variants remaining after --extract-locus.")
         if exclude_locus is not None:
-            # exclude_locus = hl.Table.from_pandas(exclude_locus[["locus"]])
-            # exclude_locus = exclude_locus.annotate(locus=hl.parse_locus(exclude_locus.locus))
             exclude_locus = parse_locus(exclude_locus["locus"], self.geno_ref)
             self.locus = self.locus.filter(~exclude_locus.contains(self.locus.locus))
-            # self.n_variants = self.locus.count()
-            # self.logger.info(f"{self.n_variants} variants remaining after --exclude-locus.")
 
     def extract_chr_interval(self, chr_interval=None):
         """
@@ -213,20 +244,9 @@ class RVsumstats:
         
         """
         if maf_min is not None:
-            self.locus = self.locus.filter(self.locus.maf < maf_min)
+            self.locus = self.locus.filter(self.locus.maf > maf_min)
         if maf_max is not None:
-            self.locus = self.locus.filter(self.locus.maf >= maf_max)
-        # if maf_min is not None or maf_max is not None:
-            # self.n_variants = self.locus.count()
-            # self.logger.info(f"{self.n_variants} variants remaining after filtering by MAF.")
-
-    # def semi_join(self, annot):
-    #     """
-    #     Semi join with annotations
-        
-    #     """
-    #     self.locus = self.locus.semi_join(annot)
-    #     self.n_variants = self.locus.count()
+            self.locus = self.locus.filter(self.locus.maf <= maf_max)
 
     def annotate(self, annot):
         """
@@ -239,20 +259,24 @@ class RVsumstats:
         # self.n_variants = self.locus.count()
 
     def get_interval(self):
-        # TODO: error here
-        chr = self.locus.aggregate(hl.agg.take(self.locus.locus.contig, 1)[0])
-        start = self.locus.aggregate(hl.agg.take(self.locus.locus.position, 1)[0])
-        end = self.locus.order_by(hl.desc(self.locus.locus)).head(1).collect()[0].locus.position
+        all_locus = self.locus.locus.collect()
+        chr = all_locus[0].contig
+        start = all_locus[0].position
+        end = all_locus[-1].position
+        
+        if self.geno_ref == "GRCh38":
+            chr = chr[3:]
         
         return chr, start, end
 
     def parse_data(self, numeric_idx):
         """
-        Parse data for analysis, must do select_variants() before
+        Parsing data for analysis
 
         Parameters:
         ------------
-        numeric_idx: a list of numeric indices
+        numeric_idx: a list of numeric indices, 
+        which are collected from `idx` in self.locus after filtering by annotations.
 
         Returns:
         ---------
@@ -260,15 +284,10 @@ class RVsumstats:
         cov_mat: Z'(I-M)Z
         
         """ 
-        half_ldr_score = self.half_ldr_score.filter_rows[numeric_idx].to_numpy()
-        vset_half_covar_proj = self.vset_half_covar_proj.filter_rows[numeric_idx]
-        inner_vset = self.inner_vset.filter[numeric_idx, numeric_idx]
-        cov_mat = (inner_vset - vset_half_covar_proj @ vset_half_covar_proj.T).to_numpy()
-        # locus_reindex = self.locus.add_index('new_idx')
-        # locus_reindex = locus_reindex.filter(hl.literal(idx).contains(locus_reindex.new_idx))
-        # locus = self.locus.filter(idx)
-        # maf = np.array(locus.maf.collect())
-        # is_rare = np.array(locus.is_rare.collect())
+        half_ldr_score = self.half_ldr_score[numeric_idx]
+        vset_half_covar_proj = self.vset_half_covar_proj[numeric_idx]
+        inner_vset = self.inner_vset[numeric_idx, numeric_idx]
+        cov_mat = (inner_vset - vset_half_covar_proj @ vset_half_covar_proj.T)
 
         return half_ldr_score, cov_mat
 
@@ -299,14 +318,9 @@ def prepare_vset(snps_mt, variant_type):
     entries = bm.entries()
     non_zero_entries = entries.filter(entries.entry > 0)
     non_zero_entries = non_zero_entries.collect()
-    rows = list()
-    cols = list()
-    values = list()
-    
-    for entry in non_zero_entries:
-        rows.append(entry['i'])
-        cols.append(entry['j'])
-        values.append(entry['entry'])
+    rows = [entry['i'] for entry in non_zero_entries]
+    cols = [entry['j'] for entry in non_zero_entries]
+    values = [entry['entry'] for entry in non_zero_entries]
 
     vset = coo_matrix((values, (rows, cols)), shape=bm.shape, dtype=np.float32)
     vset = vset.tocsr()
@@ -381,7 +395,6 @@ def run(args, log):
         gprocessor.extract_chr_interval(args.chr_interval)
         gprocessor.keep_remove_idvs(common_ids)
         gprocessor.do_processing(mode="wgs")
-        # gprocessor.check_valid()
 
         # extract and align subjects with the genotype data
         snps_mt_ids = gprocessor.subject_id()
