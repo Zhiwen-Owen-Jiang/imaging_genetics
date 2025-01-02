@@ -1,23 +1,27 @@
+import os
 import numpy as np
 from abc import ABC, abstractmethod
 import hail as hl
-from heig.wgs.wgs import RVsumstats
+from heig.wgs.wgs2 import RVsumstats
 from heig.wgs.vsettest import VariantSetTest
 from heig.wgs.utils import *
 
 
 class Noncoding(ABC):
-    def __init__(self, annot, variant_type, type=None):
+    def __init__(self, annot, variant_type, chr, start, end, type=None):
         """
         Parameters:
         ------------
         annot: a hail.Table of annotations with key ('locus', 'alleles') and hail.struct of annotations
         variant_type: variant type, one of ('variant', 'snv, 'indel')
+        chr: chromosome
+        start: start position
+        end: end position
         type: specific type of non-coding variants
 
         """
         self.annot = annot
-        # self.annot = self.annot.add_index(name='idx')
+        self.chr, self.start, self.end = chr, start, end
         self.type = type
         self.gencode_category = self.annot.annot[Annotation_name_catalog['GENCODE.Category']]
         self.variant_idx = self.extract_variants()
@@ -46,14 +50,14 @@ class Noncoding(ABC):
         ---------
         numeric_idx: a list of numeric indices for extracting sumstats
         phred_cate: a np.array of annotations
-        maf: a np.array of MAF
-        is_rare: a np.array of boolean indices indicating MAC < mac_threshold
         
         """
+        filtered_annot = self.annot.filter(self.variant_idx)
+        numeric_idx = filtered_annot.idx.collect()
+        if len(numeric_idx) <= 1:
+            return numeric_idx, None
         if self.annot_cols is not None:
-            filtered_annot = self.annot.filter(self.variant_idx)
-            numeric_idx = filtered_annot.idx.collect()
-            annot_phred = filtered_annot.select(*self.annot_cols).collect()
+            annot_phred = filtered_annot.annot.select(*self.annot_cols).collect()
             phred_cate = np.array(
                 [
                     [getattr(row, col) for col in self.annot_cols]
@@ -61,11 +65,9 @@ class Noncoding(ABC):
                 ]
             )
         else:
-            numeric_idx, phred_cate = None, None
-        maf = np.array(filtered_annot.maf.collect())
-        is_rare = np.array(filtered_annot.is_rare.collect())
+            phred_cate = None
 
-        return numeric_idx, phred_cate, maf, is_rare
+        return numeric_idx, phred_cate
 
 
 class UpDown(Noncoding):
@@ -91,24 +93,37 @@ class Promoter(Noncoding):
         type is 'CAGE' or 'DHS'
 
         """
-        cage = hl.is_defined(self.annot[Annotation_name_catalog[self.type]])
+        cage = hl.is_defined(self.annot.annot[Annotation_name_catalog[self.type]])
 
+        # TODO: merge intervels in promGdf_{geno_ref}.csv
         geno_ref = self.annot.reference_genome.collect()[0]
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        main_dir = os.path.dirname(os.path.dirname(base_dir))
         promGdf = hl.import_table(
-            f'misc/wgs/promGdf_{geno_ref}.txt',
+            os.path.join(main_dir, f'misc/wgs/promGdf_{geno_ref}.csv'),
             no_header=False,
-            delimiter='\t'
+            delimiter=',',
+            impute=True
         )
+        
+        promGdf = promGdf.filter(promGdf['seqnames'] == self.chr)
+        promGdf = promGdf.filter(promGdf['start'] >= self.start)
+        promGdf = promGdf.filter(promGdf['end'] <= self.end)
+
         intervals = promGdf.aggregate(
             hl.agg.collect(
-                hl.Interval(
-                    start=hl.Locus(promGdf['seqnames'], hl.int(promGdf['start'])),
-                    end=hl.Locus(promGdf['seqnames'], hl.int(promGdf['end'])),
+                hl.interval(
+                    start=hl.locus(promGdf['seqnames'], promGdf['start'], reference_genome=geno_ref),
+                    end=hl.locus(promGdf['seqnames'], promGdf['end'], reference_genome=geno_ref),
                     includes_end=False
                 )
             )
         )
-        is_prom = hl.any(lambda interval: interval.contains(self.annot.locus), intervals)
+        
+        if len(intervals) > 0:
+            is_prom = hl.any(lambda interval: interval.contains(self.annot.locus), intervals)
+        else:
+            is_prom = hl.literal({'foo'}).contains(self.gencode_category) # create all False indices
         variant_idx = cage & is_prom
 
         return variant_idx
@@ -159,22 +174,20 @@ def noncoding_vset_analysis(rv_sumstats, annot, variant_type, vset_test, variant
     }
 
     # extracting variants in sumstats and annot
-    # annot = annot.semi_join(rv_sumstats.locus)
-    # rv_sumstats.semi_join(annot)
     rv_sumstats.annotate(annot)
-    log.info(f"{rv_sumstats.n_variants} variants overlapping in summary statistics and annotations.")
+    # log.info(f"{rv_sumstats.n_variants} variants overlapping in summary statistics and annotations.")
     chr, start, end = rv_sumstats.get_interval()
 
     # individual analysis
     cate_pvalues = dict()
     for category, (_category_class_, type) in category_class_map.items():
-        if variant_category == 'all' or variant_category == category:
-            category_class = _category_class_(annot, variant_type, type)
-            numeric_idx, phred_cate, maf, is_rare = category_class.parse_annot()
-            half_ldr_score, cov_mat = rv_sumstats.parse_data(numeric_idx)
-            if maf.shape[0] <= 1:
+        if variant_category[0] == 'all' or category in variant_category:
+            category_class = _category_class_(rv_sumstats.locus, variant_type, chr, start, end, type)
+            numeric_idx, phred_cate = category_class.parse_annot()
+            if len(numeric_idx) <= 1:
                 log.info(f"Less than 2 variants for {category}, skip.")
                 continue
+            half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(numeric_idx)
             vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)
             log.info(
                 f"Doing analysis for {category} ({vset_test.n_variants} variants) ..."
@@ -225,9 +238,10 @@ def check_input(args, log):
     if len(variant_category) == 0:
         raise ValueError("no valid variant category provided")
     
-    if args.maf_max is None and args.maf_min < 0.01:
-        args.maf_max = 0.01
-        log.info(f"Set --maf-max as default 0.01")
+    # if args.maf_max is None:
+    #     if args.maf_min is not None and args.maf_min < 0.01 or args.maf_min is None:
+    #         args.maf_max = 0.01
+    #         log.info(f"Set --maf-max as default 0.01")
 
     return variant_category
 
@@ -242,7 +256,7 @@ def run(args, log):
     rv_sumstats = RVsumstats(args.rv_sumstats)
     rv_sumstats.extract_exclude_locus(args.extract_locus, args.exclude_locus)
     rv_sumstats.extract_chr_interval(args.chr_interval)
-    rv_sumstats.extract_maf(args.max_min, args.maf_max)
+    rv_sumstats.extract_maf(args.maf_min, args.maf_max)
     rv_sumstats.select_ldrs(args.n_ldrs)
     rv_sumstats.select_voxels(args.voxels)
 

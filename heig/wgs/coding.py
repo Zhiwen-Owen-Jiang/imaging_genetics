@@ -127,9 +127,11 @@ class Coding:
         phred_cate: a np.array of annotations
         
         """
+        filtered_annot = self.annot.filter(idx)
+        numeric_idx = filtered_annot.idx.collect()
+        if len(numeric_idx) <= 1:
+            return numeric_idx, None
         if self.annot_cols is not None:
-            filtered_annot = self.annot.filter(idx)
-            numeric_idx = filtered_annot.idx.collect()
             annot_phred = filtered_annot.annot.select(*self.annot_cols).collect()
             phred_cate = np.array(
                 [
@@ -138,8 +140,8 @@ class Coding:
                 ]
             )
         else:
-            numeric_idx, phred_cate = None, None
-        
+            phred_cate = None
+
         return numeric_idx, phred_cate
 
 
@@ -166,7 +168,7 @@ def coding_vset_analysis(
 
     """
     rv_sumstats.annotate(annot)
-    log.info(f"{rv_sumstats.n_variants} variants overlapping in summary statistics and annotations.")
+    # log.info(f"{rv_sumstats.n_variants} variants overlapping in summary statistics and annotations.")
     coding = Coding(rv_sumstats.locus, variant_type)
     chr, start, end = rv_sumstats.get_interval()
 
@@ -177,10 +179,10 @@ def coding_vset_analysis(
             cate_pvalues[cate] = None
         else:
             numeric_idx, phred_cate = coding.parse_annot(idx)
-            half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(numeric_idx)
-            if maf.shape[0] <= 1:
+            if len(numeric_idx) <= 1:
                 log.info(f"Less than 2 variants for {OFFICIAL_NAME[cate]}, skip.")
                 continue
+            half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(numeric_idx)
             vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)
             log.info(
                 f"Doing analysis for {OFFICIAL_NAME[cate]} ({vset_test.n_variants} variants) ..."

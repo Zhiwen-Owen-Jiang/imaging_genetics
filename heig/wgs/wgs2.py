@@ -20,7 +20,7 @@ Generate rare variant summary statistics:
 Allow to input a chromosome and save the summary statistics
 
 TODO:
-1. test if save Z'Z for the entire chr is too big 
+1. save only the upper band
 
 """
 
@@ -244,19 +244,19 @@ class RVsumstats:
         """
         self.locus = self.locus.annotate(annot=annot[self.locus.key])
         self.locus = self.locus.filter(hl.is_defined(self.locus.annot))
-        self.n_variants = self.locus.count()
-        if self.n_variants == 0:
-            raise ValueError("no variant overlapping in summary statistics and annotations")
 
     def get_interval(self):
         all_locus = self.locus.locus.collect()
+        
+        self.n_variants = len(all_locus) 
+        if self.n_variants == 0:
+            raise ValueError("no variant overlapping in summary statistics and annotations")
+        else:
+            self.logger.info(f"{self.n_variants} variants overlapping in summary statistics and annotations.")
+
         chr = all_locus[0].contig
         start = all_locus[0].position
         end = all_locus[-1].position
-        
-        if self.geno_ref == "GRCh38":
-            chr = chr[3:]
-        chr = int(chr)
         
         return chr, start, end
 

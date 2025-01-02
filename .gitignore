@@ -44,3 +44,6 @@ insomnia_ukb2b_EUR_sumstats_20190311_with_chrX_mac_100.txt
 # temp MatrixTable
 temp*
 *npy
+
+# code to manipulate promGdf
+misc/wgs/merge_interval.ipynb*
