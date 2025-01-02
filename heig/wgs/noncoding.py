@@ -174,7 +174,6 @@ def noncoding_vset_analysis(rv_sumstats, annot, variant_type, vset_test, variant
 
     # extracting variants in sumstats and annot
     rv_sumstats.annotate(annot)
-    # log.info(f"{rv_sumstats.n_variants} variants overlapping in summary statistics and annotations.")
     chr, start, end = rv_sumstats.get_interval()
 
     # individual analysis

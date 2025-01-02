@@ -277,6 +277,7 @@ class RVsumstats:
         """
         self.locus = self.locus.annotate(annot=annot[self.locus.key])
         self.locus = self.locus.filter(hl.is_defined(self.locus.annot))
+        self.locus = self.locus.cache()
 
     def get_interval(self):
         all_locus = self.locus.locus.collect()

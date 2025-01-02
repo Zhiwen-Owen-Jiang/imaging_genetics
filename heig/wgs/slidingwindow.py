@@ -31,7 +31,6 @@ class GeneralAnnotation:
         self.annot_cols = annot_cols
         if annot is not None:
             self.rv_sumstats.annotate(annot)
-        self.rv_sumstats.locus = self.rv_sumstats.locus.cache()
         
     def _parse_annot(self, idx):
         """
