@@ -19,9 +19,6 @@ Generate rare variant summary statistics:
 
 Allow to input a chromosome and save the summary statistics
 
-TODO:
-1. save only the upper band
-
 """
 
 
@@ -66,18 +63,18 @@ class RV:
         covar_U, _, covar_Vt = np.linalg.svd(covar, full_matrices=False)
 
         self.resid_ldr = resid_ldr.astype(np.float32)
-        self.var = var
+        self.var = var.astype(np.float32)
         self.half_covar_proj = np.dot(covar_U, covar_Vt).astype(np.float32)
-        self.bases = bases
+        self.bases = bases.astype(np.float32)
         self.n_subs = covar.shape[0]
         
-    def sumstats(self, vset):
+    def sumstats(self, vset, bandwidth=5000):
         """
         Computing and writing summary statistics for rare variants
 
         Parameters:
         ------------
-        vset: (m, n) blockmatrix of genotype data
+        vset: (m, n) csr_matrix of genotype
 
         """
         # n_variants and locus
@@ -88,7 +85,10 @@ class RV:
 
         # Z'Z
         vset_ld = vset @ vset.T  # Z'Z, sparse matrix (m, m)
-        self.vset_ld = self._make_sparse_banded(vset_ld, 5000) # band size 10000
+        banded_vset_ld = self._make_sparse_banded(vset_ld, bandwidth)
+        self.bandwidth = bandwidth
+        self.vset_ld_diag, self.vset_ld_data, self.vset_ld_row, self.vset_ld_col = banded_vset_ld
+        self.vset_ld_shape = vset_ld.shape
 
         # Z'X(X'X)^{-1/2} = Z'UV', where X = UDV'
         self.vset_half_covar_proj = vset @ self.half_covar_proj # Z'UV', (m, p)
@@ -100,31 +100,27 @@ class RV:
 
         Parameters:
         ------------
-        matrix (csr_matrix): Input sparse matrix.
-        bandwidth (int): Bandwidth around the diagonal to retain.
+        matrix (csr_matrix): sparse matrix.
+        bandwidth (int): bandwidth around the diagonal to retain.
 
         Returns:
         ---------
-        csr_matrix: Sparse banded matrix.
+        banded_matrix: Sparse banded matrix.
 
         """
         if not isinstance(matrix, csr_matrix):
             raise ValueError("Input matrix must be a csr_matrix.")
         
-        # Get the row, column indices and data of nonzero elements
-        row, col = matrix.nonzero()
+        row, col = matrix.nonzero() # both are np.array
         data = matrix.data
         
-        # Filter elements within the specified bandwidth
-        mask = np.abs(row - col) <= bandwidth
+        diagonal_data = data[row == col]
+        mask = (np.abs(row - col) <= bandwidth) & (col > row)
         banded_row = row[mask]
         banded_col = col[mask]
         banded_data = data[mask]
         
-        # Create the new sparse banded matrix
-        banded_matrix = csr_matrix((banded_data, (banded_row, banded_col)), shape=matrix.shape)
-        
-        return banded_matrix
+        return diagonal_data, banded_data, banded_row, banded_col
 
     def save(self, output_dir):
         """
@@ -136,12 +132,14 @@ class RV:
             file.create_dataset('var', data=self.var, dtype='float32')
             file.create_dataset('half_ldr_score', data=self.half_ldr_score, dtype='float32')
             file.create_dataset('vset_half_covar_proj', data=self.vset_half_covar_proj, dtype='float32')
-            file.create_dataset('vset_ld_data', data=self.vset_ld.data, dtype='float32')
-            file.create_dataset('vset_ld_indices', data=self.vset_ld.indices)
-            file.create_dataset('vset_ld_indptr', data=self.vset_ld.indptr)
-            file.create_dataset('vset_ld_shape', data=np.array(self.vset_ld.shape))
+            file.create_dataset('vset_ld_diag', data=self.vset_ld_diag, dtype='float32')
+            file.create_dataset('vset_ld_data', data=self.vset_ld_data, dtype='float32')
+            file.create_dataset('vset_ld_row', data=self.vset_ld_row)
+            file.create_dataset('vset_ld_col', data=self.vset_ld_col)
+            file.create_dataset('vset_ld_shape', data=np.array(self.vset_ld_shape))
             file.attrs['n_subs'] = self.n_subs
             file.attrs['n_variants'] = self.n_variants
+            file.attrs['bandwidth'] = self.bandwidth
         self.locus.write(f'{output_dir}_locus_info.ht', overwrite=True)
 
 
@@ -166,17 +164,52 @@ class RVsumstats:
             self.vset_half_covar_proj = file['vset_half_covar_proj'][:]
             self.n_variants = file.attrs['n_variants']
             self.n_subs = file.attrs['n_subs']
+            self.bandwidth = file.attrs['bandwidth']
 
+            vset_ld_diag = file['vset_ld_diag'][:]
             vset_ld_data = file['vset_ld_data'][:]
-            vset_ld_indices = file['vset_ld_indices'][:]
-            vset_ld_indptr = file['vset_ld_indptr'][:]
+            vset_ld_row = file['vset_ld_row'][:]
+            vset_ld_col = file['vset_ld_col'][:]
             vset_ld_shape = file['vset_ld_shape'][:]
-            self.vset_ld = csr_matrix((vset_ld_data, vset_ld_indices, vset_ld_indptr), 
-                                      shape=vset_ld_shape)
+
+        self.vset_ld = self._reconstruct_vset_ld(
+            vset_ld_diag, vset_ld_data,
+            vset_ld_row, vset_ld_col, vset_ld_shape
+        )
 
         self.voxel_idxs = np.arange(self.bases.shape[0])
         self.logger = logging.getLogger(__name__)
 
+    @staticmethod
+    def _reconstruct_vset_ld(diag, data, row, col, shape):
+        """
+        Reconstructing a sparse matrix.
+
+        Parameters:
+        ------------
+        diag: diagonal data
+        data: banded data
+        row: row index of upper band
+        col: col index of lower band
+        shape: sparse matrix shape
+
+        Returns:
+        ---------
+        full_matrix: sparse banded matrix.
+
+        """
+        lower_row = col
+        lower_col = row
+        diag_row_col = np.arange(shape[0])
+
+        full_row = np.concatenate([row, lower_row, diag_row_col])
+        full_col = np.concatenate([col, lower_col, diag_row_col])
+        full_data = np.concatenate([data, data, diag])
+        
+        full_matrix = csr_matrix((full_data, (full_row, full_col)), shape=shape)
+
+        return full_matrix
+        
     def select_ldrs(self, n_ldrs=None):
         if n_ldrs is not None:
             if n_ldrs <= self.bases.shape[1] and n_ldrs <= self.half_ldr_score.shape[1]:
@@ -277,6 +310,8 @@ class RVsumstats:
         is_rare: a np.array of boolean indices indicating MAC < mac_threshold
         
         """ 
+        if max(numeric_idx) - min(numeric_idx) > self.bandwidth:
+            raise ValueError('the variant set has exceeded the bandwidth of LD matrix')
         half_ldr_score = np.array(self.half_ldr_score[numeric_idx])
         vset_half_covar_proj = np.array(self.vset_half_covar_proj[numeric_idx])
         vset_ld = np.array(self.vset_ld[numeric_idx, numeric_idx])
@@ -298,7 +333,7 @@ def prepare_vset(snps_mt, variant_type):
 
     Returns:
     ---------
-    vset: (m, n) BlockMatrix
+    vset: (m, n) csr_matrix of genotype
 
     """
     locus = snps_mt.rows().key_by().select('locus', 'alleles', 'maf', 'is_rare')
@@ -346,6 +381,12 @@ def check_input(args, log):
         log.info(f"Set --mac-thresh as default 10")
     elif args.mac_thresh < 0:
         raise ValueError("--mac-thresh must be greater than 0")
+    
+    if args.bandwidth is None:
+        args.bandwidth = 5000
+        log.info("Set --bandwidth as default 5000")
+    elif args.bandwidth <= 1:
+        raise ValueError("--bandwidth must be greater than 1")
 
 
 def run(args, log):
@@ -410,7 +451,7 @@ def run(args, log):
         vset, locus = prepare_vset(gprocessor.snps_mt, gprocessor.variant_type)
         log.info(f'Computing summary statistics for {vset.shape[0]} variants ...\n') 
         process_wgs = RV(null_model.bases, null_model.resid_ldr, null_model.covar, locus, loco_preds)
-        process_wgs.sumstats(vset)
+        process_wgs.sumstats(vset, args.bandwidth)
         process_wgs.save(args.out)
 
         log.info((f'Save summary statistics to\n'

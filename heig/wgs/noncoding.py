@@ -95,7 +95,6 @@ class Promoter(Noncoding):
         """
         cage = hl.is_defined(self.annot.annot[Annotation_name_catalog[self.type]])
 
-        # TODO: merge intervels in promGdf_{geno_ref}.csv
         geno_ref = self.annot.reference_genome.collect()[0]
         base_dir = os.path.dirname(os.path.abspath(__file__))
         main_dir = os.path.dirname(os.path.dirname(base_dir))

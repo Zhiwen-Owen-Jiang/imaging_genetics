@@ -696,6 +696,11 @@ rv_sumstats_parser.add_argument(
     "--null-model",
     help="Directory to null model.",
 )
+rv_sumstats_parser.add_argument(
+    "--bandwidth",
+    type=int,
+    help="Bandwidth of banded LD matrix. Default: 5000"
+)
 
 rv_sumstats_parser.add_argument(
     "--mac-thresh",
@@ -928,6 +933,7 @@ def check_accepted_args(module, args, log):
             "call_rate",
             "mac_thresh",
             "chr_interval",
+            "bandwidth",
             "n_ldrs",
             "keep",
             "remove",
