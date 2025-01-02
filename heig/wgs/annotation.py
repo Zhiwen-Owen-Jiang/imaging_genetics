@@ -202,6 +202,8 @@ def check_input(args, log):
         raise ValueError("either --favor-annot or --general-annot is required")
     elif args.favor_annot is not None and args.general_annot is not None:
         log.info("WARNING: ignore --general-annot as --favor-annot specified.")
+    if args.annot_cols is not None:
+        args.annot_cols = args.annot_cols.split(",")
 
 
 def check_valid(annot, log):

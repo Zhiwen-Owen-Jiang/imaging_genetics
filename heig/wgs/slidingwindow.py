@@ -1,9 +1,15 @@
 import hail as hl
 from tqdm import tqdm
 import numpy as np
-from heig.wgs.wgs import RVsumstats
+from heig.wgs.wgs2 import RVsumstats
 from heig.wgs.vsettest import VariantSetTest 
 from heig.wgs.utils import *
+
+
+"""
+TODO: load all data into memory
+
+"""
 
 
 class GeneralAnnotation:
@@ -12,20 +18,20 @@ class GeneralAnnotation:
     
     """
 
-    def __init__(self, rv_sumstats, variant_type, annot=None, annot_cols=None):
+    def __init__(self, rv_sumstats, annot=None, annot_cols=None):
         """
         Parameters:
         ------------
         rv_sumstats: a RVsumstats instance
-        variant_type: one of ('variant', 'snv', 'indel')
         annot: a hail.Table of annotations
         annot_cols: annotations used as weights
         
         """
         self.rv_sumstats = rv_sumstats
         self.annot_cols = annot_cols
-        if variant_type == 'snv' and annot is not None:
+        if annot is not None:
             self.rv_sumstats.annotate(annot)
+        self.rv_sumstats.locus = self.rv_sumstats.locus.cache()
         
     def _parse_annot(self, idx):
         """
@@ -43,25 +49,30 @@ class GeneralAnnotation:
         is_rare: a np.array of boolean indices indicating MAC < mac_threshold
 
         """
-        if "annot" in self.rv_sumstats.locus and self.annot_cols is not None:
-            if idx is not None:
-                filtered_annot = self.rv_sumstats.locus.filter(idx)
-            else:
-                filtered_annot = self.rv_sumstats.locus
-            numeric_idx = filtered_annot.idx.collect()
-            annot = filtered_annot.select(*self.annot_cols).collect()
+        if idx is not None:
+            filtered_annot = self.rv_sumstats.locus.filter(idx)
+        else:
+            filtered_annot = self.rv_sumstats.locus
+        numeric_idx = filtered_annot.idx.collect()
+        if len(numeric_idx) <= 1:
+            return numeric_idx, None
+        
+        if "annot" in self.rv_sumstats.locus.row and self.annot_cols is not None:
+            annot = filtered_annot.annot.select(*self.annot_cols).collect()
             annot = np.array(
                 [
                     [getattr(row, col) for col in self.annot_cols]
                     for row in annot
                 ]
             )
+            if annot.dtype == object:
+                raise TypeError('annotations must be numerical data')
+            if np.isnan(annot).any():
+                raise ValueError('missing values are not allowed in annotations')
         else:
             annot = None
-        maf = np.array(filtered_annot.maf.collect())
-        is_rare = np.array(filtered_annot.is_rare.collect())
 
-        return numeric_idx, annot, maf, is_rare
+        return numeric_idx, annot
 
     def parse_data(self, idx):
         """
@@ -80,8 +91,11 @@ class GeneralAnnotation:
         annot : a np.array of annotations
         
         """
-        numeric_idx, annot, maf, is_rare = self._parse_annot(idx)
-        half_ldr_score, cov_mat = self.rv_sumstats.parse_data(numeric_idx)
+        numeric_idx, annot = self._parse_annot(idx)
+        if len(numeric_idx) <= 1:
+            half_ldr_score, cov_mat, maf, is_rare = None, None, None, None
+        else:
+            half_ldr_score, cov_mat, maf, is_rare = self.rv_sumstats.parse_data(numeric_idx)
 
         return half_ldr_score, cov_mat, maf, is_rare, annot
 
@@ -95,7 +109,6 @@ class SlidingWindow(GeneralAnnotation):
     def __init__(
             self, 
             rv_sumstats, 
-            variant_type, 
             annot=None, 
             annot_cols=None, 
             window_length=None
@@ -106,7 +119,7 @@ class SlidingWindow(GeneralAnnotation):
         window_length: size of sliding window
         
         """
-        super().__init__(rv_sumstats, variant_type, annot, annot_cols)
+        super().__init__(rv_sumstats, annot, annot_cols)
         self.geno_ref = self.rv_sumstats.locus.reference_genome.collect()[0]
         self.chr, self.start, self.end = rv_sumstats.get_interval()
         self.window_length = window_length
@@ -136,42 +149,58 @@ class SlidingWindow(GeneralAnnotation):
         """
         for start, end in self.windows:
             interval = hl.locus_interval(self.chr, start, end, reference_genome=self.geno_ref)
-            window = interval.contains(self.rv_sumstats.locus)
+            window = interval.contains(self.rv_sumstats.locus.locus)
             half_ldr_score, cov_mat, maf, is_rare, annot = self.parse_data(window)
 
             yield half_ldr_score, cov_mat, maf, is_rare, annot, self.chr, start, end
 
 
-def vset_analysis(rv_sumstats, variant_type, vset_test, 
-                  annot, annot_cols, window_length, log):
-    # getting annotations and specific categories of variants
-    rv_sumstats.annotate(annot)
-    log.info(f"{rv_sumstats.n_variants} variants overlapping in summary statistics and annotations.")
+def vset_analysis(rv_sumstats, vset_test, annot, annot_cols, window_length, log):
+    """
+    Variant set analysis
 
+    Parameters:
+    ------------
+    rv_sumstats: a RVsumstats instance
+    annot: a hail.Table of locus containing annotations
+    vset_test: an instance of VariantSetTest
+    annot_cols: a list of columns of annotations to use
+    window_length: window length
+    log: a logger
+
+    Returns:
+    ---------
+    pvalues: a dict (keys: vset/window_idx, values: p-value)
+    
+    """
     # analysis
-    pvalues = dict()
+    all_pvalues = dict()
     if window_length is None:
-        general_annot = GeneralAnnotation(rv_sumstats, variant_type, annot, annot_cols)
+        general_annot = GeneralAnnotation(rv_sumstats, annot, annot_cols)
         half_ldr_score, cov_mat, maf, is_rare, annot = general_annot.parse_data()
-        if maf.shape[0] <= 1:
+        if half_ldr_score is None:
             log.info(f"Less than 2 variants, skip the analysis.")
         else:
+            chr, start, end = rv_sumstats.get_interval()
             vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, annot)
             log.info(
-                f"Doing analysis the variant set ({vset_test.n_variants} variants) ..."
+                f"Doing analysis for variant set ({vset_test.n_variants} variants) ..."
             )
             pvalues = vset_test.do_inference(general_annot.annot_cols)
-            pvalues['vset'] = {
+            all_pvalues['vset'] = {
                 "n_variants": vset_test.n_variants,
                 "pvalues": pvalues,
+                "chr": chr,
+                "start": start,
+                "end": end
             }
     else:
-        sliding_window = SlidingWindow(rv_sumstats, variant_type, annot, annot_cols, window_length)
+        sliding_window = SlidingWindow(rv_sumstats, annot, annot_cols, window_length)
         n_windows = len(sliding_window.windows)
         log.info(f"Partitioned the variant set into {n_windows} windows")
         for i, *results in tqdm(enumerate(sliding_window.parse_window_data()), total=n_windows, desc="Analyzing windows"):
-            half_ldr_score, cov_mat, maf, is_rare, annot, chr, start, end = results
-            if maf.shape[0] <= 1:
+            half_ldr_score, cov_mat, maf, is_rare, annot, chr, start, end = results[0]
+            if half_ldr_score is None:
                 log.info(f"Less than 2 variants, skip window {i+1}.")
             else:
                 vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, annot)
@@ -179,7 +208,7 @@ def vset_analysis(rv_sumstats, variant_type, vset_test,
                     f"Doing analysis for window {i+1} ({vset_test.n_variants} variants) ..."
                 )
                 pvalues = vset_test.do_inference(sliding_window.annot_cols)
-                pvalues[f'window{i+1}'] = {
+                all_pvalues[f'window{i+1}'] = {
                     "n_variants": vset_test.n_variants,
                     "pvalues": pvalues,
                     "chr": chr,
@@ -187,7 +216,7 @@ def vset_analysis(rv_sumstats, variant_type, vset_test,
                     "end": end
                 }
 
-    return pvalues
+    return all_pvalues
 
 
 def check_input(args, log):
@@ -196,9 +225,12 @@ def check_input(args, log):
         raise ValueError("--rv-sumstats is required")
     if args.spark_conf is None:
         raise ValueError("--spark-conf is required")
-    if args.maf_max is None and args.maf_min < 0.01:
-        args.maf_max = 0.01
-        log.info(f"Set --maf-max as default 0.01")
+    if args.annot_cols is not None:
+        args.annot_cols = args.annot_cols.split(",")
+    # if args.maf_max is None:
+    #     if args.maf_min is not None and args.maf_min < 0.01 or args.maf_min is None:
+    #         args.maf_max = 0.01
+    #         log.info(f"Set --maf-max as default 0.01")
 
 
 def run(args, log):
@@ -211,7 +243,7 @@ def run(args, log):
     rv_sumstats = RVsumstats(args.rv_sumstats)
     rv_sumstats.extract_exclude_locus(args.extract_locus, args.exclude_locus)
     rv_sumstats.extract_chr_interval(args.chr_interval)
-    rv_sumstats.extract_maf(args.max_min, args.maf_max)
+    rv_sumstats.extract_maf(args.maf_min, args.maf_max)
     rv_sumstats.select_ldrs(args.n_ldrs)
     rv_sumstats.select_voxels(args.voxels)
 
@@ -223,9 +255,8 @@ def run(args, log):
 
     # single gene analysis
     vset_test = VariantSetTest(rv_sumstats.bases, rv_sumstats.var)
-    pvalues = vset_analysis(
+    all_pvalues = vset_analysis(
         rv_sumstats, 
-        rv_sumstats.variant_type, 
         vset_test,
         annot, 
         args.annot_cols, 
@@ -234,17 +265,17 @@ def run(args, log):
     )
 
     # format output
-    for window_idx, results in pvalues.items():
+    for window_idx, window_results in all_pvalues.items():
         results = format_output(
-            pvalues["pvalues"],
-            pvalues["n_variants"],
+            window_results["pvalues"],
+            window_results["n_variants"],
             rv_sumstats.voxel_idxs,
-            results["chr"],
-            results["start"],
-            results["end"],
+            window_results["chr"],
+            window_results["start"],
+            window_results["end"],
             window_idx
         )
-        out_path = f"{args.out}.txt"
+        out_path = f"{args.out}_{window_idx}.txt"
         results.to_csv(
             out_path,
             sep="\t",
@@ -253,4 +284,4 @@ def run(args, log):
             index=None,
             float_format="%.5e",
         )
-        log.info(f"\nSave results to {out_path}")
+        log.info(f"Save {window_idx} results to {out_path}")

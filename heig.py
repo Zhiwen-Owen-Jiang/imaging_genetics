@@ -716,7 +716,8 @@ rv_sumstats_parser.add_argument(
 # arguments for slidingwindow.py
 rv_parser.add_argument(
     "--window-length",
-    help="Length of sliding window."
+    type=int,
+    help="Length of sliding window. E.g., 10000 means 10kb."
 )
 
 # arguments for cluster.py
