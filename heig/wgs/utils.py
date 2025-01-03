@@ -86,8 +86,9 @@ def init_hail(spark_conf_file, grch37, out, log):
         geno_ref = "GRCh38"
     log.info(f"Set {geno_ref} as the reference genome.")
 
-    tmpdir = out + 'tmp'
-    hl.init(quiet=True, spark_conf=spark_conf, local_tmpdir=tmpdir)
+    tmpdir = out + '_tmp'
+    logdir = out + '_hail.log'
+    hl.init(quiet=True, spark_conf=spark_conf, local_tmpdir=tmpdir, log=logdir)
     hl.default_reference = geno_ref
 
 
@@ -646,6 +647,10 @@ class GProcessor:
             chr = int(chr)
 
         return chr, min_pos, max_pos
+    
+    def cache(self):
+        self.snps_mt = self.snps_mt.cache()
+        self.logger.info("Caching the genotype data in memory.")
 
 
 def read_genotype_data(args, log):
@@ -716,12 +721,12 @@ def parse_interval(range, geno_ref=None):
     return start_chr, start_pos, end_pos
 
 
-def get_temp_path():
+def get_temp_path(outpath):
     """
     Generating a path for saving temporary files
 
     """
-    temp_path = "temp"
+    temp_path = outpath + "temp"
     i = np.random.choice(1000000, 1)[0]  # randomly select a large number
     temp_path += str(i)
 

@@ -593,12 +593,11 @@ def run(args, log):
     gprocessor.do_processing(mode="gwas")
 
     try:
-        temp_path = get_temp_path()
+        temp_path = get_temp_path(args.out)
         if not args.not_save_genotype_data:
             gprocessor.save_interim_data(temp_path)
 
         # get common subjects
-        # gprocessor.check_valid()
         snps_mt_ids = gprocessor.subject_id()
         ldrs.to_single_index()
         covar.to_single_index()
@@ -620,6 +619,7 @@ def run(args, log):
             genome_part = None
             log.info(f"Partition the genome into blocks of size ~{args.bsize} ...")
 
+        gprocessor.cache()
         geno_block = GenoBlocks(gprocessor.snps_mt, genome_part, args.bsize)
         blocks, chr_idxs = geno_block.blocks, geno_block.chr_idxs
 

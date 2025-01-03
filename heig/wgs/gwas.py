@@ -197,7 +197,7 @@ class DoGWAS:
             y=pheno_list,
             x=snps_mt.GT.n_alt_alleles(),
             covariates=covar_list,
-            pass_through=[snps_mt.rsid, snps_mt.info.n_called],
+            pass_through=[snps_mt.rsid, snps_mt.info.n_called, snps_mt.info.AF],
         )
 
         gwas = gwas.annotate(
@@ -205,9 +205,10 @@ class DoGWAS:
             pos=gwas.locus.position,
             ref_allele=gwas.alleles[0],
             alt_allele=gwas.alleles[1],
+            alt_allele_freq=gwas.AF[1]
         )
         gwas = gwas.key_by()
-        gwas = gwas.drop(*["locus", "alleles", "y_transpose_x", "sum_x"])
+        gwas = gwas.drop(*["locus", "alleles", "y_transpose_x", "sum_x", "AF"])
         # gwas = gwas.drop(*['locus', 'alleles', 'n'])
         gwas = gwas.select(
             "chr",
@@ -216,6 +217,7 @@ class DoGWAS:
             "ref_allele",
             "alt_allele",
             "n_called",
+            "alt_allele_freq",
             "beta",
             "standard_error",
             "t_stat",
@@ -304,9 +306,8 @@ def run(args, log):
         gprocessor.extract_chr_interval(args.chr_interval)
         gprocessor.keep_remove_idvs(common_ids)
         gprocessor.do_processing(mode="gwas")
-        # gprocessor.check_valid()
 
-        temp_path = get_temp_path()
+        temp_path = get_temp_path(args.out)
         if not args.not_save_genotype_data:
             gprocessor.save_interim_data(temp_path)
 
