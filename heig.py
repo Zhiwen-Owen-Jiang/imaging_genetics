@@ -723,6 +723,7 @@ rv_parser.add_argument(
 # arguments for cluster.py
 cluster_parser.add_argument(
     "--n-bootstrap",
+    type=int,
     help="Number of bootstrap samples. Default 1000."
 )
 
@@ -1024,7 +1025,8 @@ def check_accepted_args(module, args, log):
             "exclude",
             "chr_interval",
             "loco_preds",
-            "not_save_genotype_data"
+            "not_save_genotype_data",
+            "threads"
         }
     }
 
