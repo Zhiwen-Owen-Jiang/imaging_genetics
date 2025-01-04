@@ -1128,11 +1128,15 @@ def process_args(args, log):
             raise ValueError("voxel index must be one-based")
 
     if args.maf_min is not None:
-        if args.maf_min >= 0.5 or args.maf_min <= 0:
-            raise ValueError("--maf-min must be greater than 0 and less than 0.5")
+        if args.maf_min >= 0.5 or args.maf_min < 0:
+            raise ValueError("--maf-min must be >= 0 and < 0.5")
+        if args.maf_max is None:
+            args.maf_max = 0.5
     if args.maf_max is not None:
-        if args.maf_max >= 0.5 or args.maf_max <= 0:
-            raise ValueError("--maf-max must be greater than 0 and less than 0.5")
+        if args.maf_max > 0.5 or args.maf_max <= 0:
+            raise ValueError("--maf-max must be > 0 and <= 0.5")
+        if args.maf_min is None:
+            args.maf_min = 0
     if args.hwe is not None and args.hwe <= 0:
         raise ValueError("--hwe must be greater than 0")
     if args.call_rate is not None and args.call_rate <= 0:
