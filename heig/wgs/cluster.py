@@ -4,7 +4,9 @@ import shutil
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from scipy.stats import chi2
+from scipy.stats import chi2, nbinom
+from scipy.special import digamma, gammaln
+from scipy.optimize import minimize
 import heig.input.dataset as ds
 from heig.wgs.gwas import DoGWAS
 from heig.wgs.null import fit_null_model
@@ -80,7 +82,6 @@ class Cluster:
         self.bases = bases
         self.voxels = voxels
         self.temp_path = temp_path
-        # self.sig_thresh = sig_thresh
         self.thresh_chisq = chi2.ppf(1 - sig_thresh, 1)
         self.threads = threads
         self.loco_preds = loco_preds
@@ -172,7 +173,6 @@ class Cluster:
             voxel_beta = vgwas.recover_beta(voxel_idxs, self.threads)
             voxel_se = vgwas.recover_se(voxel_idxs, voxel_beta)
             voxel_z = voxel_beta / voxel_se
-            # all_sig_idxs = np.ones(voxel_z.shape, dtype=bool)
             all_sig_idxs = voxel_z * voxel_z >= self.thresh_chisq
             all_sig_idxs_voxel = all_sig_idxs.any(axis=0)
 
@@ -199,17 +199,40 @@ class Cluster:
         self._do_vgwas(rand_v)
 
         vgwas = pd.read_csv(f"{self.temp_path}_bootstrap_vgwas.txt", sep="\t")
-        # vgwas["sig"] = vgwas["P"] < self.sig_thresh
-        # null_cluster_size = list(vgwas.groupby("SNP")["sig"].apply(sum))
         null_cluster_size = list(vgwas['SNP'].value_counts())
         null_cluster_size += [0] * (self.n_snps - len(null_cluster_size))
 
         return null_cluster_size
     
-    @staticmethod
-    def _split_by_maf(vgwas):
-        maf_bins = [0, 0.05, 0.1, 0.25, 0.5]
-        vgwas[vgwas['alt_allele_freq'] > 0.5] = 1 - vgwas[vgwas['alt_allele_freq'] > 0.5]
+
+class NegativeBinom:
+    def __init__(self, data, initial_params):
+        self.data = data
+        self.initial_params = initial_params
+        self.r, self.p = self._negative_binom()
+    
+    def _neg_log_likelihood(self, params, data):
+        r, p = params
+        if r <= 0 or p <= 0 or p >= 1:  # Constraints
+            return np.inf
+        log_likelihood = (
+            np.sum(gammaln(data + r)) -
+            len(data) * gammaln(r) +
+            len(data) * r * np.log(p) +
+            np.sum(data * np.log(1 - p)) -
+            np.sum(gammaln(data + 1))
+        )
+        return -log_likelihood
+
+    def _negative_binom(self):
+        result = minimize(
+        self.neg_log_likelihood,
+        self.initial_params,
+        args=(self.data,),
+        bounds=[(1e-6, None), (1e-6, 1 - 1e-6)],  # Bounds for r and p
+        method="L-BFGS-B"
+    )
+        return result.x
 
 
 def calculate_resid_ldrs(ldrs, covar):
@@ -248,7 +271,7 @@ def check_input(args):
     if args.sig_thresh is None:
         raise ValueError("--sig-thresh is required")
     if args.n_bootstrap is None:
-        args.n_bootstrap = 1000
+        args.n_bootstrap = 50
 
 
 def run(args, log):
@@ -349,7 +372,6 @@ def run(args, log):
             args.voxels = np.arange(bases.shape[0])
 
         # wild bootstrap
-        gprocessor.cache()
         cluster = Cluster(
             gprocessor, 
             resid_ldrs, 
@@ -366,11 +388,16 @@ def run(args, log):
             desc=f"{args.n_bootstrap} bootstrap samples"
         ):
             null_cluster_size = cluster.cluster_analysis()
-            with open(args.out, "a") as file:
+            with open(args.out + ".txt", "a") as file:
                 file.write("\n".join(str(x) for x in null_cluster_size) + "\n")
 
+        null_data = pd.read_csv(f"{args.out}.txt", header=None)[0].values
+        nega_binom = NegativeBinom(null_data, [0.0001, 0.01])
+        log.info(f"Negative binomial parameters: {nega_binom.r}, {nega_binom.p}")
+        log.info(f"Cluster size threshold at 5e-8: {nbinom.ppf(1-5 * 10**-8, nega_binom.r, nega_binom.p)}")
+
         # save results
-        log.info(f"\nSave null distribution of cluster size to {args.out}")
+        log.info(f"\nSave null distribution of cluster size to {args.out}.txt")
 
     finally:
         if "temp_path" in locals():
