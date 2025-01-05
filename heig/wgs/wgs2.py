@@ -84,44 +84,62 @@ class RV:
         self.half_ldr_score = vset @ self.resid_ldr # Z'(I-M)\Xi, (m, r)
 
         # Z'Z
-        vset_ld = vset @ vset.T  # Z'Z, sparse matrix (m, m)
-        banded_vset_ld = self._make_sparse_banded(vset_ld, bandwidth)
+        self.banded_vset_ld = self._sparse_banded(vset, bandwidth) # Z'Z, sparse matrix (m, m) 
         self.bandwidth = bandwidth
-        self.vset_ld_diag, self.vset_ld_data, self.vset_ld_row, self.vset_ld_col = banded_vset_ld
-        self.vset_ld_shape = vset_ld.shape
 
         # Z'X(X'X)^{-1/2} = Z'UV', where X = UDV'
         self.vset_half_covar_proj = vset @ self.half_covar_proj # Z'UV', (m, p)
-        
+
     @staticmethod
-    def _make_sparse_banded(matrix, bandwidth):
+    def _sparse_banded(vset, bandwidth):
         """
-        Convert a sparse matrix into a sparse banded matrix.
+        Create a sparse banded LD matrix by blocks
+
+        1. Computing a LD rectangle of shape (bandwidth, 2bandwidth)
+        2. Extracting the upper band of bandwidth
+        3. Moving to the next rectangle
 
         Parameters:
         ------------
-        matrix (csr_matrix): sparse matrix.
+        vset (m, n): csr_matrix
         bandwidth (int): bandwidth around the diagonal to retain.
 
         Returns:
         ---------
         banded_matrix: Sparse banded matrix.
-
+        
         """
-        if not isinstance(matrix, csr_matrix):
-            raise ValueError("Input matrix must be a csr_matrix.")
-        
-        row, col = matrix.nonzero() # both are np.array
-        data = matrix.data
-        
-        diagonal_data = data[row == col]
-        mask = (np.abs(row - col) <= bandwidth) & (col > row)
-        banded_row = row[mask]
-        banded_col = col[mask]
-        banded_data = data[mask]
-        
-        return diagonal_data, banded_data, banded_row, banded_col
+        diagonal_data = list()
+        banded_data = list()
+        banded_row = list()
+        banded_col = list()
+        n_variants = vset.shape[0]
 
+        for start in range(0, n_variants, bandwidth):
+            end1 = start + bandwidth
+            end2 = end1 + bandwidth
+            vset_block1 = vset[start:end1]
+            vset_block2 = vset[start:end2]
+            ld_rec = vset_block1 @ vset_block2.T
+            ld_rec_row, ld_rec_col = ld_rec.nonzero()
+            ld_rec_row += start
+            ld_rec_col += start
+            ld_rec_data = ld_rec.data
+
+            diagonal_data.append(ld_rec_data[ld_rec_row == ld_rec_col])
+            mask = (np.abs(ld_rec_row - ld_rec_col) <= bandwidth) & (ld_rec_col > ld_rec_row)
+            banded_row.append(ld_rec_row[mask])
+            banded_col.append(ld_rec_col[mask])
+            banded_data.append(ld_rec_data[mask])
+
+        diagonal_data = np.concatenate(diagonal_data)
+        banded_row = np.concatenate(banded_row)
+        banded_col = np.concatenate(banded_col)
+        banded_data = np.concatenate(banded_data)
+        shape = np.array([n_variants, n_variants])
+        
+        return diagonal_data, banded_data, banded_row, banded_col, shape
+        
     def save(self, output_dir):
         """
         Saving summary statistics
@@ -132,11 +150,11 @@ class RV:
             file.create_dataset('var', data=self.var, dtype='float32')
             file.create_dataset('half_ldr_score', data=self.half_ldr_score, dtype='float32')
             file.create_dataset('vset_half_covar_proj', data=self.vset_half_covar_proj, dtype='float32')
-            file.create_dataset('vset_ld_diag', data=self.vset_ld_diag, dtype='float32')
-            file.create_dataset('vset_ld_data', data=self.vset_ld_data, dtype='float32')
-            file.create_dataset('vset_ld_row', data=self.vset_ld_row)
-            file.create_dataset('vset_ld_col', data=self.vset_ld_col)
-            file.create_dataset('vset_ld_shape', data=np.array(self.vset_ld_shape))
+            file.create_dataset('vset_ld_diag', data=self.banded_vset_ld[0], dtype='float32')
+            file.create_dataset('vset_ld_data', data=self.banded_vset_ld[1], dtype='float32')
+            file.create_dataset('vset_ld_row', data=self.banded_vset_ld[2])
+            file.create_dataset('vset_ld_col', data=self.banded_vset_ld[3])
+            file.create_dataset('vset_ld_shape', data=self.banded_vset_ld[4])
             file.attrs['n_subs'] = self.n_subs
             file.attrs['n_variants'] = self.n_variants
             file.attrs['bandwidth'] = self.bandwidth
