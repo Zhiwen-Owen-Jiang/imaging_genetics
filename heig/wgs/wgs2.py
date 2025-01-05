@@ -55,18 +55,19 @@ class RV:
 
         # variance
         inner_ldr = np.dot(resid_ldr.T, resid_ldr)  # \Xi'(I-M)\Xi, (r, r)
-        var = np.sum(np.dot(bases, inner_ldr) * bases, axis=1) / (
-            covar.shape[0] - covar.shape[1]
-        )  # (N, ), save once
+        # var = np.sum(np.dot(bases, inner_ldr) * bases, axis=1) / (
+        #     covar.shape[0] - covar.shape[1]
+        # )  # (N, ), save once
 
         # X = UDV', X'(X'X)^{-1/2} = UV'
         covar_U, _, covar_Vt = np.linalg.svd(covar, full_matrices=False)
 
         self.resid_ldr = resid_ldr.astype(np.float32)
-        self.var = var.astype(np.float32)
+        self.inner_ldr = inner_ldr
+        # self.var = var.astype(np.float32)
         self.half_covar_proj = np.dot(covar_U, covar_Vt).astype(np.float32)
         self.bases = bases.astype(np.float32)
-        self.n_subs = covar.shape[0]
+        self.n_subs, self.n_covars = covar.shape
         
     def sumstats(self, vset, bandwidth=5000):
         """
@@ -147,7 +148,8 @@ class RV:
         """
         with h5py.File(f"{output_dir}_rv_sumstats.h5", 'w') as file:
             file.create_dataset('bases', data=self.bases, dtype='float32')
-            file.create_dataset('var', data=self.var, dtype='float32')
+            # file.create_dataset('var', data=self.var, dtype='float32')
+            file.create_dataset('inner_ldr', data=self.inner_ldr, dtype='float32')
             file.create_dataset('half_ldr_score', data=self.half_ldr_score, dtype='float32')
             file.create_dataset('vset_half_covar_proj', data=self.vset_half_covar_proj, dtype='float32')
             file.create_dataset('vset_ld_diag', data=self.banded_vset_ld[0], dtype='float32')
@@ -156,6 +158,7 @@ class RV:
             file.create_dataset('vset_ld_col', data=self.banded_vset_ld[3])
             file.create_dataset('vset_ld_shape', data=self.banded_vset_ld[4])
             file.attrs['n_subs'] = self.n_subs
+            file.attrs['n_covars'] = self.n_covars
             file.attrs['n_variants'] = self.n_variants
             file.attrs['bandwidth'] = self.bandwidth
         self.locus.write(f'{output_dir}_locus_info.ht', overwrite=True)
@@ -177,11 +180,13 @@ class RVsumstats:
 
         with h5py.File(f"{prefix}_rv_sumstats.h5", 'r') as file:
             self.bases = file['bases'][:] # (N, r)
-            self.var = file['var'][:] # (N, )
+            # self.var = file['var'][:] # (N, )
+            self.inner_ldr = file['inner_ldr'][:] # (r, r)
             self.half_ldr_score = file['half_ldr_score'][:]
             self.vset_half_covar_proj = file['vset_half_covar_proj'][:]
             self.n_variants = file.attrs['n_variants']
             self.n_subs = file.attrs['n_subs']
+            self.n_covars = file.attrs['n_covars']
             self.bandwidth = file.attrs['bandwidth']
 
             vset_ld_diag = file['vset_ld_diag'][:]
@@ -197,6 +202,10 @@ class RVsumstats:
 
         self.voxel_idxs = np.arange(self.bases.shape[0])
         self.logger = logging.getLogger(__name__)
+
+    def calculate_var(self):
+        self.var = np.sum(np.dot(self.bases, self.inner_ldr) * self.bases, axis=1)
+        self.var /= (self.n_subs - self.n_covars) # (N, )
 
     @staticmethod
     def _reconstruct_vset_ld(diag, data, row, col, shape):
@@ -233,6 +242,7 @@ class RVsumstats:
             if n_ldrs <= self.bases.shape[1] and n_ldrs <= self.half_ldr_score.shape[1]:
                 self.bases = self.bases[:, :n_ldrs]
                 self.half_ldr_score = self.half_ldr_score[:, :n_ldrs]
+                self.inner_ldr = self.inner_ldr[:n_ldrs, :n_ldrs]
                 self.logger.info(f"Keep the top {n_ldrs} LDRs.")
             else:
                 raise ValueError("--n-ldrs is greater than #LDRs")
@@ -333,7 +343,7 @@ class RVsumstats:
             raise ValueError('the variant set has exceeded the bandwidth of LD matrix')
         half_ldr_score = np.array(self.half_ldr_score[numeric_idx])
         vset_half_covar_proj = np.array(self.vset_half_covar_proj[numeric_idx])
-        vset_ld = np.array(self.vset_ld[numeric_idx, numeric_idx])
+        vset_ld = self.vset_ld[numeric_idx][:, numeric_idx]
         cov_mat = np.array((vset_ld - vset_half_covar_proj @ vset_half_covar_proj.T))
         maf = self.maf[numeric_idx]
         is_rare = self.is_rare[numeric_idx]
