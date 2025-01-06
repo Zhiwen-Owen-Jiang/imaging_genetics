@@ -144,8 +144,6 @@ def run(args, log):
     ldrs.keep_and_remove(common_idxs)
     # ldrs.to_single_index()
     ids = ldrs.get_ids()
-    covar.data = np.array(covar.data)
-    ldrs.data = np.array(ldrs.data)
 
     # keep selected LDRs
     if args.n_ldrs is not None:
@@ -154,6 +152,8 @@ def run(args, log):
         n_ldrs = np.min((ldrs.data.shape[1], bases.shape[1]))
     bases, _, _, ldrs.data = ds.keep_ldrs(n_ldrs, bases, resid_ldrs=ldrs.data)
     log.info(f"Keep the top {n_ldrs} LDRs and bases.")
+    covar.data = np.array(covar.data)
+    ldrs.data = np.array(ldrs.data)
 
     # fit the null model
     resid_ldr = fit_null_model(covar.data, ldrs.data)
