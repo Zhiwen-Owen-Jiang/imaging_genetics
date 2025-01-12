@@ -864,25 +864,30 @@ class GWASHEIG(GWASLDR):
                     chunks=(chunk_size, last_z.shape[1]),
                     )
 
-    def process(self, threads):
+    def process(self, threads, is_valid_snp=None, snpinfo=None):
         """
         Processing LDR GWAS summary statistics.
 
         """
-        self.logger.info(
-            (
-                f"Reading and processing {self.n_gwas_files} LDR GWAS summary statistics files. "
-                "Only the first GWAS file will be QCed ..."
+        if is_valid_snp is None and snpinfo is None:
+            self.logger.info(
+                (
+                    f"Reading and processing {self.n_gwas_files} LDR GWAS summary statistics files. "
+                    "Only the first GWAS file will be QCed ..."
+                )
             )
-        )
-        is_valid_snp, snpinfo = self._qc()
-        self.logger.info("Reading and processing remaining GWAS files ...")
+            is_valid_snp, snpinfo = self._qc()
+            self._save_snpinfo(snpinfo)
+            self.logger.info("Reading and processing remaining GWAS files ...")
+
+        self._create_dataset(snpinfo.shape[0])
         is_last_file = False
         for i, gwas_file in enumerate(self.gwas_files):
             if i == self.n_gwas_files - 1:
                 is_last_file = True
             self._read_save(is_valid_snp, gwas_file, is_last_file, threads)
-        self._save_snpinfo(snpinfo)
+        
+        return is_valid_snp, snpinfo
 
     def _qc(self):
         """
@@ -914,7 +919,7 @@ class GWASHEIG(GWASLDR):
 
         is_valid_snp = valid_snp_idxs == 1
         snpinfo = orig_snps_list.loc[is_valid_snp].reset_index(drop=True)
-        self._create_dataset(gwas_data.shape[0])
+        # self._create_dataset(gwas_data.shape[0])
 
         return is_valid_snp, snpinfo
 

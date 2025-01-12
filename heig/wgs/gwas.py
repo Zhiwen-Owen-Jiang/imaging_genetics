@@ -353,5 +353,5 @@ def run(args, log):
             if os.path.exists(f"{temp_path}_ldr.txt"):
                 os.remove(f"{temp_path}_ldr.txt")
                 log.info(f"Removed temporary LDR data at {temp_path}_ldr.txt")
-        if args.loco_preds is not None:
+        if 'loco_preds' in locals() and args.loco_preds is not None:
             loco_preds.close()

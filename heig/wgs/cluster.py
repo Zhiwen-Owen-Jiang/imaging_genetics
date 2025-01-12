@@ -4,9 +4,7 @@ import shutil
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from scipy.stats import chi2, nbinom
-from scipy.special import gammaln
-from scipy.optimize import minimize
+from scipy.stats import chi2
 import heig.input.dataset as ds
 from heig.wgs.gwas import DoGWAS
 from heig.wgs.null import fit_null_model
@@ -85,6 +83,8 @@ class Cluster:
         self.n_subs = resid_ldrs.shape[0]
         self.cols_map, self.cols_map2 = self._map_cols()
 
+        self.is_valid_snp, self.snpinfo = None, None
+
     @staticmethod
     def _map_cols():
         """
@@ -126,7 +126,6 @@ class Cluster:
     def _do_ldr_gwas(self, rand_v):
         """
         A wrapper function for doing LDR GWAS
-        TODO: if too many LDRs, need to do LDR GWAS separately
 
         """
         ldr_gwas = DoGWAS(
@@ -150,7 +149,10 @@ class Cluster:
             self.cols_map2,
             f"{self.temp_path}_bootstrap_ldr_sumstats"
         )
-        sumstats.process(self.threads)
+        if self.is_valid_snp is None and self.snpinfo is None:
+            self.is_valid_snp, self.snpinfo = sumstats.process(self.threads, self.is_valid_snp, self.snpinfo)
+        else:
+            sumstats.process(self.threads, self.is_valid_snp, self.snpinfo)
 
     def _do_vgwas(self, rand_v):
         """
@@ -202,36 +204,6 @@ class Cluster:
         return null_cluster_size
     
 
-class NegativeBinom:
-    def __init__(self, data, initial_params):
-        self.data = data
-        self.initial_params = initial_params
-        self.r, self.p = self._negative_binom()
-    
-    def _neg_log_likelihood(self, params, data):
-        r, p = params
-        if r <= 0 or p <= 0 or p >= 1:  # Constraints
-            return np.inf
-        log_likelihood = (
-            np.sum(gammaln(data + r)) -
-            len(data) * gammaln(r) +
-            len(data) * r * np.log(p) +
-            np.sum(data * np.log(1 - p)) -
-            np.sum(gammaln(data + 1))
-        )
-        return -log_likelihood
-
-    def _negative_binom(self):
-        result = minimize(
-        self._neg_log_likelihood,
-        self.initial_params,
-        args=(self.data,),
-        bounds=[(1e-6, None), (1e-6, 1 - 1e-6)],  # Bounds for r and p
-        method="L-BFGS-B"
-    )
-        return result.x
-
-
 def calculate_resid_ldrs(ldrs, covar):
     """
     Calculating LDR residuals
@@ -265,8 +237,9 @@ def check_input(args, log):
         raise ValueError("--bases is required")
     if args.ldr_cov is None:
         raise ValueError("--ldr-cov is required")
-    # if args.sig_thresh is None:
-    #     raise ValueError("--sig-thresh is required")
+    if args.sig_thresh is None:
+        args.sig_thresh = 0.00001
+        log.info('Set significance threshold as 0.00001')
     if args.n_bootstrap is None:
         args.n_bootstrap = 50
         log.info('Set #bootstrap as 50')
@@ -377,7 +350,7 @@ def run(args, log):
             bases, 
             args.voxels, 
             temp_path, 
-            0.00001, 
+            args.sig_thresh, 
             args.threads, 
             loco_preds
         )
@@ -388,11 +361,6 @@ def run(args, log):
             null_cluster_size = cluster.cluster_analysis()
             with open(args.out + ".txt", "a") as file:
                 file.write("\n".join(str(x) for x in null_cluster_size) + "\n")
-
-        null_data = pd.read_csv(f"{args.out}.txt", header=None)[0].values
-        nega_binom = NegativeBinom(null_data, [0.0001, 0.01])
-        log.info(f"Negative binomial parameters: {nega_binom.r}, {nega_binom.p}")
-        log.info(f"Cluster size threshold at 5e-8: {nbinom.ppf(1-5 * 10**-8, nega_binom.r, nega_binom.p)}")
 
         # save results
         log.info(f"\nSave null distribution of cluster size to {args.out}.txt")
@@ -415,10 +383,11 @@ def run(args, log):
                 os.remove(f"{temp_path}_ldr.txt")
             if os.path.exists(f"{temp_path}_bootstrap_ldr_gwas.parquet"):
                 shutil.rmtree(f"{temp_path}_bootstrap_ldr_gwas.parquet")
-            if os.path.exists(f"{temp_path}_bootstrap_ldr_sumstats"):
+            if os.path.exists(f"{temp_path}_bootstrap_ldr_sumstats.sumstats"):
                 os.remove(f"{temp_path}_bootstrap_ldr_sumstats.sumstats")
+            if os.path.exists(f"{temp_path}_bootstrap_ldr_sumstats.snpinfo"):
                 os.remove(f"{temp_path}_bootstrap_ldr_sumstats.snpinfo")
             if os.path.exists(f"{temp_path}_bootstrap_vgwas.txt"):
                 os.remove(f"{temp_path}_bootstrap_vgwas.txt")
-        if 'loco_preds' in locals():
+        if 'loco_preds' in locals() and args.loco_preds is not None:
             loco_preds.close()
