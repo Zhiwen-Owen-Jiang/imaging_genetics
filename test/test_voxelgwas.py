@@ -17,35 +17,35 @@ log.setLevel(logging.INFO)
 
 class Args:
     def __init__(self, ldr_sumstats=None, bases=None, ldr_cov=None,
-                 extract=None, n_ldrs=None, voxel=None, range=None,
+                 extract=None, n_ldrs=None, voxels=None, chr_interval=None,
                  sig_thresh=None):
         self.ldr_sumstats = ldr_sumstats
         self.bases = bases
         self.ldr_cov = ldr_cov
         self.extract = extract
         self.n_ldrs = n_ldrs
-        self.voxel = voxel
-        self.range = range
+        self.voxels = voxels
+        self.chr_interval = chr_interval
         self.sig_thresh = sig_thresh
 
 
 class Test_check_input(unittest.TestCase):
     def test_good_cases(self):
-        # voxel
+        # voxels
         args = Args(ldr_sumstats=os.path.join(MAIN_DIR, 'gwas'),
                     bases=os.path.join(MAIN_DIR, 'bases.npy'),
                     ldr_cov=os.path.join(MAIN_DIR, 'ldr_cov.npy'),
-                    voxel=1)
+                    voxels=1)
         start_chr, start_pos, end_pos = check_input(args, log)
         self.assertEqual(start_chr, None)
         self.assertEqual(start_pos, None)
         self.assertEqual(end_pos, None)
 
-        # range
+        # chr_interval
         args = Args(ldr_sumstats=os.path.join(MAIN_DIR, 'gwas'),
                     bases=os.path.join(MAIN_DIR, 'bases.npy'),
                     ldr_cov=os.path.join(MAIN_DIR, 'ldr_cov.npy'),
-                    range="3:1,3:3")
+                    chr_interval="3:1,3:3")
         start_chr, start_pos, end_pos = check_input(args, log)
         self.assertEqual(start_chr, 3)
         self.assertEqual(start_pos, 1)
@@ -73,25 +73,25 @@ class Test_check_input(unittest.TestCase):
             with self.assertRaises(ValueError):
                 check_input(args, log)
 
-        # wrong specifications of range
+        # wrong specifications of chr_interval
         args = Args(ldr_sumstats=os.path.join(MAIN_DIR, 'gwas'),
                     bases=os.path.join(MAIN_DIR, 'bases.npy'),
                     ldr_cov=os.path.join(MAIN_DIR, 'ldr_cov.npy'),
-                    range="3:1,4:3")
+                    chr_interval="3:1,4:3")
         with self.assertRaises(ValueError):
             check_input(args, log)
 
         args = Args(ldr_sumstats=os.path.join(MAIN_DIR, 'gwas'),
                     bases=os.path.join(MAIN_DIR, 'bases.npy'),
                     ldr_cov=os.path.join(MAIN_DIR, 'ldr_cov.npy'),
-                    range="3:5,3:3")
+                    chr_interval="3:5,3:3")
         with self.assertRaises(ValueError):
             check_input(args, log)
 
         args = Args(ldr_sumstats=os.path.join(MAIN_DIR, 'gwas'),
                     bases=os.path.join(MAIN_DIR, 'bases.npy'),
                     ldr_cov=os.path.join(MAIN_DIR, 'ldr_cov.npy'),
-                    range="3:5;3:3")
+                    chr_interval="3:5;3:3")
         with self.assertRaises(ValueError):
             check_input(args, log)
 
@@ -99,7 +99,7 @@ class Test_check_input(unittest.TestCase):
         # args = Args(ldr_sumstats=os.path.join(MAIN_DIR, 'gwas'),
         #             bases=os.path.join(MAIN_DIR, 'bases.npy'),
         #             ldr_cov=os.path.join(MAIN_DIR, 'ldr_cov.npy'),
-        #             voxel=0)
+        #             voxels=0)
         # with self.assertRaises(ValueError):
         #     check_input(args, log)
 
