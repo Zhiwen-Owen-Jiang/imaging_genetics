@@ -79,6 +79,9 @@ def init_hail(spark_conf_file, grch37, out, log):
     """
     with open(spark_conf_file, "r") as file:
         spark_conf = json.load(file)
+    
+    if "spark.local.dir" not in spark_conf:
+        spark_conf["spark.local.dir"] = out + '_spark'
 
     if grch37:
         geno_ref = "GRCh37"
@@ -88,15 +91,21 @@ def init_hail(spark_conf_file, grch37, out, log):
 
     tmpdir = out + '_tmp'
     logdir = out + '_hail.log'
-    hl.init(quiet=True, spark_conf=spark_conf, local_tmpdir=tmpdir, log=logdir)
+    hl.init(
+        quiet=True, 
+        spark_conf=spark_conf, 
+        local_tmpdir=tmpdir, 
+        log=logdir, 
+        tmp_dir=tmpdir
+    )
     hl.default_reference = geno_ref
 
 
 class GProcessor:
     MODE = {
         "gwas": {
-            # "defaults": {"maf_min": 0, "maf_max": 0.5},
-            "defaults": {},
+            "defaults": {"maf_min": 0, "maf_max": 0.5},
+            # "defaults": {},
             "methods": [
                 "_extract_variant_type",
                 "_extract_maf",
@@ -121,14 +130,14 @@ class GProcessor:
                 "mac_thresh": 10,
             },
             "methods": [
-                "_vcf_filter",
+                # "_vcf_filter",
                 "_flip_snps",
                 "_extract_variant_type",
                 "_extract_maf",
                 "_extract_call_rate",
                 "_filter_hwe",
                 "_annotate_rare_variants",
-                "_filter_missing_alt",
+                # "_filter_missing_alt",
                 # "_impute_missing_snps"
                 # "_extract_chr_interval"
             ],
@@ -196,7 +205,7 @@ class GProcessor:
         self.logger.info((f"{self.n_sub} subjects and "
                           f"{self.n_variants} variants in the genotype data.\n"))
 
-    def do_processing(self, mode):
+    def do_processing(self, mode, skip=False):
         """
         Processing genotype data in a dynamic way
         extract_idvs() should be done before it
@@ -206,8 +215,12 @@ class GProcessor:
         mode: the analysis mode which affects preprocessing pipelines
             should be one of ('gwas', 'wgs'). For a given mode, there
             are default filtering and optional filtering.
+        skip: boolean, if skip '_vcf_filter' and '_filter_missing_alt' 
         """
         self.snps_mt = hl.variant_qc(self.snps_mt, name="info")
+        self.snps_mt = self.snps_mt.annotate_rows(
+            minor_allele_index=hl.argmin(self.snps_mt.info.AF) # Index of the minor allele
+        )
         config = self.MODE.get(mode, {})
         defaults = config.get("defaults", {})
         methods = config.get("methods", [])
@@ -224,9 +237,11 @@ class GProcessor:
             if getattr(self, para_k) is not None:
                 self.logger.info(f"{para_v}: {getattr(self, para_k)}")
         if mode == "wgs":
-            self.logger.info("Removed variants with missing alternative alleles.")
-            self.logger.info("Extracted variants with PASS in FILTER.")
             self.logger.info("Flipped alleles for those with a MAF > 0.5")
+            if not skip:
+                self.logger.info("Removed variants with missing alternative alleles.")
+                self.logger.info("Extracted variants with PASS in FILTER.")
+                methods += ['_vcf_filter', '_filter_missing_alt']
         self.logger.info("---------------------\n")
 
         for method in methods:
@@ -396,7 +411,7 @@ class GProcessor:
             self.maf_min = 0
         if self.maf_min > self.maf_max:
             raise ValueError("maf_min is greater than maf_max")
-        if "maf" not in self.snps_mt.row:
+        # if "maf" not in self.snps_mt.row:
             # self.snps_mt = self.snps_mt.annotate_rows(
             #     maf=hl.if_else(
             #         self.snps_mt.info.AF[-1] > 0.5,
@@ -404,9 +419,10 @@ class GProcessor:
             #         self.snps_mt.info.AF[-1],
             #     )
             # )
-            self.snps_mt = self.snps_mt.annotate_rows(
-                maf=hl.min(self.snps_mt.info.AF)
-            )
+        self.snps_mt = self.snps_mt.annotate_rows(
+            # maf=hl.min(self.snps_mt.info.AF)
+            maf=self.snps_mt.info.AF[self.snps_mt.minor_allele_index]
+        )
         self.snps_mt = self.snps_mt.filter_rows(
             (self.snps_mt.maf > self.maf_min) & (self.snps_mt.maf <= self.maf_max)
         )
@@ -444,9 +460,9 @@ class GProcessor:
         Flipping variants with MAF > 0.5, and creating an annotation for maf
 
         """
-        self.snps_mt = self.snps_mt.annotate_rows(
-            minor_allele_index=hl.argmin(self.snps_mt.info.AF) # Index of the minor allele
-        )
+        # self.snps_mt = self.snps_mt.annotate_rows(
+        #     minor_allele_index=hl.argmin(self.snps_mt.info.AF) # Index of the minor allele
+        # )
         self.snps_mt = self.snps_mt.annotate_entries(
             flipped_n_alt_alleles=hl.if_else(
                 self.snps_mt.info.AF[self.snps_mt.minor_allele_index] > 0.5,
@@ -469,26 +485,26 @@ class GProcessor:
         #     )
         # )
         
-    def _impute_missing_snps(self):
-        """
-        Imputing missing SNPs after flipping alleles
+    # def _impute_missing_snps(self):
+    #     """
+    #     Imputing missing SNPs after flipping alleles
         
-        """
-        if "flipped_n_alt_alleles" in self.snps_mt.entry:
-            column_means = self.snps_mt.aggregate_entries(
-                hl.agg.group_by(
-                    self.snps_mt.col_key, 
-                    hl.agg.mean(self.snps_mt.flipped_n_alt_alleles)
-                )
-            )
-            self.snps_mt = self.snps_mt.annotate_entries(
-                flipped_n_alt_alleles=hl.or_else(
-                    self.snps_mt.flipped_n_alt_alleles, 
-                    column_means[self.snps_mt.col_key]
-                )
-            )
-        else:
-            raise ValueError(f"call _flip_snps() before doing imputation")
+    #     """
+    #     if "flipped_n_alt_alleles" in self.snps_mt.entry:
+    #         column_means = self.snps_mt.aggregate_entries(
+    #             hl.agg.group_by(
+    #                 self.snps_mt.col_key, 
+    #                 hl.agg.mean(self.snps_mt.flipped_n_alt_alleles)
+    #             )
+    #         )
+    #         self.snps_mt = self.snps_mt.annotate_entries(
+    #             flipped_n_alt_alleles=hl.or_else(
+    #                 self.snps_mt.flipped_n_alt_alleles, 
+    #                 column_means[self.snps_mt.col_key]
+    #             )
+    #         )
+    #     else:
+    #         raise ValueError(f"call _flip_snps() before doing imputation")
 
     def _annotate_rare_variants(self):
         """
