@@ -563,38 +563,38 @@ def check_input(args):
 def run(args, log):
     # check input and configure hail
     check_input(args)
-    init_hail(args.spark_conf, args.grch37, args.out, log)
-
-    # read LDRs and covariates
-    log.info(f"Read LDRs from {args.ldrs}")
-    ldrs = ds.Dataset(args.ldrs)
-    log.info(f"{ldrs.data.shape[1]} LDRs and {ldrs.data.shape[0]} subjects.")
-    if args.n_ldrs is not None:
-        ldrs.data = ldrs.data.iloc[:, : args.n_ldrs]
-        if ldrs.data.shape[1] > args.n_ldrs:
-            log.info(f"WARNING: --n-ldrs greater than #LDRs, use all LDRs.")
-        else:
-            log.info(f"Keep the top {args.n_ldrs} LDRs.")
-
-    log.info(f"Read covariates from {args.covar}")
-    covar = ds.Covar(args.covar, args.cat_covar_list)
-
-    # keep common subjects
-    common_ids = ds.get_common_idxs(
-        ldrs.data.index, covar.data.index, args.keep
-    )
-    common_ids = ds.remove_idxs(common_ids, args.remove, single_id=True)
-
-    # read genotype data
-    gprocessor = read_genotype_data(args, log)
-    
-    # processing genotype data
-    log.info(f"Processing genetic data ...")
-    gprocessor.extract_exclude_snps(args.extract, args.exclude)
-    gprocessor.keep_remove_idvs(common_ids)
-    gprocessor.do_processing(mode="gwas")
-
     try:
+        init_hail(args.spark_conf, args.grch37, args.out, log)
+
+        # read LDRs and covariates
+        log.info(f"Read LDRs from {args.ldrs}")
+        ldrs = ds.Dataset(args.ldrs)
+        log.info(f"{ldrs.data.shape[1]} LDRs and {ldrs.data.shape[0]} subjects.")
+        if args.n_ldrs is not None:
+            ldrs.data = ldrs.data.iloc[:, : args.n_ldrs]
+            if ldrs.data.shape[1] > args.n_ldrs:
+                log.info(f"WARNING: --n-ldrs greater than #LDRs, use all LDRs.")
+            else:
+                log.info(f"Keep the top {args.n_ldrs} LDRs.")
+
+        log.info(f"Read covariates from {args.covar}")
+        covar = ds.Covar(args.covar, args.cat_covar_list)
+
+        # keep common subjects
+        common_ids = ds.get_common_idxs(
+            ldrs.data.index, covar.data.index, args.keep
+        )
+        common_ids = ds.remove_idxs(common_ids, args.remove, single_id=True)
+
+        # read genotype data
+        gprocessor = read_genotype_data(args, log)
+        
+        # processing genotype data
+        log.info(f"Processing genetic data ...")
+        gprocessor.extract_exclude_snps(args.extract, args.exclude)
+        gprocessor.keep_remove_idvs(common_ids)
+        gprocessor.do_processing(mode="gwas")
+    
         temp_path = get_temp_path(args.out)
         if not args.not_save_genotype_data:
             gprocessor.save_interim_data(temp_path)

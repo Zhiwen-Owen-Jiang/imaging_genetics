@@ -220,32 +220,33 @@ def check_valid(annot, log):
 def run(args, log):
     # check input and init
     check_input(args, log)
-    init_hail(args.spark_conf, args.grch37, args.out, log)
-
-    # read annotation and preprocess
-    if args.favor_annot is not None:
-        log.info(f"Read FAVOR annotations from {args.favor_annot}")
-        annot = AnnotationFAVOR.read_annot(
-            args.favor_annot, args.grch37, delimiter=",", missing="", quote='"'
-        )
-    else:
-        log.info(f"Read annotations from {args.general_annot}")
-        annot = Annotation.read_annot(
-            args.general_annot, args.grch37, delimiter="\s+", missing="", quote='"'
-        )
-
-    log.info(f"Processing annotations ...")
-    annot.extract_annots(args.annot_cols)
-    annot.extract_by_interval(args.chr_interval)
-    annot.extract_exclude_locus(args.extract_locus, args.exclude_locus)
-    
-    annot.save(args.out)
-    annot = hl.read_table(f"{args.out}_annot.ht")
     try:
-        check_valid(annot, log)
-    except:
-        os.remove(f"{args.out}_annot.ht")
-        raise
-    log.info(f"\nSave the annotations to {args.out}_annot.ht")
-    
-    clean(args.out)
+        init_hail(args.spark_conf, args.grch37, args.out, log)
+
+        # read annotation and preprocess
+        if args.favor_annot is not None:
+            log.info(f"Read FAVOR annotations from {args.favor_annot}")
+            annot = AnnotationFAVOR.read_annot(
+                args.favor_annot, args.grch37, delimiter=",", missing="", quote='"'
+            )
+        else:
+            log.info(f"Read annotations from {args.general_annot}")
+            annot = Annotation.read_annot(
+                args.general_annot, args.grch37, delimiter="\s+", missing="", quote='"'
+            )
+
+        log.info(f"Processing annotations ...")
+        annot.extract_annots(args.annot_cols)
+        annot.extract_by_interval(args.chr_interval)
+        annot.extract_exclude_locus(args.extract_locus, args.exclude_locus)
+        
+        annot.save(args.out)
+        annot = hl.read_table(f"{args.out}_annot.ht")
+        try:
+            check_valid(annot, log)
+        except:
+            os.remove(f"{args.out}_annot.ht")
+            raise
+        log.info(f"\nSave the annotations to {args.out}_annot.ht")
+    finally:
+        clean(args.out)

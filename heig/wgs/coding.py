@@ -314,52 +314,53 @@ def check_input(args, log):
 def run(args, log):
     # checking if input is valid
     variant_category = check_input(args, log)
-    init_hail(args.spark_conf, args.grch37, args.out, log)
+    try:
+        init_hail(args.spark_conf, args.grch37, args.out, log)
 
-    # reading data and selecting voxels and LDRs
-    log.info(f"Read rare variant summary statistics from {args.rv_sumstats}")
-    rv_sumstats = RVsumstats(args.rv_sumstats)
-    rv_sumstats.extract_exclude_locus(args.extract_locus, args.exclude_locus)
-    rv_sumstats.extract_chr_interval(args.chr_interval)
-    rv_sumstats.extract_maf(args.maf_min, args.maf_max)
-    rv_sumstats.select_ldrs(args.n_ldrs)
-    rv_sumstats.select_voxels(args.voxels)
-    rv_sumstats.calculate_var()
+        # reading data and selecting voxels and LDRs
+        log.info(f"Read rare variant summary statistics from {args.rv_sumstats}")
+        rv_sumstats = RVsumstats(args.rv_sumstats)
+        rv_sumstats.extract_exclude_locus(args.extract_locus, args.exclude_locus)
+        rv_sumstats.extract_chr_interval(args.chr_interval)
+        rv_sumstats.extract_maf(args.maf_min, args.maf_max)
+        rv_sumstats.select_ldrs(args.n_ldrs)
+        rv_sumstats.select_voxels(args.voxels)
+        rv_sumstats.calculate_var()
 
-    # reading annotation
-    annot = hl.read_table(args.annot_ht)
+        # reading annotation
+        annot = hl.read_table(args.annot_ht)
 
-    # single gene analysis
-    vset_test = VariantSetTest(rv_sumstats.bases, rv_sumstats.var)
-    cate_pvalues = coding_vset_analysis(
-        rv_sumstats,
-        annot,
-        rv_sumstats.variant_type,
-        vset_test,
-        variant_category,
-        log,
-    )
-
-    # format output
-    for cate, cate_results in cate_pvalues.items():
-        cate_output = format_output(
-            cate_results["pvalues"],
-            cate_results["n_variants"],
-            rv_sumstats.voxel_idxs,
-            cate_results["chr"],
-            cate_results["start"],
-            cate_results["end"],
-            cate,
+        # single gene analysis
+        vset_test = VariantSetTest(rv_sumstats.bases, rv_sumstats.var)
+        cate_pvalues = coding_vset_analysis(
+            rv_sumstats,
+            annot,
+            rv_sumstats.variant_type,
+            vset_test,
+            variant_category,
+            log,
         )
-        out_path = f"{args.out}_{cate}.txt"
-        cate_output.to_csv(
-            out_path,
-            sep="\t",
-            header=True,
-            na_rep="NA",
-            index=None,
-            float_format="%.5e",
-        )
-        log.info(f"\nSave results for {OFFICIAL_NAME[cate]} to {out_path}")
-    
-    clean(args.out)
+
+        # format output
+        for cate, cate_results in cate_pvalues.items():
+            cate_output = format_output(
+                cate_results["pvalues"],
+                cate_results["n_variants"],
+                rv_sumstats.voxel_idxs,
+                cate_results["chr"],
+                cate_results["start"],
+                cate_results["end"],
+                cate,
+            )
+            out_path = f"{args.out}_{cate}.txt"
+            cate_output.to_csv(
+                out_path,
+                sep="\t",
+                header=True,
+                na_rep="NA",
+                index=None,
+                float_format="%.5e",
+            )
+            log.info(f"\nSave results for {OFFICIAL_NAME[cate]} to {out_path}")
+    finally:
+        clean(args.out)

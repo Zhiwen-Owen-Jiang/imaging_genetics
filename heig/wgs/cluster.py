@@ -249,35 +249,35 @@ def check_input(args, log):
 
 def run(args, log):
     check_input(args, log)
-    init_hail(args.spark_conf, args.grch37, args.out, log)
-    
-    # read LDRs, bases, ldr_cov, and covariates
-    log.info(f"Read LDRs from {args.ldrs}")
-    ldrs = ds.Dataset(args.ldrs)
-    log.info(f"{ldrs.data.shape[1]} LDRs and {ldrs.data.shape[0]} subjects.")
-    ldr_cov = np.load(args.ldr_cov)
-    log.info(f"Read variance-covariance matrix of LDRs from {args.ldr_cov}")
-    bases = np.load(args.bases)
-    log.info(f"{bases.shape[1]} bases read from {args.bases}")
-    log.info(f"Read covariates from {args.covar}")
-    covar = ds.Covar(args.covar, args.cat_covar_list)
-
-    # keep selected LDRs
-    if args.n_ldrs is not None:
-        bases, ldr_cov, _, ldrs.data= ds.keep_ldrs(args.n_ldrs, bases, ldr_cov, resid_ldrs=ldrs.data)
-        log.info(f"Keep the top {args.n_ldrs} LDRs.")
-        
-    # check numbers of LDRs are the same
-    if bases.shape[1] != ldr_cov.shape[0] or bases.shape[1] != ldrs.data.shape[1]:
-        raise ValueError(
-            (
-                "inconsistent dimension in bases, variance-covariance matrix of LDRs, "
-                "and LDRs. "
-                "Try to use --n-ldrs"
-            )
-        )
-
     try:
+        init_hail(args.spark_conf, args.grch37, args.out, log)
+        
+        # read LDRs, bases, ldr_cov, and covariates
+        log.info(f"Read LDRs from {args.ldrs}")
+        ldrs = ds.Dataset(args.ldrs)
+        log.info(f"{ldrs.data.shape[1]} LDRs and {ldrs.data.shape[0]} subjects.")
+        ldr_cov = np.load(args.ldr_cov)
+        log.info(f"Read variance-covariance matrix of LDRs from {args.ldr_cov}")
+        bases = np.load(args.bases)
+        log.info(f"{bases.shape[1]} bases read from {args.bases}")
+        log.info(f"Read covariates from {args.covar}")
+        covar = ds.Covar(args.covar, args.cat_covar_list)
+
+        # keep selected LDRs
+        if args.n_ldrs is not None:
+            bases, ldr_cov, _, ldrs.data= ds.keep_ldrs(args.n_ldrs, bases, ldr_cov, resid_ldrs=ldrs.data)
+            log.info(f"Keep the top {args.n_ldrs} LDRs.")
+            
+        # check numbers of LDRs are the same
+        if bases.shape[1] != ldr_cov.shape[0] or bases.shape[1] != ldrs.data.shape[1]:
+            raise ValueError(
+                (
+                    "inconsistent dimension in bases, variance-covariance matrix of LDRs, "
+                    "and LDRs. "
+                    "Try to use --n-ldrs"
+                )
+            )
+
         # read loco preds
         if args.loco_preds is not None:
             log.info(f"Read LOCO predictions from {args.loco_preds}")

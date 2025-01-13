@@ -258,23 +258,23 @@ class DoGWAS:
 def run(args, log):
     # check input and configure hail
     check_input(args, log)
-    init_hail(args.spark_conf, args.grch37, args.out, log)
-
-    # read LDRs and covariates
-    log.info(f"Read LDRs from {args.ldrs}")
-    ldrs = ds.Dataset(args.ldrs)
-    log.info(f"{ldrs.data.shape[1]} LDRs and {ldrs.data.shape[0]} subjects.")
-    if args.ldr_col is not None:
-        if ldrs.data.shape[1] < args.ldr_col[1]:
-            raise ValueError(f"--ldr-col or --n-ldrs out of index")
-        else:
-            log.info(f"keep LDR{args.ldr_col[0]+1} to LDR{args.ldr_col[1]}.")
-        ldrs.data = ldrs.data.iloc[:, args.ldr_col[0]: args.ldr_col[1]]
-
-    log.info(f"Read covariates from {args.covar}")
-    covar = ds.Covar(args.covar, args.cat_covar_list)
-
     try:
+        init_hail(args.spark_conf, args.grch37, args.out, log)
+
+        # read LDRs and covariates
+        log.info(f"Read LDRs from {args.ldrs}")
+        ldrs = ds.Dataset(args.ldrs)
+        log.info(f"{ldrs.data.shape[1]} LDRs and {ldrs.data.shape[0]} subjects.")
+        if args.ldr_col is not None:
+            if ldrs.data.shape[1] < args.ldr_col[1]:
+                raise ValueError(f"--ldr-col or --n-ldrs out of index")
+            else:
+                log.info(f"keep LDR{args.ldr_col[0]+1} to LDR{args.ldr_col[1]}.")
+            ldrs.data = ldrs.data.iloc[:, args.ldr_col[0]: args.ldr_col[1]]
+
+        log.info(f"Read covariates from {args.covar}")
+        covar = ds.Covar(args.covar, args.cat_covar_list)
+    
         # read loco preds
         if args.loco_preds is not None:
             log.info(f'Read LOCO predictions from {args.loco_preds}')
