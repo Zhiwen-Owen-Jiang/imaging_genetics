@@ -1,5 +1,5 @@
 import shutil
-from heig.wgs.utils import init_hail, read_genotype_data, GProcessor
+from heig.wgs.utils import init_hail, read_genotype_data, GProcessor, clean
 
 
 def check_input(args, log):
@@ -44,3 +44,5 @@ def run(args, log):
         shutil.rmtree(f"{args.out}.mt")
         raise
     log.info(f"Save genotype data at {args.out}.mt")
+    
+    clean(args.out)

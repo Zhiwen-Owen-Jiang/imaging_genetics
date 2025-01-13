@@ -1,3 +1,5 @@
+import os
+import shutil
 import json
 import logging
 import hail as hl
@@ -16,7 +18,8 @@ __all__ = [
     "get_temp_path",
     "parse_locus",
     "read_genotype_data",
-    "format_output"
+    "format_output",
+    "clean"
 ]
 
 
@@ -99,6 +102,13 @@ def init_hail(spark_conf_file, grch37, out, log):
         tmp_dir=tmpdir
     )
     hl.default_reference = geno_ref
+    
+
+def clean(out):
+    if os.path.exists(out + '_spark'):
+        shutil.rmtree(out + '_spark')
+    if os.path.exists(out + '_tmp'):
+        shutil.rmtree(out + '_tmp')
 
 
 class GProcessor:

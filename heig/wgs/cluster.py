@@ -9,7 +9,7 @@ import heig.input.dataset as ds
 from heig.wgs.gwas import DoGWAS
 from heig.wgs.null import fit_null_model
 from heig.wgs.relatedness import LOCOpreds
-from heig.wgs.utils import read_genotype_data, init_hail, get_temp_path
+from heig.wgs.utils import read_genotype_data, init_hail, get_temp_path, clean
 from heig.sumstats import GWASHEIG, read_sumstats
 from heig.voxelgwas import VGWAS, write_header, voxel_reader, process_voxels
 
@@ -393,3 +393,5 @@ def run(args, log):
                 os.remove(f"{temp_path}_bootstrap_vgwas.txt")
         if 'loco_preds' in locals() and args.loco_preds is not None:
             loco_preds.close()
+        
+        clean(args.out)

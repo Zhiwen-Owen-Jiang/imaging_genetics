@@ -293,3 +293,5 @@ def run(args, log):
             float_format="%.5e",
         )
         log.info(f"\nSave results for {cate} to {out_path}")
+        
+    clean(args.out)

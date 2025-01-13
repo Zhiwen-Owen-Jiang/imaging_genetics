@@ -13,7 +13,7 @@ from functools import partial
 from sklearn.model_selection import KFold
 from scipy.linalg import cho_solve, cho_factor
 import heig.input.dataset as ds
-from heig.wgs.utils import init_hail, get_temp_path, read_genotype_data
+from heig.wgs.utils import init_hail, get_temp_path, read_genotype_data, clean
 from hail.linalg import BlockMatrix
 from heig.utils import inv
 
@@ -685,3 +685,5 @@ def run(args, log):
                 log.info(
                     f"Removed level0 ridge predictions at {l0_pred_file}"
                 )
+        
+        clean(args.out)

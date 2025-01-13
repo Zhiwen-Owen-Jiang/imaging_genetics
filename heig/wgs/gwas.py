@@ -5,7 +5,7 @@ import logging
 import hail as hl
 import heig.input.dataset as ds
 from heig.wgs.relatedness import LOCOpreds
-from heig.wgs.utils import read_genotype_data, init_hail, get_temp_path
+from heig.wgs.utils import read_genotype_data, init_hail, get_temp_path, clean
 
 
 """
@@ -357,3 +357,5 @@ def run(args, log):
                 log.info(f"Removed temporary LDR data at {temp_path}_ldr.txt")
         if 'loco_preds' in locals() and args.loco_preds is not None:
             loco_preds.close()
+        
+        clean(args.out)

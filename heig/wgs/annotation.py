@@ -247,3 +247,5 @@ def run(args, log):
         os.remove(f"{args.out}_annot.ht")
         raise
     log.info(f"\nSave the annotations to {args.out}_annot.ht")
+    
+    clean(args.out)
