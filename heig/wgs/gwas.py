@@ -84,8 +84,10 @@ def check_input(args, log):
         raise ValueError("--covar is required")
     if args.spark_conf is None:
         raise ValueError("--spark-conf is required")
-    if args.bfile is None and args.geno_mt is None and args.vcf is None:
-        raise ValueError("--geno-mt, --bfile or --vcf is required")
+    # if args.bfile is None and args.geno_mt is None and args.vcf is None:
+    #     raise ValueError("--geno-mt, --bfile or --vcf is required")
+    if args.geno_mt is None:
+        raise ValueError("--geno-mt is required. If you have bfile or vcf, convert it into a mt by --make-mt")
         
     if args.ldr_col is not None:
         args.ldr_col = parse_ldr_col(args.ldr_col)

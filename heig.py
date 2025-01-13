@@ -724,7 +724,7 @@ rv_parser.add_argument(
 cluster_parser.add_argument(
     "--n-bootstrap",
     type=int,
-    help="Number of bootstrap samples. Default 1000."
+    help="Number of bootstrap samples. Default 50."
 )
 
 def check_accepted_args(module, args, log):
@@ -854,8 +854,6 @@ def check_accepted_args(module, args, log):
             "geno_mt",
             "covar",
             "cat_covar_list",
-            "bfile",
-            "vcf",
             "loco_preds",
             "spark_conf",
             "not_save_genotype_data",
@@ -870,8 +868,6 @@ def check_accepted_args(module, args, log):
             "ldrs",
             "covar",
             "cat_covar_list",
-            "bfile",
-            "vcf",
             "partition",
             "maf_min",
             "maf_max",
@@ -925,8 +921,6 @@ def check_accepted_args(module, args, log):
             "make_rv_sumstats",
             "out",
             "geno_mt",
-            "bfile",
-            "vcf",
             "null_model",
             "variant_type",
             "maf_max",
@@ -1011,9 +1005,7 @@ def check_accepted_args(module, args, log):
             "cat_covar_list",
             "spark_conf",
             "grch37",
-            "bfile",
             "geno_mt",
-            "vcf",
             "bases",
             "ldr_cov",
             "sig_thresh",
@@ -1023,6 +1015,11 @@ def check_accepted_args(module, args, log):
             "remove",
             "extract",
             "exclude",
+            "maf_min",
+            "maf_max",
+            "hwe",
+            "call_rate",
+            "variant_type",
             "chr_interval",
             "loco_preds",
             "not_save_genotype_data",
