@@ -255,7 +255,7 @@ class VariantSetTest:
 
         Returns:
         ---------
-        results: a dict of results, each value is a np.array of pvalues (q+1, N)
+        all_results_df: a pd.DataFrame of results, each columns is a method
 
         """
         n_weights = self.weights["skat(1,25)"].shape[0]

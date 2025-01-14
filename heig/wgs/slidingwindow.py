@@ -108,20 +108,27 @@ class SlidingWindow(GeneralAnnotation):
     def __init__(
             self, 
             rv_sumstats, 
+            window_length,
+            sliding_length=None,
             annot=None, 
             annot_cols=None, 
-            window_length=None
         ):
         """
         Parameters:
         ------------
-        window_length: size of sliding window
+        window_length: size of sliding window (bp)
+        sliding_length: step size of moving forward (bp)
         
         """
         super().__init__(rv_sumstats, annot, annot_cols)
         self.geno_ref = self.rv_sumstats.locus.reference_genome.collect()[0]
         self.chr, self.start, self.end = rv_sumstats.get_interval()
         self.window_length = window_length
+        if sliding_length is None:
+            self.sliding_length = self.window_length // 2
+        else:
+            self.sliding_length = sliding_length
+
         self.windows = self._partition_windows()
 
     def _partition_windows(self):
@@ -131,12 +138,11 @@ class SlidingWindow(GeneralAnnotation):
 
         """
         windows = list()
-        sliding_length = self.window_length // 2
         cur_left = self.start
-        cur_right = self.start + sliding_length
+        cur_right = self.start + self.sliding_length
         while cur_right < self.end:
             windows.append(tuple([cur_left, cur_right]))
-            cur_left, cur_right = cur_right, cur_right + sliding_length
+            cur_left, cur_right = cur_right, cur_right + self.sliding_length
         windows.append(tuple([cur_left, self.end]))
 
         return windows
@@ -226,6 +232,8 @@ def check_input(args, log):
         raise ValueError("--spark-conf is required")
     if args.annot_cols is not None:
         args.annot_cols = args.annot_cols.split(",")
+    if args.window_length is not None and args.window_length < 2:
+        raise ValueError('--window-length must be greater than 2') 
     # if args.maf_max is None:
     #     if args.maf_min is not None and args.maf_min < 0.01 or args.maf_min is None:
     #         args.maf_max = 0.01
@@ -235,53 +243,56 @@ def check_input(args, log):
 def run(args, log):
     # checking if input is valid
     check_input(args, log)
-    init_hail(args.spark_conf, args.grch37, args.out, log)
+    try:
+        init_hail(args.spark_conf, args.grch37, args.out, log)
 
-    # reading data and selecting voxels and LDRs
-    log.info(f"Read rare variant summary statistics from {args.rv_sumstats}")
-    rv_sumstats = RVsumstats(args.rv_sumstats)
-    rv_sumstats.extract_exclude_locus(args.extract_locus, args.exclude_locus)
-    rv_sumstats.extract_chr_interval(args.chr_interval)
-    rv_sumstats.extract_maf(args.maf_min, args.maf_max)
-    rv_sumstats.select_ldrs(args.n_ldrs)
-    rv_sumstats.select_voxels(args.voxels)
-    rv_sumstats.calculate_var()
+        # reading data and selecting voxels and LDRs
+        log.info(f"Read rare variant summary statistics from {args.rv_sumstats}")
+        rv_sumstats = RVsumstats(args.rv_sumstats)
+        rv_sumstats.extract_exclude_locus(args.extract_locus, args.exclude_locus)
+        rv_sumstats.extract_chr_interval(args.chr_interval)
+        rv_sumstats.extract_maf(args.maf_min, args.maf_max)
+        rv_sumstats.select_ldrs(args.n_ldrs)
+        rv_sumstats.select_voxels(args.voxels)
+        rv_sumstats.calculate_var()
 
-    # reading annotation
-    if args.annot_ht is not None:
-        annot = hl.read_table(args.annot_ht)
-    else:
-        annot = None
+        # reading annotation
+        if args.annot_ht is not None:
+            annot = hl.read_table(args.annot_ht)
+        else:
+            annot = None
 
-    # single gene analysis
-    vset_test = VariantSetTest(rv_sumstats.bases, rv_sumstats.var)
-    all_pvalues = vset_analysis(
-        rv_sumstats, 
-        vset_test,
-        annot, 
-        args.annot_cols, 
-        args.window_length, 
-        log
-    )
-
-    # format output
-    for window_idx, window_results in all_pvalues.items():
-        results = format_output(
-            window_results["pvalues"],
-            window_results["n_variants"],
-            rv_sumstats.voxel_idxs,
-            window_results["chr"],
-            window_results["start"],
-            window_results["end"],
-            window_idx
+        # single gene analysis
+        vset_test = VariantSetTest(rv_sumstats.bases, rv_sumstats.var)
+        all_pvalues = vset_analysis(
+            rv_sumstats, 
+            vset_test,
+            annot, 
+            args.annot_cols, 
+            args.window_length, 
+            log
         )
-        out_path = f"{args.out}_{window_idx}.txt"
-        results.to_csv(
-            out_path,
-            sep="\t",
-            header=True,
-            na_rep="NA",
-            index=None,
-            float_format="%.5e",
-        )
-        log.info(f"Save {window_idx} results to {out_path}")
+
+        # format output
+        for window_idx, window_results in all_pvalues.items():
+            results = format_output(
+                window_results["pvalues"],
+                window_results["n_variants"],
+                rv_sumstats.voxel_idxs,
+                window_results["chr"],
+                window_results["start"],
+                window_results["end"],
+                window_idx
+            )
+            out_path = f"{args.out}_{window_idx}.txt"
+            results.to_csv(
+                out_path,
+                sep="\t",
+                header=True,
+                na_rep="NA",
+                index=None,
+                float_format="%.5e",
+            )
+            log.info(f"Save {window_idx} results to {out_path}")
+    finally:
+        clean(args.out)
