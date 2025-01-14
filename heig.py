@@ -465,6 +465,15 @@ common_parser.add_argument(
         "multiple categories should be separated by comma."
     ),
 )
+common_parser.add_argument(
+    "--variant-sets",
+    help=(
+        "Variant sets file."
+        "The file should be tab or space delimited without header. "
+        "Each row contains only one variant set in format "
+        "<gene name> <chr:start,chr:end>."
+    )
+)
 
 
 # arguments for herigc.py
@@ -953,6 +962,7 @@ def check_accepted_args(module, args, log):
             "out",
             "rv_sumstats",
             "variant_category",
+            "variant_sets",
             "maf_max",
             "maf_min",
             "extract_locus",
@@ -969,6 +979,7 @@ def check_accepted_args(module, args, log):
             "out",
             "rv_sumstats",
             "variant_category",
+            "variant_sets",
             "maf_max",
             "maf_min",
             "extract_locus",
@@ -1068,6 +1079,7 @@ def process_args(args, log):
     ds.check_existence(args.geno_mt)
     # ds.check_existence(args.rv_sumstats)
     ds.check_existence(args.annot_ht)
+    ds.check_existence(args.variant_sets)
 
     if args.n_ldrs is not None and args.n_ldrs <= 0:
         raise ValueError("--n-ldrs must be greater than 0")
@@ -1146,6 +1158,9 @@ def process_args(args, log):
                 "--variant-type must be one of ('variant', 'snv', 'indel')"
             )
     
+    if args.variant_sets is not None:
+        args.variant_sets = ds.read_variant_sets(args.variant_sets)
+        
 
 def main(args, log):
     dirname = os.path.dirname(args.out)

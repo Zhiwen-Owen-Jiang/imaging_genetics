@@ -28,7 +28,7 @@ class RV:
 
     """
 
-    def __init__(self, bases, resid_ldr, covar, locus, loco_preds=None):
+    def __init__(self, bases, resid_ldr, covar, locus, loco_preds=None, rand_v=1):
         """
         Parameters:
         ------------
@@ -39,6 +39,7 @@ class RV:
                 chr, start, and end
         loco_preds: a LOCOpreds instance of loco predictions
             loco_preds.data_reader(j) returns loco preds for chrj with matched subjects
+        rand_v (n, 1): a np.array of random standard normal variable for wild bootstrap
 
         """
         # extract chr
@@ -51,20 +52,17 @@ class RV:
         
         # adjust for relatedness
         if loco_preds is not None:
-            resid_ldr -= loco_preds.data_reader(chr) # (I-M)\Xi, (n, r)
+            self.resid_ldr = (resid_ldr - loco_preds.data_reader(chr)) * rand_v # (I-M)\Xi, (n, r)
+        else:
+            self.resid_ldr = resid_ldr * rand_v
 
         # variance
-        inner_ldr = np.dot(resid_ldr.T, resid_ldr)  # \Xi'(I-M)\Xi, (r, r)
-        # var = np.sum(np.dot(bases, inner_ldr) * bases, axis=1) / (
-        #     covar.shape[0] - covar.shape[1]
-        # )  # (N, ), save once
+        self.inner_ldr = np.dot(self.resid_ldr.T, self.resid_ldr).astype(np.float32)  # \Xi'(I-M)\Xi, (r, r)
 
         # X = UDV', X'(X'X)^{-1/2} = UV'
         covar_U, _, covar_Vt = np.linalg.svd(covar, full_matrices=False)
 
         self.resid_ldr = resid_ldr.astype(np.float32)
-        self.inner_ldr = inner_ldr
-        # self.var = var.astype(np.float32)
         self.half_covar_proj = np.dot(covar_U, covar_Vt).astype(np.float32)
         self.bases = bases.astype(np.float32)
         self.n_subs, self.n_covars = covar.shape
@@ -76,6 +74,7 @@ class RV:
         Parameters:
         ------------
         vset: (m, n) csr_matrix of genotype
+        bandwidth: bandwidth of the banded LD matrix
 
         """
         # n_variants and locus
@@ -148,7 +147,6 @@ class RV:
         """
         with h5py.File(f"{output_dir}_rv_sumstats.h5", 'w') as file:
             file.create_dataset('bases', data=self.bases, dtype='float32')
-            # file.create_dataset('var', data=self.var, dtype='float32')
             file.create_dataset('inner_ldr', data=self.inner_ldr, dtype='float32')
             file.create_dataset('half_ldr_score', data=self.half_ldr_score, dtype='float32')
             file.create_dataset('vset_half_covar_proj', data=self.vset_half_covar_proj, dtype='float32')
@@ -180,7 +178,6 @@ class RVsumstats:
 
         with h5py.File(f"{prefix}_rv_sumstats.h5", 'r') as file:
             self.bases = file['bases'][:] # (N, r)
-            # self.var = file['var'][:] # (N, )
             self.inner_ldr = file['inner_ldr'][:] # (r, r)
             self.half_ldr_score = file['half_ldr_score'][:]
             self.vset_half_covar_proj = file['vset_half_covar_proj'][:]
@@ -305,22 +302,8 @@ class RVsumstats:
         """
         self.locus = self.locus.annotate(annot=annot[self.locus.key])
         self.locus = self.locus.filter(hl.is_defined(self.locus.annot))
-        self.locus = self.locus.cache()
-
-    def get_interval(self):
-        all_locus = self.locus.locus.collect()
-        
-        self.n_variants = len(all_locus) 
-        if self.n_variants == 0:
-            raise ValueError("no variant overlapping in summary statistics and annotations")
-        else:
-            self.logger.info(f"{self.n_variants} variants overlapping in summary statistics and annotations.")
-
-        chr = all_locus[0].contig
-        start = all_locus[0].position
-        end = all_locus[-1].position
-        
-        return chr, start, end
+        # self.locus = self.locus.cache()
+        return self.locus
 
     def parse_data(self, numeric_idx):
         """
@@ -349,6 +332,48 @@ class RVsumstats:
         is_rare = self.is_rare[numeric_idx]
 
         return half_ldr_score, cov_mat, maf, is_rare
+
+
+def get_interval(locus):
+    """
+    Extracting chr, start position, end position, and #variants
+    locus has >= 2 variants
+
+    Parameters:
+    ------------
+    locus: a hail.Table of annotated locus info
+
+    """
+    all_locus = locus.locus.collect()
+    chr = all_locus[0].contig
+    start = all_locus[0].position
+    end = all_locus[-1].position
+    
+    return chr, start, end
+
+
+def extract_chr_interval(locus, gene_name, chr_interval, geno_ref, log):
+    """
+    Extacting a chr interval
+
+    Parameters:
+    ------------
+    locus: a hail.Table of annotated locus info
+    chr_interval: chr interval to extract
+
+    """
+    chr, start, end = parse_interval(chr_interval, geno_ref)
+    interval = hl.locus_interval(chr, start, end, reference_genome=geno_ref)
+    locus = locus.filter(interval.contains(locus.locus))
+    locus = locus.cache()
+    n_variants = locus.count()
+    
+    if n_variants <= 1:
+        log.info(f"\nSkip gene {gene_name} (< 2 variants).")
+        return None
+    else:
+        log.info(f"\n{n_variants} variants in gene {gene_name} overlapping in the summary statistics and annotations.")
+    return locus
 
 
 def prepare_vset(snps_mt, variant_type):
@@ -389,8 +414,10 @@ def prepare_vset(snps_mt, variant_type):
 
 def check_input(args, log):
     # required arguments
-    if args.geno_mt is None and args.vcf is None and args.bfile is None:
-        raise ValueError("one of --geno-mt, --vcf, or --bfile is required")
+    # if args.geno_mt is None and args.vcf is None and args.bfile is None:
+    #     raise ValueError("one of --geno-mt, --vcf, or --bfile is required")
+    if args.geno_mt is None:
+        raise ValueError("--geno-mt is required. If you have bfile or vcf, convert it into a mt by --make-mt")
     if args.spark_conf is None:
         raise ValueError("--spark-conf is required")
     if args.null_model is None:
@@ -421,15 +448,15 @@ def check_input(args, log):
 def run(args, log):
     # checking if input is valid
     check_input(args, log)
-    init_hail(args.spark_conf, args.grch37, args.out, log)
-
-    # reading data and selecting LDRs
-    log.info(f"Read null model from {args.null_model}")
-    null_model = NullModel(args.null_model)
-    null_model.select_ldrs(args.n_ldrs)
-
-    # read loco preds
     try:
+        init_hail(args.spark_conf, args.grch37, args.out, log)
+
+        # reading data and selecting LDRs
+        log.info(f"Read null model from {args.null_model}")
+        null_model = NullModel(args.null_model)
+        null_model.select_ldrs(args.n_ldrs)
+
+        # read loco preds
         if args.loco_preds is not None:
             log.info(f"Read LOCO predictions from {args.loco_preds}")
             loco_preds = LOCOpreds(args.loco_preds)
@@ -459,7 +486,7 @@ def run(args, log):
         gprocessor.extract_exclude_locus(args.extract_locus, args.exclude_locus)
         gprocessor.extract_chr_interval(args.chr_interval)
         gprocessor.keep_remove_idvs(common_ids)
-        gprocessor.do_processing(mode="wgs")
+        gprocessor.do_processing(mode="wgs", skip=True)
 
         # extract and align subjects with the genotype data
         snps_mt_ids = gprocessor.subject_id()
@@ -488,5 +515,7 @@ def run(args, log):
                   f'{args.out}_locus_info.ht'))
 
     finally:
-        if 'loco_preds' in locals():
+        if 'loco_preds' in locals() and args.loco_preds is not None:
             loco_preds.close()
+        
+        clean(args.out)

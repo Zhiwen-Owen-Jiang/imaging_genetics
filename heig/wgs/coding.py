@@ -1,7 +1,7 @@
 import hail as hl
 import numpy as np
 from functools import reduce
-from heig.wgs.wgs2 import RVsumstats
+from heig.wgs.wgs2 import RVsumstats, get_interval, extract_chr_interval
 from heig.wgs.vsettest import VariantSetTest, cauchy_combination
 from heig.wgs.utils import *
 
@@ -146,7 +146,7 @@ class Coding:
 
 
 def coding_vset_analysis(
-    rv_sumstats, annot, variant_type, vset_test, variant_category, log
+    rv_sumstats, annot, variant_sets, variant_type, vset_test, variant_category, log
 ):
     """
     Single coding variant set analysis
@@ -155,6 +155,7 @@ def coding_vset_analysis(
     ------------
     rv_sumstats: a RVsumstats instance
     annot: a hail.Table of locus containing annotations
+    variant_sets: a pd.DataFrame of multiple variant sets to test
     variant_type: one of ('variant', 'snv', 'indel')
     vset_test: an instance of VariantSetTest
     variant_category: which category of variants to analyze,
@@ -167,43 +168,55 @@ def coding_vset_analysis(
     cate_pvalues: a dict (keys: category, values: p-value)
 
     """
-    rv_sumstats.annotate(annot)
-    coding = Coding(rv_sumstats.locus, variant_type)
-    chr, start, end = rv_sumstats.get_interval()
-
-    # individual analysis
-    cate_pvalues = dict()
-    for cate, idx in coding.category_dict.items():
-        if variant_category[0] != "all" and cate not in variant_category:
-            cate_pvalues[cate] = None
-        else:
-            numeric_idx, phred_cate = coding.parse_annot(idx)
-            if len(numeric_idx) <= 1:
-                log.info(f"Less than 2 variants for {OFFICIAL_NAME[cate]}, skip.")
-                continue
-            half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(numeric_idx)
-            vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)
-            log.info(
-                f"Doing analysis for {OFFICIAL_NAME[cate]} ({vset_test.n_variants} variants) ..."
-            )
-            pvalues = vset_test.do_inference(coding.annot_name)
-            cate_pvalues[cate] = {
-                "n_variants": vset_test.n_variants,
-                "pvalues": pvalues,
-                "chr": chr,
-                "start": start,
-                "end": end
-            }
-
-    if "missense" in cate_pvalues and "disruptive_missense" in cate_pvalues:
-        cate_pvalues["missense"] = process_missense(
-            cate_pvalues["missense"], cate_pvalues["disruptive_missense"]
+    annot_locus = rv_sumstats.annotate(annot)
+    for _, gene in variant_sets.iterrows():
+        variant_set_locus = extract_chr_interval(
+            annot_locus, 
+            gene[0], 
+            gene[1], 
+            rv_sumstats.geno_ref, 
+            log
         )
-        cate_pvalues["missense"]["chr"] = chr
-        cate_pvalues["missense"]["start"] = start
-        cate_pvalues["missense"]["end"] = end
+        if variant_set_locus is None:
+            continue
+        coding = Coding(variant_set_locus, variant_type)
+        chr, start, end = get_interval(variant_set_locus)
 
-    return cate_pvalues
+        # individual analysis
+        cate_pvalues = dict()
+        for cate, idx in coding.category_dict.items():
+            if variant_category[0] != "all" and cate not in variant_category:
+                continue
+            else:
+                numeric_idx, phred_cate = coding.parse_annot(idx)
+                if len(numeric_idx) <= 1:
+                    log.info(f"Skip {OFFICIAL_NAME[cate]} (< 2 variants).")
+                    continue
+                half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(numeric_idx)
+                vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)
+                log.info(
+                    f"Doing analysis for {OFFICIAL_NAME[cate]} ({vset_test.n_variants} variants) ..."
+                )
+                pvalues = vset_test.do_inference(coding.annot_name)
+                cate_pvalues[cate] = {
+                    "set_name": gene[0],
+                    "n_variants": vset_test.n_variants,
+                    "pvalues": pvalues,
+                    "chr": chr,
+                    "start": start,
+                    "end": end
+                }
+
+        if "missense" in cate_pvalues and "disruptive_missense" in cate_pvalues:
+            cate_pvalues["missense"] = process_missense(
+                cate_pvalues["missense"], cate_pvalues["disruptive_missense"]
+            )
+            cate_pvalues["missense"]["set_name"] = gene[0]
+            cate_pvalues["missense"]["chr"] = chr
+            cate_pvalues["missense"]["start"] = start
+            cate_pvalues["missense"]["end"] = end
+
+        yield cate_pvalues
 
 
 def process_missense(m_pvalues, dm_pvalues):
@@ -271,6 +284,9 @@ def check_input(args, log):
         raise ValueError("--spark-conf is required")
     if args.annot_ht is None:
         raise ValueError("--annot-ht (FAVOR annotation) is required")
+    if args.variant_sets is None:
+        raise ValueError("--variant-sets is required")
+    log.info(f"{args.variant_sets.shape[0]} genes in --variant-sets.")
 
     if args.variant_category is None:
         variant_category = ["all"]
@@ -332,35 +348,37 @@ def run(args, log):
 
         # single gene analysis
         vset_test = VariantSetTest(rv_sumstats.bases, rv_sumstats.var)
-        cate_pvalues = coding_vset_analysis(
+        all_vset_test_pvalues = coding_vset_analysis(
             rv_sumstats,
             annot,
+            args.variant_sets,
             rv_sumstats.variant_type,
             vset_test,
             variant_category,
             log,
         )
 
-        # format output
-        for cate, cate_results in cate_pvalues.items():
-            cate_output = format_output(
-                cate_results["pvalues"],
-                cate_results["n_variants"],
-                rv_sumstats.voxel_idxs,
-                cate_results["chr"],
-                cate_results["start"],
-                cate_results["end"],
-                cate,
-            )
-            out_path = f"{args.out}_{cate}.txt"
-            cate_output.to_csv(
-                out_path,
-                sep="\t",
-                header=True,
-                na_rep="NA",
-                index=None,
-                float_format="%.5e",
-            )
-            log.info(f"\nSave results for {OFFICIAL_NAME[cate]} to {out_path}")
+        for cate_pvalues in all_vset_test_pvalues:
+            # format output
+            for cate, cate_results in cate_pvalues.items():
+                cate_output = format_output(
+                    cate_results["pvalues"],
+                    cate_results["n_variants"],
+                    rv_sumstats.voxel_idxs,
+                    cate_results["chr"],
+                    cate_results["start"],
+                    cate_results["end"],
+                    f"{cate_results['set_name']}_{cate}",
+                )
+                out_path = f"{args.out}_{cate_results['set_name']}_{cate}.txt"
+                cate_output.to_csv(
+                    out_path,
+                    sep="\t",
+                    header=True,
+                    na_rep="NA",
+                    index=None,
+                    float_format="%.5e",
+                )
+            log.info(f"Save results for {cate_results['set_name']} to {args.out}_{cate_results['set_name']}*")
     finally:
         clean(args.out)

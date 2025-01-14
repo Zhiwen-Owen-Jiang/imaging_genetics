@@ -639,32 +639,45 @@ def check_existence(arg, suffix=""):
         raise FileNotFoundError(f"{arg}{suffix} does not exist")
 
 
-class ReadCsvParallel:
-    def __init__(self, filename, threads):
-        self.filename = filename
-        self.threads = threads
-        self.chunksize = 100000
+# class ReadCsvParallel:
+#     def __init__(self, filename, threads):
+#         self.filename = filename
+#         self.threads = threads
+#         self.chunksize = 100000
 
-    @staticmethod
-    def _identity(chunk):
-        return chunk
+#     @staticmethod
+#     def _identity(chunk):
+#         return chunk
 
-    def read_csv_parallel(self, processing_chunk=None, **kwargs):
-        """
-        Reading a CSV file in parallel and applies a processing function to each chunk.
+#     def read_csv_parallel(self, processing_chunk=None, **kwargs):
+#         """
+#         Reading a CSV file in parallel and applies a processing function to each chunk.
 
-        """
-        if processing_chunk is None:
-            processing_chunk = self._identity
+#         """
+#         if processing_chunk is None:
+#             processing_chunk = self._identity
 
-        processed_chunks = []
-        with ThreadPoolExecutor(max_workers=self.threads) as executor:
-            futures = []
+#         processed_chunks = []
+#         with ThreadPoolExecutor(max_workers=self.threads) as executor:
+#             futures = []
 
-            for chunk in pd.read_csv(self.filename, chunksize=self.chunksize, **kwargs):
-                futures.append(executor.submit(processing_chunk, chunk))
+#             for chunk in pd.read_csv(self.filename, chunksize=self.chunksize, **kwargs):
+#                 futures.append(executor.submit(processing_chunk, chunk))
 
-            for future in futures:
-                processed_chunks.append(future.result())
+#             for future in futures:
+#                 processed_chunks.append(future.result())
 
-        return pd.concat(processed_chunks, ignore_index=True)
+#         return pd.concat(processed_chunks, ignore_index=True)
+
+
+def read_variant_sets(file):
+    variant_sets = pd.read_csv(file, sep='\s+', header=None)
+    try:
+        chr_interval = variant_sets.iloc[0, 1]
+        start, end = chr_interval.split(",")
+        start_chr, start_pos = [int(x) for x in start.split(":")]
+        end_chr, end_pos = [int(x) for x in end.split(":")]
+    except:
+        raise ValueError('variant sets should be in format `chr:start,chr:end`')
+    
+    return variant_sets
