@@ -1,5 +1,4 @@
 import os
-import time
 import shutil
 import numpy as np
 import pandas as pd
@@ -319,10 +318,6 @@ def run(args, log):
         gprocessor.keep_remove_idvs(common_ids)
         gprocessor.do_processing(mode="gwas")
 
-        temp_path = get_temp_path(args.out)
-        if not args.not_save_genotype_data:
-            gprocessor.save_interim_data(temp_path)
-
         # extract common subjects and align data
         snps_mt_ids = gprocessor.subject_id()
         ldrs.to_single_index()
@@ -352,6 +347,7 @@ def run(args, log):
             args.voxels = np.arange(bases.shape[0])
 
         # wild bootstrap
+        temp_path = get_temp_path(args.out)
         cluster = Cluster(
             gprocessor,
             resid_ldrs,
@@ -375,16 +371,6 @@ def run(args, log):
 
     finally:
         if "temp_path" in locals():
-            if os.path.exists(temp_path):
-                for _ in range(3):
-                    try:
-                        shutil.rmtree(temp_path)
-                        break
-                    except OSError as e:
-                        if e.errno == 39:  # Directory not empty
-                            time.sleep(0.1)
-                        else:
-                            raise
             if os.path.exists(f"{temp_path}_covar.txt"):
                 os.remove(f"{temp_path}_covar.txt")
             if os.path.exists(f"{temp_path}_ldr.txt"):
