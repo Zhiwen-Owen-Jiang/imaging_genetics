@@ -1,6 +1,4 @@
 import os
-import time
-import shutil
 import logging
 import hail as hl
 import heig.input.dataset as ds
@@ -84,8 +82,6 @@ def check_input(args, log):
         raise ValueError("--covar is required")
     if args.spark_conf is None:
         raise ValueError("--spark-conf is required")
-    # if args.bfile is None and args.geno_mt is None and args.vcf is None:
-    #     raise ValueError("--geno-mt, --bfile or --vcf is required")
     if args.geno_mt is None:
         raise ValueError("--geno-mt is required. If you have bfile or vcf, convert it into a mt by --make-mt")
         
@@ -309,10 +305,6 @@ def run(args, log):
         gprocessor.keep_remove_idvs(common_ids)
         gprocessor.do_processing(mode="gwas")
 
-        temp_path = get_temp_path(args.out)
-        if not args.not_save_genotype_data:
-            gprocessor.save_interim_data(temp_path)
-
         # extract common subjects and align data
         snps_mt_ids = gprocessor.subject_id()
         ldrs.to_single_index()
@@ -331,6 +323,7 @@ def run(args, log):
         )
 
         # gwas
+        temp_path = get_temp_path(args.out)
         gwas = DoGWAS(gprocessor, ldrs.data, covar.data, temp_path, loco_preds)
 
         # save gwas results
@@ -338,17 +331,6 @@ def run(args, log):
         log.info(f"\nSave GWAS results to {args.out}.parquet")
     finally:
         if "temp_path" in locals():
-            if os.path.exists(temp_path):
-                for _ in range(3):
-                    try:
-                        shutil.rmtree(temp_path)
-                        log.info(f"Removed preprocessed genotype data at {temp_path}")
-                        break
-                    except OSError as e:
-                        if e.errno == 39:  # Directory not empty
-                            time.sleep(0.1)
-                        else:
-                            raise
             if os.path.exists(f"{temp_path}_covar.txt"):
                 os.remove(f"{temp_path}_covar.txt")
                 log.info(f"Removed temporary covariate data at {temp_path}_covar.txt")

@@ -892,7 +892,6 @@ def check_accepted_args(module, args, log):
             "n_ldrs",
             "grch37",
             "geno_mt",
-            "not_save_genotype_data",
             "bsize",
             "spark_conf",
             "threads"
@@ -1034,7 +1033,6 @@ def check_accepted_args(module, args, log):
             "variant_type",
             "chr_interval",
             "loco_preds",
-            "not_save_genotype_data",
             "threads"
         }
     }

@@ -1,7 +1,5 @@
 import os
-import time
 import h5py
-import shutil
 import logging
 import concurrent.futures
 import numpy as np
@@ -13,7 +11,7 @@ from functools import partial
 from sklearn.model_selection import KFold
 from scipy.linalg import cho_solve, cho_factor
 import heig.input.dataset as ds
-from heig.wgs.utils import init_hail, get_temp_path, read_genotype_data, clean
+from heig.wgs.utils import init_hail, read_genotype_data, clean
 from hail.linalg import BlockMatrix
 from heig.utils import inv
 
@@ -544,8 +542,6 @@ class LOCOpreds:
 
 def check_input(args):
     # required arguments
-    # if args.bfile is None and args.geno_mt is None and args.vcf is None:
-    #     raise ValueError("--geno-mt, --bfile or --vcf is required")
     if args.geno_mt is None:
         raise ValueError("--geno-mt is required. If you have bfile or vcf, convert it into a mt by --make-mt")
     if args.covar is None:
@@ -596,10 +592,6 @@ def run(args, log):
         gprocessor.keep_remove_idvs(common_ids)
         gprocessor.do_processing(mode="gwas")
     
-        temp_path = get_temp_path(args.out)
-        if not args.not_save_genotype_data:
-            gprocessor.save_interim_data(temp_path)
-
         # get common subjects
         snps_mt_ids = gprocessor.subject_id()
         ldrs.to_single_index()
@@ -669,22 +661,10 @@ def run(args, log):
         log.info(f"\nSave level1 loco ridge predictions to {args.out}_ldr_loco_preds.h5")
 
     finally:
-        if "temp_path" in locals():
-            if os.path.exists(temp_path):
-                for _ in range(3):
-                    try:
-                        shutil.rmtree(temp_path)
-                        log.info(f"Removed preprocessed genotype data at {temp_path}")
-                        break
-                    except OSError as e:
-                        if e.errno == 39:  # Directory not empty
-                            time.sleep(0.1)
-                        else:
-                            raise
-            if os.path.exists(l0_pred_file):
-                os.remove(l0_pred_file)
-                log.info(
-                    f"Removed level0 ridge predictions at {l0_pred_file}"
-                )
+        if os.path.exists(l0_pred_file):
+            os.remove(l0_pred_file)
+            log.info(
+                f"Removed level0 ridge predictions at {l0_pred_file}"
+            )
         
         clean(args.out)
