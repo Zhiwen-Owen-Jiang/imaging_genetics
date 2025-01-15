@@ -141,8 +141,8 @@ class GProcessor:
             },
             "methods": [
                 # "_vcf_filter",
-                "_flip_snps",
-                "_extract_variant_type",
+                # "_flip_snps",
+                # "_extract_variant_type",
                 "_extract_maf",
                 "_extract_call_rate",
                 "_filter_hwe",
@@ -251,7 +251,7 @@ class GProcessor:
             if not skip:
                 self.logger.info("Removed variants with missing alternative alleles.")
                 self.logger.info("Extracted variants with PASS in FILTER.")
-                methods += ['_vcf_filter', '_filter_missing_alt']
+                methods += ['_extract_variant_type', '_vcf_filter', '_filter_missing_alt', '_flip_snps']
         self.logger.info("---------------------\n")
 
         for method in methods:
@@ -421,16 +421,7 @@ class GProcessor:
             self.maf_min = 0
         if self.maf_min > self.maf_max:
             raise ValueError("maf_min is greater than maf_max")
-        # if "maf" not in self.snps_mt.row:
-            # self.snps_mt = self.snps_mt.annotate_rows(
-            #     maf=hl.if_else(
-            #         self.snps_mt.info.AF[-1] > 0.5,
-            #         1 - self.snps_mt.info.AF[-1],
-            #         self.snps_mt.info.AF[-1],
-            #     )
-            # )
         self.snps_mt = self.snps_mt.annotate_rows(
-            # maf=hl.min(self.snps_mt.info.AF)
             maf=self.snps_mt.info.AF[self.snps_mt.minor_allele_index]
         )
         self.snps_mt = self.snps_mt.filter_rows(
@@ -470,9 +461,6 @@ class GProcessor:
         Flipping variants with MAF > 0.5, and creating an annotation for maf
 
         """
-        # self.snps_mt = self.snps_mt.annotate_rows(
-        #     minor_allele_index=hl.argmin(self.snps_mt.info.AF) # Index of the minor allele
-        # )
         self.snps_mt = self.snps_mt.annotate_entries(
             flipped_n_alt_alleles=hl.if_else(
                 self.snps_mt.info.AF[self.snps_mt.minor_allele_index] > 0.5,
@@ -480,20 +468,6 @@ class GProcessor:
                 self.snps_mt.GT.n_alt_alleles(),
             )
         )
-        # self.snps_mt = self.snps_mt.annotate_entries(
-        #     flipped_n_alt_alleles=hl.if_else(
-        #         self.snps_mt.info.AF[-1] > 0.5,
-        #         2 - self.snps_mt.GT.n_alt_alleles(),
-        #         self.snps_mt.GT.n_alt_alleles(),
-        #     )
-        # )
-        # self.snps_mt = self.snps_mt.annotate_rows(
-        #     maf=hl.if_else(
-        #         self.snps_mt.info.AF[-1] > 0.5,
-        #         1 - self.snps_mt.info.AF[-1],
-        #         self.snps_mt.info.AF[-1],
-        #     )
-        # )
         
     # def _impute_missing_snps(self):
     #     """
@@ -521,20 +495,6 @@ class GProcessor:
         Annotating if variants have a MAC <= mac_thresh
 
         """
-        # self.snps_mt = self.snps_mt.annotate_rows(
-        #     is_rare=hl.if_else(
-        #         (
-        #             (self.snps_mt.info.AC[-1] <= self.mac_thresh)
-        #             | (
-        #                 self.snps_mt.info.AN - self.snps_mt.info.AC[-1]
-        #                 <= self.mac_thresh
-        #             )
-        #         ),
-        #         True,
-        #         False,
-        #     )
-        # )
-
         self.snps_mt = self.snps_mt.annotate_rows(
             is_rare=self.snps_mt.info.AC[self.snps_mt.minor_allele_index] <= self.mac_thresh
         )
