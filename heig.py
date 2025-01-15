@@ -11,7 +11,7 @@ from heig.utils import GetLogger, sec_to_str
 # os.environ['NUMEXPR_MAX_THREADS'] = '8'
 # numexpr.set_num_threads(int(os.environ['NUMEXPR_MAX_THREADS']))
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 MASTHEAD = (
     "******************************************************************************\n"
 )
@@ -677,6 +677,10 @@ gwas_parser.add_argument(
 make_mt_parser.add_argument(
     "--qc-mode", help="Genotype data QC mode, either gwas or wgs. Default: gwas"
 )
+make_mt_parser.add_argument(
+    "--save-sparse-genotype", action="store_true", 
+    help="Save sparse genotype for rare variant analysis"
+)
 
 # arguments for annotation.py
 rv_annotation_parser.add_argument(
@@ -687,7 +691,6 @@ rv_annotation_parser.add_argument(
         "E.g., favor_db/chr*.csv"
     ),
 )
-
 rv_annotation_parser.add_argument(
     "--general-annot", 
     help=(
@@ -710,7 +713,6 @@ rv_sumstats_parser.add_argument(
     type=int,
     help="Bandwidth of banded LD matrix. Default: 5000"
 )
-
 rv_sumstats_parser.add_argument(
     "--mac-thresh",
     type=int,
@@ -720,6 +722,10 @@ rv_sumstats_parser.add_argument(
         "will be marked as a super rare variants in ACAT-V analysis. "
         "Default is 10."
     ),
+)
+rv_sumstats_parser.add_argument(
+    "--sparse-genotype",
+    help="Prefix of sparse genotype data."
 )
 
 # arguments for slidingwindow.py
@@ -833,7 +839,7 @@ def check_accepted_args(module, args, log):
             "out",
             "voxel_gwas",
             "sig_thresh",
-            "voxel",
+            "voxels",
             "chr_interval",
             "extract",
             "exclude",
@@ -911,6 +917,7 @@ def check_accepted_args(module, args, log):
             "chr_interval",
             "spark_conf",
             "qc_mode",
+            "save_sparse_genotype",
             "grch37",
             "threads"
         },
@@ -929,7 +936,7 @@ def check_accepted_args(module, args, log):
         "make_rv_sumstats":{
             "make_rv_sumstats",
             "out",
-            "geno_mt",
+            "sparse_genotype",
             "null_model",
             "variant_type",
             "maf_max",
@@ -963,8 +970,6 @@ def check_accepted_args(module, args, log):
             "rv_sumstats",
             "variant_category",
             "variant_sets",
-            "maf_max",
-            "maf_min",
             "extract_locus",
             "exclude_locus",
             "chr_interval",
@@ -980,8 +985,6 @@ def check_accepted_args(module, args, log):
             "rv_sumstats",
             "variant_category",
             "variant_sets",
-            "maf_max",
-            "maf_min",
             "extract_locus",
             "exclude_locus",
             "chr_interval",
@@ -995,8 +998,6 @@ def check_accepted_args(module, args, log):
             "rv",
             "out",
             "rv_sumstats",
-            "maf_max",
-            "maf_min",
             "extract_locus",
             "exclude_locus",
             "chr_interval",
@@ -1077,7 +1078,8 @@ def process_args(args, log):
     ds.check_existence(args.spark_conf)
     ds.check_existence(args.loco_preds)
     ds.check_existence(args.geno_mt)
-    # ds.check_existence(args.rv_sumstats)
+    ds.check_existence(args.rv_sumstats, "_rv_sumstats.h5")
+    ds.check_existence(args.rv_sumstats, "_locus_info.ht")
     ds.check_existence(args.annot_ht)
     ds.check_existence(args.variant_sets)
 
