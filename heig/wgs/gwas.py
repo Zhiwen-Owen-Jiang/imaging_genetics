@@ -25,26 +25,28 @@ def parse_ldr_col(ldr_col):
     Returns:
     ---------
     res: a tuple of min and max (not included) zero-based indices
-    
+
     """
-    ldr_col = ldr_col.split(',')
+    ldr_col = ldr_col.split(",")
     res = list()
 
     for col in ldr_col:
         if ":" in col:
-            start, end = [int(x) for x in col.split(':')]
+            start, end = [int(x) for x in col.split(":")]
             if start > end:
-                raise ValueError(f'{col} is invalid')
-            res += list(range(start-1, end))
+                raise ValueError(f"{col} is invalid")
+            res += list(range(start - 1, end))
         else:
-            res.append(int(col)-1)
+            res.append(int(col) - 1)
 
     res = sorted(list(set(res)))
     if res[-1] - res[0] + 1 != len(res):
-        ValueError('it is very rare that columns in --ldr-col are not consective for LDR GWAS')
+        ValueError(
+            "it is very rare that columns in --ldr-col are not consective for LDR GWAS"
+        )
     if res[0] < 0:
-        ValueError('the min index less than 1')
-    res = (res[0], res[-1]+1)
+        ValueError("the min index less than 1")
+    res = (res[0], res[-1] + 1)
 
     return res
 
@@ -83,12 +85,16 @@ def check_input(args, log):
     if args.spark_conf is None:
         raise ValueError("--spark-conf is required")
     if args.geno_mt is None:
-        raise ValueError("--geno-mt is required. If you have bfile or vcf, convert it into a mt by --make-mt")
-        
+        raise ValueError(
+            "--geno-mt is required. If you have bfile or vcf, convert it into a mt by --make-mt"
+        )
+
     if args.ldr_col is not None:
         args.ldr_col = parse_ldr_col(args.ldr_col)
         if args.n_ldrs is not None:
-            log.info('WARNING: both --ldr-col and --n-ldrs are provided. Ignore --n-ldrs.')
+            log.info(
+                "WARNING: both --ldr-col and --n-ldrs are provided. Ignore --n-ldrs."
+            )
     elif args.n_ldrs is not None:
         args.ldr_col = (0, args.n_ldrs)
     args.n_ldrs = None
@@ -203,7 +209,7 @@ class DoGWAS:
             pos=gwas.locus.position,
             ref_allele=gwas.alleles[0],
             alt_allele=gwas.alleles[1],
-            alt_allele_freq=gwas.AF[1]
+            alt_allele_freq=gwas.AF[1],
         )
         gwas = gwas.key_by()
         gwas = gwas.drop(*["locus", "alleles", "y_transpose_x", "sum_x", "AF"])
@@ -221,27 +227,31 @@ class DoGWAS:
             "t_stat",
             "p_value",
         )
-        
+
         gwas = self._post_process(gwas)
 
         return gwas
-    
+
     def _post_process(self, gwas):
         """
         Removing SNPs with any missing or infinity values.
         This step is originally done in sumstats.py.
         However, pandas is not convenient to handle nested arrays.
-        
+
         """
         gwas = gwas.filter(
-            ~(hl.any(lambda x: hl.is_missing(x) | hl.is_infinite(x), gwas.beta) |
-            hl.any(lambda x: hl.is_missing(x) | hl.is_infinite(x), gwas.standard_error) |
-            hl.any(lambda x: hl.is_missing(x) | hl.is_infinite(x), gwas.t_stat) |
-            hl.any(lambda x: hl.is_missing(x) | hl.is_infinite(x), gwas.p_value))
+            ~(
+                hl.any(lambda x: hl.is_missing(x) | hl.is_infinite(x), gwas.beta)
+                | hl.any(
+                    lambda x: hl.is_missing(x) | hl.is_infinite(x), gwas.standard_error
+                )
+                | hl.any(lambda x: hl.is_missing(x) | hl.is_infinite(x), gwas.t_stat)
+                | hl.any(lambda x: hl.is_missing(x) | hl.is_infinite(x), gwas.p_value)
+            )
         )
 
         return gwas
-    
+
     def save(self, out_path):
         """
         Saving GWAS results as a parquet file
@@ -266,14 +276,14 @@ def run(args, log):
                 raise ValueError(f"--ldr-col or --n-ldrs out of index")
             else:
                 log.info(f"keep LDR{args.ldr_col[0]+1} to LDR{args.ldr_col[1]}.")
-            ldrs.data = ldrs.data.iloc[:, args.ldr_col[0]: args.ldr_col[1]]
+            ldrs.data = ldrs.data.iloc[:, args.ldr_col[0] : args.ldr_col[1]]
 
         log.info(f"Read covariates from {args.covar}")
         covar = ds.Covar(args.covar, args.cat_covar_list)
-    
+
         # read loco preds
         if args.loco_preds is not None:
-            log.info(f'Read LOCO predictions from {args.loco_preds}')
+            log.info(f"Read LOCO predictions from {args.loco_preds}")
             loco_preds = LOCOpreds(args.loco_preds)
             loco_preds.select_ldrs(args.ldr_col)
             if loco_preds.ldr_col[1] - loco_preds.ldr_col[0] != ldrs.data.shape[1]:
@@ -337,7 +347,7 @@ def run(args, log):
             if os.path.exists(f"{temp_path}_ldr.txt"):
                 os.remove(f"{temp_path}_ldr.txt")
                 log.info(f"Removed temporary LDR data at {temp_path}_ldr.txt")
-        if 'loco_preds' in locals() and args.loco_preds is not None:
+        if "loco_preds" in locals() and args.loco_preds is not None:
             loco_preds.close()
-        
+
         clean(args.out)

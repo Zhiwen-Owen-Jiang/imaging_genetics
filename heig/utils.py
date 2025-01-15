@@ -102,9 +102,9 @@ def find_loc(num_list, target):
 def inv(A):
     """
     Computing inverse for a symmetric and positive-definite matrix
-    
+
     """
     cho_factors = cho_factor(A)
     A_inv = cho_solve(cho_factors, np.eye(A.shape[0]))
-    
+
     return A_inv

@@ -127,7 +127,9 @@ class NIFTIReader(ImageReader):
         except Exception as e:
             if isinstance(e, ValueError):
                 raise
-            raise RuntimeError(f"cannot read {img_file}, did you provide a wrong NIFTI image?")
+            raise RuntimeError(
+                f"cannot read {img_file}, did you provide a wrong NIFTI image?"
+            )
 
 
 class CIFTIReader(ImageReader):
@@ -154,7 +156,9 @@ class CIFTIReader(ImageReader):
         except Exception as e:
             if isinstance(e, ValueError):
                 raise
-            raise RuntimeError(f"cannot read {img_file}, did you provide a wrong CIFTI image?")
+            raise RuntimeError(
+                f"cannot read {img_file}, did you provide a wrong CIFTI image?"
+            )
 
 
 class FreeSurferReader(ImageReader):
@@ -215,7 +219,9 @@ def get_image_list(img_dirs, suffixes, log, keep_idvs=None, remove_idvs=None):
             if img_file.endswith(suffix) and (
                 (keep_idvs is not None and img_id in keep_idvs) or (keep_idvs is None)
             ):
-                if (remove_idvs is not None and img_id not in remove_idvs) or (remove_idvs is None):
+                if (remove_idvs is not None and img_id not in remove_idvs) or (
+                    remove_idvs is None
+                ):
                     if img_id in img_files:
                         n_dup += 1
                     else:
@@ -253,7 +259,7 @@ def save_images(out_dir, images, coord, id):
 
 class ImageManager:
     """
-    Image management class 
+    Image management class
     which can keep, remove, and read in batch for a single image HDF5 file
 
     """
@@ -275,7 +281,9 @@ class ImageManager:
         self.id_idxs = np.arange(len(self.ids))
         self.extracted_ids = self.ids
         self.logger = logging.getLogger(__name__)
-        self.logger.info(f"{self.n_sub} subjects and {self.n_voxels} voxels (vertices) in {image_file}")
+        self.logger.info(
+            f"{self.n_sub} subjects and {self.n_voxels} voxels (vertices) in {image_file}"
+        )
 
     def keep_and_remove(self, keep_idvs=None, remove_idvs=None, check_empty=True):
         """
@@ -283,7 +291,7 @@ class ImageManager:
 
         Parameters:
         ------------
-        keep_idvs: subject indices in pd.MultiIndex to keep 
+        keep_idvs: subject indices in pd.MultiIndex to keep
         remove_idvs: subject indices in pd.MultiIndex to remove
         check_empty: if check the current image set is empty
 
@@ -294,10 +302,10 @@ class ImageManager:
             self.extracted_ids = ds.remove_idxs(self.extracted_ids, remove_idvs)
         if check_empty and len(self.extracted_ids) == 0:
             raise ValueError("no subject remaining after --keep and/or --remove")
-        
+
         self.n_sub = len(self.extracted_ids)
         self.id_idxs = np.arange(len(self.ids))[self.ids.isin(self.extracted_ids)]
-        
+
     def image_reader(self, batch_size=None):
         """
         Reading imaging data in chunks as a generator
@@ -308,7 +316,9 @@ class ImageManager:
 
         """
         if batch_size is None:
-            memory_use = self.n_sub * self.n_voxels * np.dtype(np.float32).itemsize / (1024**3)
+            memory_use = (
+                self.n_sub * self.n_voxels * np.dtype(np.float32).itemsize / (1024**3)
+            )
             if memory_use <= 5:
                 batch_size = self.n_sub
             else:
@@ -325,13 +335,17 @@ class ImageManager:
         Parameters:
         ------------
         out_dir: directory of output
-        
+
         """
         self.logger.info(f"{self.n_sub} subjects in the output image file.")
         try:
             with h5py.File(out_dir, "w") as output:
-                dset = output.create_dataset("images", shape=(self.n_sub, self.n_voxels), dtype="float32")
-                output.create_dataset("id", data=self.extracted_ids.tolist(), dtype="S10")
+                dset = output.create_dataset(
+                    "images", shape=(self.n_sub, self.n_voxels), dtype="float32"
+                )
+                output.create_dataset(
+                    "id", data=self.extracted_ids.tolist(), dtype="S10"
+                )
                 output.create_dataset("coord", data=self.coord)
                 dset.attrs["id"] = "id"
                 dset.attrs["coord"] = "coord"
@@ -340,7 +354,7 @@ class ImageManager:
                 for images_, _ in self.image_reader():
                     start = end
                     end += images_.shape[0]
-                    dset[start: end] = images_
+                    dset[start:end] = images_
 
         except Exception:
             if os.path.exists(out_dir):
@@ -349,33 +363,52 @@ class ImageManager:
 
     def close(self):
         self.file.close()
-        
+
 
 def merge_images(image_files, out_dir, log, keep_idvs=None, remove_idvs=None):
     """
     Merging multiple image files
-    
+
     """
     try:
         image_managers = list()
         for image_file in image_files:
             image_managers.append(ImageManager(image_file))
-            if len(image_managers) > 1 and not np.equal(image_managers[-1].coord, image_managers[-2].coord).all():
-                raise ValueError(f"{image_file} has different coordinates than other files")
+            if (
+                len(image_managers) > 1
+                and not np.equal(
+                    image_managers[-1].coord, image_managers[-2].coord
+                ).all()
+            ):
+                raise ValueError(
+                    f"{image_file} has different coordinates than other files"
+                )
 
-        all_ids = ds.get_union_idxs(*[image_manager.ids for image_manager in image_managers])
+        all_ids = ds.get_union_idxs(
+            *[image_manager.ids for image_manager in image_managers]
+        )
         n_unique_sub = len(all_ids)
         n_all_sub = sum((image_manager.n_sub for image_manager in image_managers))
-        log.info((f"{n_unique_sub} unique subjects in these image files. "
-                f"{n_all_sub - n_unique_sub} duplicated subject(s). Keep the first one."))
+        log.info(
+            (
+                f"{n_unique_sub} unique subjects in these image files. "
+                f"{n_all_sub - n_unique_sub} duplicated subject(s). Keep the first one."
+            )
+        )
         all_ids = ds.get_common_idxs(all_ids, keep_idvs)
         all_ids = ds.remove_idxs(all_ids, remove_idvs)
 
         for image_manager in image_managers:
-            image_manager.keep_and_remove(keep_idvs=all_ids, remove_idvs=None, check_empty=False)
-        
+            image_manager.keep_and_remove(
+                keep_idvs=all_ids, remove_idvs=None, check_empty=False
+            )
+
         with h5py.File(out_dir, "w") as output:
-            dset = output.create_dataset("images", shape=(len(all_ids), image_managers[0].n_voxels), dtype="float32")
+            dset = output.create_dataset(
+                "images",
+                shape=(len(all_ids), image_managers[0].n_voxels),
+                dtype="float32",
+            )
             output.create_dataset("coord", data=image_managers[0].coord)
             dset.attrs["id"] = "id"
             dset.attrs["coord"] = "coord"
@@ -392,7 +425,7 @@ def merge_images(image_files, out_dir, log, keep_idvs=None, remove_idvs=None):
                             ids_read = image_ids_
                         start = end
                         end += images_.shape[0]
-                        dset[start: end] = images_
+                        dset[start:end] = images_
 
             output.create_dataset("id", data=np.array(ids_read.tolist(), dtype="S10"))
     except:
@@ -400,7 +433,7 @@ def merge_images(image_files, out_dir, log, keep_idvs=None, remove_idvs=None):
             os.remove(out_dir)
         raise
     finally:
-        if 'image_managers' in locals():
+        if "image_managers" in locals():
             for image_manager in image_managers:
                 image_manager.close()
 
@@ -415,8 +448,10 @@ def check_input(args):
         and args.image is None
     ):
         raise ValueError(
-            ("--image-txt + --coord-txt or --image-dir + --image-suffix or "
-             "--image-list or --image is required")
+            (
+                "--image-txt + --coord-txt or --image-dir + --image-suffix or "
+                "--image-list or --image is required"
+            )
         )
 
     if args.image_txt is not None and args.coord_txt is None:
@@ -447,7 +482,7 @@ def check_input(args):
         args.image_list = args.image_list.split(",")
         for image_file in args.image_list:
             ds.check_existence(image_file)
-    
+
 
 def run(args, log):
     # check input
@@ -463,7 +498,7 @@ def run(args, log):
                 f"voxels (vertices) read from {args.image_txt}"
             )
         )
-        
+
         images.keep_and_remove(args.keep, args.remove, merge=True)
         ids = images.get_ids()
         images = np.array(images.data, dtype=np.float32)
@@ -484,7 +519,7 @@ def run(args, log):
             image_manager.keep_and_remove(args.keep, args.remove)
             image_manager.save(out_dir)
         finally:
-            if 'image_manager' in locals():
+            if "image_manager" in locals():
                 image_manager.close()
 
     elif args.image_list is not None:

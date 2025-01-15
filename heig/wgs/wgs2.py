@@ -29,14 +29,16 @@ class RV:
 
     """
 
-    def __init__(self, bases, resid_ldr, covar, locus, maf, is_rare, loco_preds=None, rand_v=1):
+    def __init__(
+        self, bases, resid_ldr, covar, locus, maf, is_rare, loco_preds=None, rand_v=1
+    ):
         """
         Parameters:
         ------------
         bases: (N, r) np.array, functional bases
         resid_ldr: (n, r) np.array, LDR residuals
         covar: (n, p) np.array, the same as those used to do projection
-        locus: a hail.Table including locus, grch37, variant_type, 
+        locus: a hail.Table including locus, grch37, variant_type,
                 chr, start, and end
         maf: a np.array of MAF
         is_rare: a np.array of boolean indices indicating MAC <= mac_threshold
@@ -55,15 +57,19 @@ class RV:
             chr = int(chr.replace("chr", ""))
         else:
             chr = int(chr)
-        
+
         # adjust for relatedness
         if loco_preds is not None:
-            self.resid_ldr = (resid_ldr - loco_preds.data_reader(chr)) * rand_v # (I-M)\Xi, (n, r)
+            self.resid_ldr = (
+                resid_ldr - loco_preds.data_reader(chr)
+            ) * rand_v  # (I-M)\Xi, (n, r)
         else:
             self.resid_ldr = resid_ldr * rand_v
 
         # variance
-        self.inner_ldr = np.dot(self.resid_ldr.T, self.resid_ldr).astype(np.float32)  # \Xi'(I-M)\Xi, (r, r)
+        self.inner_ldr = np.dot(self.resid_ldr.T, self.resid_ldr).astype(
+            np.float32
+        )  # \Xi'(I-M)\Xi, (r, r)
 
         # X = UDV', X'(X'X)^{-1/2} = UV'
         covar_U, _, covar_Vt = np.linalg.svd(covar, full_matrices=False)
@@ -72,7 +78,7 @@ class RV:
         self.half_covar_proj = np.dot(covar_U, covar_Vt).astype(np.float32)
         self.bases = bases.astype(np.float32)
         self.n_subs, self.n_covars = covar.shape
-        
+
     def sumstats(self, vset, bandwidth=5000):
         """
         Computing and writing summary statistics for rare variants
@@ -87,14 +93,16 @@ class RV:
         self.n_variants = vset.shape[0]
 
         # half ldr score
-        self.half_ldr_score = vset @ self.resid_ldr # Z'(I-M)\Xi, (m, r)
+        self.half_ldr_score = vset @ self.resid_ldr  # Z'(I-M)\Xi, (m, r)
 
         # Z'Z
-        self.banded_vset_ld = self._sparse_banded(vset, bandwidth) # Z'Z, sparse matrix (m, m) 
+        self.banded_vset_ld = self._sparse_banded(
+            vset, bandwidth
+        )  # Z'Z, sparse matrix (m, m)
         self.bandwidth = bandwidth
 
         # Z'X(X'X)^{-1/2} = Z'UV', where X = UDV'
-        self.vset_half_covar_proj = vset @ self.half_covar_proj # Z'UV', (m, p)
+        self.vset_half_covar_proj = vset @ self.half_covar_proj  # Z'UV', (m, p)
 
     @staticmethod
     def _sparse_banded(vset, bandwidth):
@@ -113,7 +121,7 @@ class RV:
         Returns:
         ---------
         banded_matrix: Sparse banded matrix.
-        
+
         """
         diagonal_data = list()
         banded_data = list()
@@ -133,7 +141,9 @@ class RV:
             ld_rec_data = ld_rec.data
 
             diagonal_data.append(ld_rec_data[ld_rec_row == ld_rec_col])
-            mask = (np.abs(ld_rec_row - ld_rec_col) <= bandwidth) & (ld_rec_col > ld_rec_row)
+            mask = (np.abs(ld_rec_row - ld_rec_col) <= bandwidth) & (
+                ld_rec_col > ld_rec_row
+            )
             banded_row.append(ld_rec_row[mask])
             banded_col.append(ld_rec_col[mask])
             banded_data.append(ld_rec_data[mask])
@@ -143,31 +153,39 @@ class RV:
         banded_col = np.concatenate(banded_col)
         banded_data = np.concatenate(banded_data)
         shape = np.array([n_variants, n_variants])
-        
+
         return diagonal_data, banded_data, banded_row, banded_col, shape
-        
+
     def save(self, output_dir):
         """
         Saving summary statistics
-        
+
         """
-        with h5py.File(f"{output_dir}_rv_sumstats.h5", 'w') as file:
-            file.create_dataset('maf', data=self.maf, dtype='float32')
-            file.create_dataset('is_rare', data=self.is_rare)
-            file.create_dataset('bases', data=self.bases, dtype='float32')
-            file.create_dataset('inner_ldr', data=self.inner_ldr, dtype='float32')
-            file.create_dataset('half_ldr_score', data=self.half_ldr_score, dtype='float32')
-            file.create_dataset('vset_half_covar_proj', data=self.vset_half_covar_proj, dtype='float32')
-            file.create_dataset('vset_ld_diag', data=self.banded_vset_ld[0], dtype='float32')
-            file.create_dataset('vset_ld_data', data=self.banded_vset_ld[1], dtype='float32')
-            file.create_dataset('vset_ld_row', data=self.banded_vset_ld[2])
-            file.create_dataset('vset_ld_col', data=self.banded_vset_ld[3])
-            file.create_dataset('vset_ld_shape', data=self.banded_vset_ld[4])
-            file.attrs['n_subs'] = self.n_subs
-            file.attrs['n_covars'] = self.n_covars
-            file.attrs['n_variants'] = self.n_variants
-            file.attrs['bandwidth'] = self.bandwidth
-        self.locus.write(f'{output_dir}_locus_info.ht', overwrite=True)
+        with h5py.File(f"{output_dir}_rv_sumstats.h5", "w") as file:
+            file.create_dataset("maf", data=self.maf, dtype="float32")
+            file.create_dataset("is_rare", data=self.is_rare)
+            file.create_dataset("bases", data=self.bases, dtype="float32")
+            file.create_dataset("inner_ldr", data=self.inner_ldr, dtype="float32")
+            file.create_dataset(
+                "half_ldr_score", data=self.half_ldr_score, dtype="float32"
+            )
+            file.create_dataset(
+                "vset_half_covar_proj", data=self.vset_half_covar_proj, dtype="float32"
+            )
+            file.create_dataset(
+                "vset_ld_diag", data=self.banded_vset_ld[0], dtype="float32"
+            )
+            file.create_dataset(
+                "vset_ld_data", data=self.banded_vset_ld[1], dtype="float32"
+            )
+            file.create_dataset("vset_ld_row", data=self.banded_vset_ld[2])
+            file.create_dataset("vset_ld_col", data=self.banded_vset_ld[3])
+            file.create_dataset("vset_ld_shape", data=self.banded_vset_ld[4])
+            file.attrs["n_subs"] = self.n_subs
+            file.attrs["n_covars"] = self.n_covars
+            file.attrs["n_variants"] = self.n_variants
+            file.attrs["bandwidth"] = self.bandwidth
+        self.locus.write(f"{output_dir}_locus_info.ht", overwrite=True)
 
 
 class RVsumstats:
@@ -177,32 +195,31 @@ class RVsumstats:
     """
 
     def __init__(self, prefix):
-        self.locus = hl.read_table(f'{prefix}_locus_info.ht').key_by('locus', 'alleles')
-        self.locus = self.locus.add_index('idx')
+        self.locus = hl.read_table(f"{prefix}_locus_info.ht").key_by("locus", "alleles")
+        self.locus = self.locus.add_index("idx")
         self.geno_ref = self.locus.reference_genome.collect()[0]
         self.variant_type = self.locus.variant_type.collect()[0]
 
-        with h5py.File(f"{prefix}_rv_sumstats.h5", 'r') as file:
-            self.maf = file['maf'][:]
-            self.is_rare = file['is_rare'][:]
-            self.bases = file['bases'][:] # (N, r)
-            self.inner_ldr = file['inner_ldr'][:] # (r, r)
-            self.half_ldr_score = file['half_ldr_score'][:]
-            self.vset_half_covar_proj = file['vset_half_covar_proj'][:]
-            self.n_variants = file.attrs['n_variants']
-            self.n_subs = file.attrs['n_subs']
-            self.n_covars = file.attrs['n_covars']
-            self.bandwidth = file.attrs['bandwidth']
+        with h5py.File(f"{prefix}_rv_sumstats.h5", "r") as file:
+            self.maf = file["maf"][:]
+            self.is_rare = file["is_rare"][:]
+            self.bases = file["bases"][:]  # (N, r)
+            self.inner_ldr = file["inner_ldr"][:]  # (r, r)
+            self.half_ldr_score = file["half_ldr_score"][:]
+            self.vset_half_covar_proj = file["vset_half_covar_proj"][:]
+            self.n_variants = file.attrs["n_variants"]
+            self.n_subs = file.attrs["n_subs"]
+            self.n_covars = file.attrs["n_covars"]
+            self.bandwidth = file.attrs["bandwidth"]
 
-            vset_ld_diag = file['vset_ld_diag'][:]
-            vset_ld_data = file['vset_ld_data'][:]
-            vset_ld_row = file['vset_ld_row'][:]
-            vset_ld_col = file['vset_ld_col'][:]
-            vset_ld_shape = file['vset_ld_shape'][:]
+            vset_ld_diag = file["vset_ld_diag"][:]
+            vset_ld_data = file["vset_ld_data"][:]
+            vset_ld_row = file["vset_ld_row"][:]
+            vset_ld_col = file["vset_ld_col"][:]
+            vset_ld_shape = file["vset_ld_shape"][:]
 
         self.vset_ld = self._reconstruct_vset_ld(
-            vset_ld_diag, vset_ld_data,
-            vset_ld_row, vset_ld_col, vset_ld_shape
+            vset_ld_diag, vset_ld_data, vset_ld_row, vset_ld_col, vset_ld_shape
         )
 
         self.voxel_idxs = np.arange(self.bases.shape[0])
@@ -210,7 +227,7 @@ class RVsumstats:
 
     def calculate_var(self):
         self.var = np.sum(np.dot(self.bases, self.inner_ldr) * self.bases, axis=1)
-        self.var /= (self.n_subs - self.n_covars) # (N, )
+        self.var /= self.n_subs - self.n_covars  # (N, )
 
     @staticmethod
     def _reconstruct_vset_ld(diag, data, row, col, shape):
@@ -237,11 +254,11 @@ class RVsumstats:
         full_row = np.concatenate([row, lower_row, diag_row_col])
         full_col = np.concatenate([col, lower_col, diag_row_col])
         full_data = np.concatenate([data, data, diag])
-        
+
         full_matrix = csr_matrix((full_data, (full_row, full_col)), shape=shape)
 
         return full_matrix
-        
+
     def select_ldrs(self, n_ldrs=None):
         if n_ldrs is not None:
             if n_ldrs <= self.bases.shape[1] and n_ldrs <= self.half_ldr_score.shape[1]:
@@ -260,7 +277,7 @@ class RVsumstats:
                 self.logger.info(f"{len(voxel_idxs)} voxels included.")
             else:
                 raise ValueError("--voxel index (one-based) out of range")
-            
+
     def extract_exclude_locus(self, extract_locus, exclude_locus):
         """
         Extracting and excluding variants by locus
@@ -289,13 +306,15 @@ class RVsumstats:
         """
         if chr_interval is not None:
             chr, start, end = parse_interval(chr_interval, self.geno_ref)
-            interval = hl.locus_interval(chr, start, end, reference_genome=self.geno_ref)
+            interval = hl.locus_interval(
+                chr, start, end, reference_genome=self.geno_ref
+            )
             self.locus = self.locus.filter(interval.contains(self.locus.locus))
-    
+
     # def extract_maf(self, maf_min=None, maf_max=None):
     #     """
-    #     Extracting variants by MAF 
-        
+    #     Extracting variants by MAF
+
     #     """
     #     if maf_min is not None:
     #         self.locus = self.locus.filter(self.locus.maf > maf_min)
@@ -306,7 +325,7 @@ class RVsumstats:
         """
         Annotating functional annotations to locus
         ensuring no NA in annotations
-        
+
         """
         self.locus = self.locus.annotate(annot=annot[self.locus.key])
         self.locus = self.locus.filter(hl.is_defined(self.locus.annot))
@@ -319,7 +338,7 @@ class RVsumstats:
 
         Parameters:
         ------------
-        numeric_idx: a list of numeric indices, 
+        numeric_idx: a list of numeric indices,
         which are collected from `idx` in self.locus after filtering by annotations.
 
         Returns:
@@ -328,10 +347,10 @@ class RVsumstats:
         cov_mat: Z'(I-M)Z
         maf: a np.array of MAF
         is_rare: a np.array of boolean indices indicating MAC < mac_threshold
-        
-        """ 
+
+        """
         if max(numeric_idx) - min(numeric_idx) > self.bandwidth:
-            raise ValueError('the variant set has exceeded the bandwidth of LD matrix')
+            raise ValueError("the variant set has exceeded the bandwidth of LD matrix")
         half_ldr_score = np.array(self.half_ldr_score[numeric_idx])
         vset_half_covar_proj = np.array(self.vset_half_covar_proj[numeric_idx])
         vset_ld = self.vset_ld[numeric_idx][:, numeric_idx]
@@ -356,7 +375,7 @@ def get_interval(locus):
     chr = all_locus[0].contig
     start = all_locus[0].position
     end = all_locus[-1].position
-    
+
     return chr, start, end
 
 
@@ -375,12 +394,14 @@ def extract_chr_interval(locus, gene_name, chr_interval, geno_ref, log):
     locus = locus.filter(interval.contains(locus.locus))
     locus = locus.cache()
     n_variants = locus.count()
-    
+
     if n_variants <= 1:
         log.info(f"\nSkip gene {gene_name} (< 2 variants).")
         return None
     else:
-        log.info(f"\n{n_variants} variants in gene {gene_name} overlapping in the summary statistics and annotations.")
+        log.info(
+            f"\n{n_variants} variants in gene {gene_name} overlapping in the summary statistics and annotations."
+        )
     return locus
 
 
@@ -398,21 +419,21 @@ def prepare_vset(snps_mt, variant_type):
     vset: (m, n) csr_matrix of genotype
 
     """
-    locus = snps_mt.rows().key_by().select('locus', 'alleles', 'maf', 'is_rare')
-    locus = locus.annotate_globals(reference_genome=locus.locus.dtype.reference_genome.name)
-    locus = locus.annotate_globals(variant_type=variant_type)
-    bm = BlockMatrix.from_entry_expr(
-        snps_mt.flipped_n_alt_alleles, mean_impute=True
+    locus = snps_mt.rows().key_by().select("locus", "alleles", "maf", "is_rare")
+    locus = locus.annotate_globals(
+        reference_genome=locus.locus.dtype.reference_genome.name
     )
+    locus = locus.annotate_globals(variant_type=variant_type)
+    bm = BlockMatrix.from_entry_expr(snps_mt.flipped_n_alt_alleles, mean_impute=True)
     if bm.shape[0] == 0 or bm.shape[1] == 0:
         raise ValueError("no variant in the genotype data")
-    
+
     entries = bm.entries()
     non_zero_entries = entries.filter(entries.entry > 0)
     non_zero_entries = non_zero_entries.collect()
-    rows = [entry['i'] for entry in non_zero_entries]
-    cols = [entry['j'] for entry in non_zero_entries]
-    values = [entry['entry'] for entry in non_zero_entries]
+    rows = [entry["i"] for entry in non_zero_entries]
+    cols = [entry["j"] for entry in non_zero_entries]
+    values = [entry["entry"] for entry in non_zero_entries]
 
     vset = coo_matrix((values, (rows, cols)), shape=bm.shape, dtype=np.float32)
     vset = vset.tocsr()
@@ -443,7 +464,7 @@ def check_input(args, log):
         log.info(f"Set --mac-thresh as default 10")
     elif args.mac_thresh < 0:
         raise ValueError("--mac-thresh must be greater than 0")
-    
+
     if args.bandwidth is None:
         args.bandwidth = 5000
         log.info("Set --bandwidth as default 5000")
@@ -485,7 +506,9 @@ def run(args, log):
                 args.keep,
             )
         else:
-            common_ids = ds.get_common_idxs(sparse_genotype.ids.index, null_model.ids, args.keep)
+            common_ids = ds.get_common_idxs(
+                sparse_genotype.ids.index, null_model.ids, args.keep
+            )
         common_ids = ds.remove_idxs(common_ids, args.remove)
 
         log.info(f"Processing sparse genetic data ...")
@@ -499,8 +522,10 @@ def run(args, log):
         null_model.remove_dependent_columns()
         log.info(f"{len(common_ids)} common subjects in the data.")
         log.info(
-            (f"{null_model.covar.shape[1]} fixed effects in the covariates (including the intercept) "
-             "after removing redundant effects.\n")
+            (
+                f"{null_model.covar.shape[1]} fixed effects in the covariates (including the intercept) "
+                "after removing redundant effects.\n"
+            )
         )
 
         if args.loco_preds is not None:
@@ -509,25 +534,29 @@ def run(args, log):
             loco_preds = None
 
         vset, locus, maf, is_rare = sparse_genotype.parse_data()
-        log.info(f'Computing summary statistics for {vset.shape[0]} variants ...\n') 
+        log.info(f"Computing summary statistics for {vset.shape[0]} variants ...\n")
         process_wgs = RV(
-            null_model.bases, 
-            null_model.resid_ldr, 
-            null_model.covar, 
-            locus, 
-            maf, 
-            is_rare, 
-            loco_preds
+            null_model.bases,
+            null_model.resid_ldr,
+            null_model.covar,
+            locus,
+            maf,
+            is_rare,
+            loco_preds,
         )
         process_wgs.sumstats(vset, args.bandwidth)
         process_wgs.save(args.out)
 
-        log.info((f'Save summary statistics to\n'
-                  f'{args.out}_rv_sumstats.h5\n'
-                  f'{args.out}_locus_info.ht'))
+        log.info(
+            (
+                f"Save summary statistics to\n"
+                f"{args.out}_rv_sumstats.h5\n"
+                f"{args.out}_locus_info.ht"
+            )
+        )
 
     finally:
-        if 'loco_preds' in locals() and args.loco_preds is not None:
+        if "loco_preds" in locals() and args.loco_preds is not None:
             loco_preds.close()
-        
+
         clean(args.out)

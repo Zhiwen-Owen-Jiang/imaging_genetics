@@ -299,6 +299,7 @@ def process_voxels(
                         file.write(results_dict.pop(next_write_i))
                 next_write_i += 1
 
+
 def check_input(args, log):
     # required arguments
     if args.ldr_sumstats is None:
@@ -417,7 +418,7 @@ def run(args, log):
                 ldr_gwas.snpinfo["SNP"].isin(args.extract["SNP"])
             ).to_numpy()
             snp_idxs = snp_idxs & idx_extract_snps
-            
+
         if args.exclude is not None:
             idx_exclude_snps = (
                 ~(ldr_gwas.snpinfo["SNP"].isin(args.exclude["SNP"]))
@@ -436,7 +437,9 @@ def run(args, log):
             thresh_chisq = 0
 
         # doing analysis
-        log.info(f"Recovering voxel-level GWAS results for {np.sum(snp_idxs)} SNP(s) ...")
+        log.info(
+            f"Recovering voxel-level GWAS results for {np.sum(snp_idxs)} SNP(s) ..."
+        )
         write_header(snp_info, outpath)
         vgwas = VGWAS(bases, ldr_cov, ldr_gwas, snp_idxs, ldr_n, args.threads)
 
@@ -465,5 +468,5 @@ def run(args, log):
         log.info(f"\nSave the output to {outpath}")
 
     finally:
-        if 'ldr_gwas' in locals():
+        if "ldr_gwas" in locals():
             ldr_gwas.close()

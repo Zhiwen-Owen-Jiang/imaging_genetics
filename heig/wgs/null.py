@@ -160,9 +160,9 @@ def run(args, log):
     resid_ldr = fit_null_model(covar.data, ldrs.data)
 
     with h5py.File(f"{args.out}_null_model.h5", "w") as file:
-        file.create_dataset("covar", data=covar.data, dtype='float32')
-        file.create_dataset("resid_ldr", data=resid_ldr, dtype='float32')
-        file.create_dataset("bases", data=bases, dtype='float32')
+        file.create_dataset("covar", data=covar.data, dtype="float32")
+        file.create_dataset("resid_ldr", data=resid_ldr, dtype="float32")
+        file.create_dataset("bases", data=bases, dtype="float32")
         file.create_dataset("id", data=np.array(ids.tolist(), dtype="S10"))
 
     log.info(f"\nSave the null model to {args.out}_null_model.h5")

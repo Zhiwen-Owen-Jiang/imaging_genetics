@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 
 
-
 __all__ = [
     "Annotation_name_catalog",
     "Annotation_catalog_name",
@@ -19,7 +18,7 @@ __all__ = [
     "parse_locus",
     "read_genotype_data",
     "format_output",
-    "clean"
+    "clean",
 ]
 
 
@@ -82,9 +81,9 @@ def init_hail(spark_conf_file, grch37, out, log):
     """
     with open(spark_conf_file, "r") as file:
         spark_conf = json.load(file)
-    
+
     if "spark.local.dir" not in spark_conf:
-        spark_conf["spark.local.dir"] = out + '_spark'
+        spark_conf["spark.local.dir"] = out + "_spark"
 
     if grch37:
         geno_ref = "GRCh37"
@@ -92,23 +91,23 @@ def init_hail(spark_conf_file, grch37, out, log):
         geno_ref = "GRCh38"
     log.info(f"Set {geno_ref} as the reference genome.")
 
-    tmpdir = out + '_tmp'
-    logdir = out + '_hail.log'
+    tmpdir = out + "_tmp"
+    logdir = out + "_hail.log"
     hl.init(
-        quiet=True, 
-        spark_conf=spark_conf, 
-        local_tmpdir=tmpdir, 
-        log=logdir, 
-        tmp_dir=tmpdir
+        quiet=True,
+        spark_conf=spark_conf,
+        local_tmpdir=tmpdir,
+        log=logdir,
+        tmp_dir=tmpdir,
     )
     hl.default_reference = geno_ref
-    
+
 
 def clean(out):
-    if os.path.exists(out + '_spark'):
-        shutil.rmtree(out + '_spark')
-    if os.path.exists(out + '_tmp'):
-        shutil.rmtree(out + '_tmp')
+    if os.path.exists(out + "_spark"):
+        shutil.rmtree(out + "_spark")
+    if os.path.exists(out + "_tmp"):
+        shutil.rmtree(out + "_tmp")
 
 
 class GProcessor:
@@ -212,8 +211,12 @@ class GProcessor:
         self.n_sub = snps_mt.count_cols()
         self.n_variants = snps_mt.count_rows()
         self.logger = logging.getLogger(__name__)
-        self.logger.info((f"{self.n_sub} subjects and "
-                          f"{self.n_variants} variants in the genotype data.\n"))
+        self.logger.info(
+            (
+                f"{self.n_sub} subjects and "
+                f"{self.n_variants} variants in the genotype data.\n"
+            )
+        )
 
     def do_processing(self, mode, skip=False):
         """
@@ -225,11 +228,13 @@ class GProcessor:
         mode: the analysis mode which affects preprocessing pipelines
             should be one of ('gwas', 'wgs'). For a given mode, there
             are default filtering and optional filtering.
-        skip: boolean, if skip '_vcf_filter' and '_filter_missing_alt' 
+        skip: boolean, if skip '_vcf_filter' and '_filter_missing_alt'
         """
         self.snps_mt = hl.variant_qc(self.snps_mt, name="info")
         self.snps_mt = self.snps_mt.annotate_rows(
-            minor_allele_index=hl.argmin(self.snps_mt.info.AF) # Index of the minor allele
+            minor_allele_index=hl.argmin(
+                self.snps_mt.info.AF
+            )  # Index of the minor allele
         )
         config = self.MODE.get(mode, {})
         defaults = config.get("defaults", {})
@@ -251,7 +256,12 @@ class GProcessor:
             if not skip:
                 self.logger.info("Removed variants with missing alternative alleles.")
                 self.logger.info("Extracted variants with PASS in FILTER.")
-                methods += ['_extract_variant_type', '_vcf_filter', '_filter_missing_alt', '_flip_snps']
+                methods += [
+                    "_extract_variant_type",
+                    "_vcf_filter",
+                    "_filter_missing_alt",
+                    "_flip_snps",
+                ]
         self.logger.info("---------------------\n")
 
         for method in methods:
@@ -353,7 +363,7 @@ class GProcessor:
             raise ValueError("no variant remaining after preprocessing")
         if self.n_sub == 0:
             raise ValueError("no subject remaining after preprocessing")
-            
+
     def subject_id(self):
         """
         Extracting subject ids
@@ -468,22 +478,22 @@ class GProcessor:
                 self.snps_mt.GT.n_alt_alleles(),
             )
         )
-        
+
     # def _impute_missing_snps(self):
     #     """
     #     Imputing missing SNPs after flipping alleles
-        
+
     #     """
     #     if "flipped_n_alt_alleles" in self.snps_mt.entry:
     #         column_means = self.snps_mt.aggregate_entries(
     #             hl.agg.group_by(
-    #                 self.snps_mt.col_key, 
+    #                 self.snps_mt.col_key,
     #                 hl.agg.mean(self.snps_mt.flipped_n_alt_alleles)
     #             )
     #         )
     #         self.snps_mt = self.snps_mt.annotate_entries(
     #             flipped_n_alt_alleles=hl.or_else(
-    #                 self.snps_mt.flipped_n_alt_alleles, 
+    #                 self.snps_mt.flipped_n_alt_alleles,
     #                 column_means[self.snps_mt.col_key]
     #             )
     #         )
@@ -496,7 +506,8 @@ class GProcessor:
 
         """
         self.snps_mt = self.snps_mt.annotate_rows(
-            is_rare=self.snps_mt.info.AC[self.snps_mt.minor_allele_index] <= self.mac_thresh
+            is_rare=self.snps_mt.info.AC[self.snps_mt.minor_allele_index]
+            <= self.mac_thresh
         )
 
     def extract_unique_chrs(self):
@@ -526,11 +537,15 @@ class GProcessor:
         """
         if extract_variants is not None:
             extract_variants = hl.literal(set(extract_variants["SNP"]))
-            self.snps_mt = self.snps_mt.filter_rows(extract_variants.contains(self.snps_mt.rsid))
+            self.snps_mt = self.snps_mt.filter_rows(
+                extract_variants.contains(self.snps_mt.rsid)
+            )
 
         if exclude_variants is not None:
             exclude_variants = hl.literal(set(exclude_variants["SNP"]))
-            self.snps_mt = self.snps_mt.filter_rows(~exclude_variants.contains(self.snps_mt.rsid))
+            self.snps_mt = self.snps_mt.filter_rows(
+                ~exclude_variants.contains(self.snps_mt.rsid)
+            )
 
     def extract_exclude_locus(self, extract_locus, exclude_locus):
         """
@@ -544,22 +559,32 @@ class GProcessor:
         """
         if extract_locus is not None:
             extract_locus = parse_locus(extract_locus["locus"], self.geno_ref)
-            self.snps_mt = self.snps_mt.filter_rows(extract_locus.contains(self.snps_mt.locus))
+            self.snps_mt = self.snps_mt.filter_rows(
+                extract_locus.contains(self.snps_mt.locus)
+            )
 
         if exclude_locus is not None:
             exclude_locus = parse_locus(exclude_locus["locus"], self.geno_ref)
-            self.snps_mt = self.snps_mt.filter_rows(~exclude_locus.contains(self.snps_mt.locus))
-            
+            self.snps_mt = self.snps_mt.filter_rows(
+                ~exclude_locus.contains(self.snps_mt.locus)
+            )
+
     def extract_chr_interval(self, chr_interval=None):
         """
         Extracting a chr interval
-        
+
         """
         if chr_interval is not None:
             self.chr, self.start, self.end = parse_interval(chr_interval, self.geno_ref)
-            self.logger.info(f"Extracted variants in {self.chr} from {self.start} to {self.end}")
-            interval = hl.locus_interval(self.chr, self.start, self.end, reference_genome=self.geno_ref)
-            self.snps_mt = self.snps_mt.filter_rows(interval.contains(self.snps_mt.locus))
+            self.logger.info(
+                f"Extracted variants in {self.chr} from {self.start} to {self.end}"
+            )
+            interval = hl.locus_interval(
+                self.chr, self.start, self.end, reference_genome=self.geno_ref
+            )
+            self.snps_mt = self.snps_mt.filter_rows(
+                interval.contains(self.snps_mt.locus)
+            )
 
     def keep_remove_idvs(self, keep_idvs, remove_idvs=None):
         """
@@ -581,19 +606,23 @@ class GProcessor:
             if isinstance(remove_idvs, pd.MultiIndex):
                 remove_idvs = remove_idvs.get_level_values("IID").tolist()
             remove_idvs = hl.literal(set(remove_idvs))
-            self.snps_mt = self.snps_mt.filter_cols(~remove_idvs.contains(self.snps_mt.s))
-        
+            self.snps_mt = self.snps_mt.filter_cols(
+                ~remove_idvs.contains(self.snps_mt.s)
+            )
+
     def extract_range(self):
         """
         Obtaining the chr and the max and min position
-        only containing a single chr is valid  
-        
+        only containing a single chr is valid
+
         """
-        result = self.snps_mt.aggregate_rows(hl.struct(
-            chr=hl.agg.take(self.snps_mt.locus.contig, 1)[0],
-            min_pos=hl.agg.min(self.snps_mt.locus.position),
-            max_pos=hl.agg.max(self.snps_mt.locus.position)
-        ))
+        result = self.snps_mt.aggregate_rows(
+            hl.struct(
+                chr=hl.agg.take(self.snps_mt.locus.contig, 1)[0],
+                min_pos=hl.agg.min(self.snps_mt.locus.position),
+                max_pos=hl.agg.max(self.snps_mt.locus.position),
+            )
+        )
 
         # Save the results into variables
         chr = result.chr
@@ -606,7 +635,7 @@ class GProcessor:
             chr = int(chr)
 
         return chr, min_pos, max_pos
-    
+
     def cache(self):
         self.snps_mt = self.snps_mt.cache()
         self.logger.info("Caching the genotype data in memory.")
@@ -627,16 +656,16 @@ def read_genotype_data(args, log):
         data_path = args.vcf
 
     gprocessor = read_func(
-            data_path,
-            grch37=args.grch37,
-            hwe=args.hwe,
-            variant_type=args.variant_type,
-            maf_min=args.maf_min,
-            maf_max=args.maf_max,
-            mac_thresh=args.mac_thresh,
-            call_rate=args.call_rate,
+        data_path,
+        grch37=args.grch37,
+        hwe=args.hwe,
+        variant_type=args.variant_type,
+        maf_min=args.maf_min,
+        maf_max=args.maf_max,
+        mac_thresh=args.mac_thresh,
+        call_rate=args.call_rate,
     )
-    
+
     return gprocessor
 
 
@@ -670,10 +699,10 @@ def parse_interval(range, geno_ref=None):
                     "is not allowed"
                 )
             )
-        if geno_ref == 'GRCh37':
+        if geno_ref == "GRCh37":
             start_chr = str(start_chr)
-        elif geno_ref == 'GRCh38':
-            start_chr = 'chr' + str(start_chr)
+        elif geno_ref == "GRCh38":
+            start_chr = "chr" + str(start_chr)
     else:
         start_chr, start_pos, end_pos = None, None, None
 
@@ -695,15 +724,14 @@ def get_temp_path(outpath):
 def parse_locus(variant_list, geno_ref):
     """
     Parsing locus from a list of string
-    
+
     """
     variant_list = list(variant_list)
-    if variant_list[0].count(':') != 1:
-        raise ValueError('variant must be in `chr:pos` format')
-    
+    if variant_list[0].count(":") != 1:
+        raise ValueError("variant must be in `chr:pos` format")
+
     parsed_variants = [
-        hl.parse_locus(v, reference_genome=geno_ref)
-        for v in variant_list
+        hl.parse_locus(v, reference_genome=geno_ref) for v in variant_list
     ]
 
     variant_set = hl.literal(set(parsed_variants))
@@ -752,14 +780,14 @@ def format_output(cate_pvalues, n_variants, voxels, chr, start, end, set_name):
 #     def __init__(self, table, grch37):
 #         """
 #         table: a hail.Table
-        
+
 #         """
 #         self.table = table
 #         self.geno_ref = "GRCh37" if grch37 else "GRCh38"
 #         self.table = self.table.add_index('idx')
 #         self._create_keys()
 
-#     @classmethod  
+#     @classmethod
 #     def read_table(cls, dir, grch37):
 #         """
 #         Reading a hail.Table from a directory
@@ -767,7 +795,7 @@ def format_output(cate_pvalues, n_variants, voxels, chr, start, end, set_name):
 #         """
 #         table = hl.read_table(dir)
 #         return cls(table, grch37)
-        
+
 #     def _create_keys(self):
 #         self.table = self.table.key_by('locus')
 
@@ -792,5 +820,3 @@ def format_output(cate_pvalues, n_variants, voxels, chr, start, end, set_name):
 #             exclude_locus = exclude_locus.annotate(locus=hl.parse_locus(exclude_locus.locus))
 #             filtered_with_index = self.locus.filter(~exclude_locus.contains(self.locus.locus))
 #             # self.logger.info(f"{self.n_variants} variants remaining after --exclude.")
-
-    

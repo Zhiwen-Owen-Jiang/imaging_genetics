@@ -125,7 +125,7 @@ class Coding:
         ---------
         numeric_idx: a list of numeric indices for extracting sumstats
         phred_cate: a np.array of annotations
-        
+
         """
         filtered_annot = self.annot.filter(idx)
         numeric_idx = filtered_annot.idx.collect()
@@ -134,10 +134,7 @@ class Coding:
         if self.annot_cols is not None:
             annot_phred = filtered_annot.annot.select(*self.annot_cols).collect()
             phred_cate = np.array(
-                [
-                    [getattr(row, col) for col in self.annot_cols]
-                    for row in annot_phred
-                ]
+                [[getattr(row, col) for col in self.annot_cols] for row in annot_phred]
             )
         else:
             phred_cate = None
@@ -171,11 +168,7 @@ def coding_vset_analysis(
     annot_locus = rv_sumstats.annotate(annot)
     for _, gene in variant_sets.iterrows():
         variant_set_locus = extract_chr_interval(
-            annot_locus, 
-            gene[0], 
-            gene[1], 
-            rv_sumstats.geno_ref, 
-            log
+            annot_locus, gene[0], gene[1], rv_sumstats.geno_ref, log
         )
         if variant_set_locus is None:
             continue
@@ -192,7 +185,9 @@ def coding_vset_analysis(
                 if len(numeric_idx) <= 1:
                     log.info(f"Skip {OFFICIAL_NAME[cate]} (< 2 variants).")
                     continue
-                half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(numeric_idx)
+                half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(
+                    numeric_idx
+                )
                 vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)
                 log.info(
                     f"Doing analysis for {OFFICIAL_NAME[cate]} ({vset_test.n_variants} variants) ..."
@@ -204,7 +199,7 @@ def coding_vset_analysis(
                     "pvalues": pvalues,
                     "chr": chr,
                     "start": start,
-                    "end": end
+                    "end": end,
                 }
 
         if "missense" in cate_pvalues and "disruptive_missense" in cate_pvalues:
@@ -379,6 +374,8 @@ def run(args, log):
                     index=None,
                     float_format="%.5e",
                 )
-            log.info(f"Save results for {cate_results['set_name']} to {args.out}_{cate_results['set_name']}*")
+            log.info(
+                f"Save results for {cate_results['set_name']} to {args.out}_{cate_results['set_name']}*"
+            )
     finally:
         clean(args.out)

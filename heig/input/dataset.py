@@ -26,7 +26,7 @@ class Dataset:
         if not all_num_cols:
             dtype_dict = {"FID": str, "IID": str}
         else:
-            dtype_dict = {col: 'float32' for col in cols}
+            dtype_dict = {col: "float32" for col in cols}
             dtype_dict["FID"] = str
             dtype_dict["IID"] = str
 
@@ -49,7 +49,9 @@ class Dataset:
         if all_num_cols:
             n_sub = len(self.data)
             self.data = self.data[np.std(self.data, axis=1) != 0]
-            self.logger.info(f"Removed {n_sub - len(self.data)} subjects with zero variance.")
+            self.logger.info(
+                f"Removed {n_sub - len(self.data)} subjects with zero variance."
+            )
 
     def _check_header(self, openfunc, compression, dir):
         """
@@ -74,7 +76,7 @@ class Dataset:
             raise ValueError("the first two column names must be FID and IID")
         if len(header) != len(set(header)):
             raise ValueError("duplicated column names are not allowed")
-        
+
         return header[:2]
 
     def _remove_na_inf(self):
@@ -118,7 +120,7 @@ class Dataset:
         """
         self.data = self.data.reset_index(level=0, drop=True)
         # self.data.reset_index(inplace=True)
-        
+
     def get_ids(self):
         return self.data.index
 
@@ -313,7 +315,7 @@ def remove_idxs(idx1, idx2, single_id=False):
         idx = idx1
     if single_id:
         idx = idx.get_level_values("IID").tolist()
-    
+
     return idx
 
 
@@ -375,8 +377,8 @@ def read_keep(keep_files):
                 compression=compression,
             )
         except ValueError:
-            raise ValueError('two columns FID and IID are required')
-        
+            raise ValueError("two columns FID and IID are required")
+
         keep_idvs = pd.MultiIndex.from_arrays(
             [keep_idvs[0], keep_idvs[1]], names=["FID", "IID"]
         )
@@ -422,8 +424,8 @@ def read_remove(remove_files):
                 compression=compression,
             )
         except ValueError:
-            raise ValueError('two columns FID and IID are required')
-        
+            raise ValueError("two columns FID and IID are required")
+
         remove_idvs = pd.MultiIndex.from_arrays(
             [remove_idvs[0], remove_idvs[1]], names=["FID", "IID"]
         )
@@ -445,7 +447,7 @@ def read_extract(extract_files, locus=False):
     Parameters:
     ------------
     extract_files: a list of tab/white-delimited files
-    locus: if variants are indexed by locus (chr:pos) 
+    locus: if variants are indexed by locus (chr:pos)
 
     Returns:
     ---------
@@ -474,7 +476,9 @@ def read_extract(extract_files, locus=False):
             keep_snps_ = keep_snps_.merge(keep_snps)
 
     if not pd.api.types.is_object_dtype(keep_snps_[data_type]):
-        raise TypeError("invalid variants in --extract(-locus). Did you input other data in the first column?")
+        raise TypeError(
+            "invalid variants in --extract(-locus). Did you input other data in the first column?"
+        )
     if len(keep_snps_) == 0:
         raise ValueError("no variants are common in --extract(-locus)")
 
@@ -491,7 +495,7 @@ def read_exclude(exclude_files, locus=False):
     Parameters:
     ------------
     exclude_files: a list of tab/white-delimited files
-    locus: if variants are indexed by locus (chr:pos) 
+    locus: if variants are indexed by locus (chr:pos)
 
     Returns:
     ---------
@@ -521,7 +525,9 @@ def read_exclude(exclude_files, locus=False):
 
     exclude_snps_ = exclude_snps_.drop_duplicates()
     if not pd.api.types.is_object_dtype(exclude_snps_[data_type]):
-        raise TypeError("invalid variants in --exclude(-locus). Did you input other data in the first column?")
+        raise TypeError(
+            "invalid variants in --exclude(-locus). Did you input other data in the first column?"
+        )
     if len(exclude_snps_) == 0:
         raise ValueError("no variants in --exclude(-locus)")
 
@@ -671,13 +677,13 @@ def check_existence(arg, suffix=""):
 
 
 def read_variant_sets(file):
-    variant_sets = pd.read_csv(file, sep='\s+', header=None)
+    variant_sets = pd.read_csv(file, sep="\s+", header=None)
     try:
         chr_interval = variant_sets.iloc[0, 1]
         start, end = chr_interval.split(",")
         start_chr, start_pos = [int(x) for x in start.split(":")]
         end_chr, end_pos = [int(x) for x in end.split(":")]
     except:
-        raise ValueError('variant sets should be in format `chr:start,chr:end`')
-    
+        raise ValueError("variant sets should be in format `chr:start,chr:end`")
+
     return variant_sets

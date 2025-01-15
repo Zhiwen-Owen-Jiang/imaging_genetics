@@ -35,7 +35,7 @@ def saddle(score_stat, egvalues, wcov_mat):
     score_stat /= max_egvalue
     egvalues /= max_egvalue
 
-    xmin = -len(egvalues)/(2 * score_stat)
+    xmin = -len(egvalues) / (2 * score_stat)
     xmin[score_stat > np.sum(egvalues)] = -0.01
     xmax = np.ones(xmin.shape) * 0.49995
 
@@ -47,7 +47,9 @@ def saddle(score_stat, egvalues, wcov_mat):
 
     res = np.zeros(n_voxels)
     valid_res = abs(xhat) >= 0.0001
-    res[valid_res] = norm.sf(w[valid_res] + np.log(v[valid_res] / w[valid_res]) / w[valid_res], 0, 1)
+    res[valid_res] = norm.sf(
+        w[valid_res] + np.log(v[valid_res] / w[valid_res]) / w[valid_res], 0, 1
+    )
     if (~valid_res).any():
         res[~valid_res] = _handle_invalid_pvalues(score_stat[~valid_res], wcov_mat)
 
@@ -66,7 +68,7 @@ def _bisection(egvalues, score_stat, xmin, xmax):
     Returns:
     ---------
     (N, ) array
-    
+
     """
     # do iteration for 30 times to get precision ~10^-8
     for _ in range(30):
@@ -121,7 +123,7 @@ def _k2(x, egvalues):
     (N, ) array
 
     """
-    return np.sum(egvalues ** 2 / (1 - 2 * egvalues * x) ** 2, axis=0) * 2
+    return np.sum(egvalues**2 / (1 - 2 * egvalues * x) ** 2, axis=0) * 2
 
 
 def _handle_invalid_pvalues(score_stat, wcov_mat):
@@ -136,7 +138,7 @@ def _handle_invalid_pvalues(score_stat, wcov_mat):
     Returns:
     ---------
     pvalues: (N, ) array
-    
+
     """
     c1 = np.sum(np.diag(wcov_mat))
     wcov_mat = np.dot(wcov_mat, wcov_mat)
@@ -145,7 +147,7 @@ def _handle_invalid_pvalues(score_stat, wcov_mat):
     c4 = np.sum(np.diag(wcov_mat))
 
     score_stat = (score_stat - c1) / np.sqrt(2 * c2)
-    l = c2 ** 2 / c4
+    l = c2**2 / c4
     pvalues = chi2.sf(score_stat * np.sqrt(2 * l) + l, l)
 
     return pvalues

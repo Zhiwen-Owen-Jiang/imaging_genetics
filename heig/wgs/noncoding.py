@@ -23,7 +23,9 @@ class Noncoding(ABC):
         self.annot = annot
         self.chr, self.start, self.end = chr, start, end
         self.type = type
-        self.gencode_category = self.annot.annot[Annotation_name_catalog['GENCODE.Category']]
+        self.gencode_category = self.annot.annot[
+            Annotation_name_catalog["GENCODE.Category"]
+        ]
         self.variant_idx = self.extract_variants()
 
         if variant_type == "snv":
@@ -33,7 +35,7 @@ class Noncoding(ABC):
             self.annot_name = Annotation_name
         else:
             self.annot_cols, self.annot_name = None, None
-    
+
     @abstractmethod
     def extract_variants(self):
         """
@@ -50,7 +52,7 @@ class Noncoding(ABC):
         ---------
         numeric_idx: a list of numeric indices for extracting sumstats
         phred_cate: a np.array of annotations
-        
+
         """
         filtered_annot = self.annot.filter(self.variant_idx)
         numeric_idx = filtered_annot.idx.collect()
@@ -59,10 +61,7 @@ class Noncoding(ABC):
         if self.annot_cols is not None:
             annot_phred = filtered_annot.annot.select(*self.annot_cols).collect()
             phred_cate = np.array(
-                [
-                    [getattr(row, col) for col in self.annot_cols]
-                    for row in annot_phred
-                ]
+                [[getattr(row, col) for col in self.annot_cols] for row in annot_phred]
             )
         else:
             phred_cate = None
@@ -82,7 +81,7 @@ class UpDown(Noncoding):
 
 class UTR(Noncoding):
     def extract_variants(self):
-        set1 = hl.literal({'UTR3', 'UTR5', 'UTR5;UTR3'})
+        set1 = hl.literal({"UTR3", "UTR5", "UTR5;UTR3"})
         variant_idx = set1.contains(self.gencode_category)
         return variant_idx
 
@@ -99,30 +98,38 @@ class Promoter(Noncoding):
         base_dir = os.path.dirname(os.path.abspath(__file__))
         main_dir = os.path.dirname(os.path.dirname(base_dir))
         promGdf = hl.import_table(
-            os.path.join(main_dir, f'misc/wgs/promGdf_{geno_ref}.csv'),
+            os.path.join(main_dir, f"misc/wgs/promGdf_{geno_ref}.csv"),
             no_header=False,
-            delimiter=',',
-            impute=True
+            delimiter=",",
+            impute=True,
         )
-        
-        promGdf = promGdf.filter(promGdf['seqnames'] == self.chr)
-        promGdf = promGdf.filter(promGdf['start'] >= self.start)
-        promGdf = promGdf.filter(promGdf['end'] <= self.end)
+
+        promGdf = promGdf.filter(promGdf["seqnames"] == self.chr)
+        promGdf = promGdf.filter(promGdf["start"] >= self.start)
+        promGdf = promGdf.filter(promGdf["end"] <= self.end)
 
         intervals = promGdf.aggregate(
             hl.agg.collect(
                 hl.interval(
-                    start=hl.locus(promGdf['seqnames'], promGdf['start'], reference_genome=geno_ref),
-                    end=hl.locus(promGdf['seqnames'], promGdf['end'], reference_genome=geno_ref),
-                    includes_end=False
+                    start=hl.locus(
+                        promGdf["seqnames"], promGdf["start"], reference_genome=geno_ref
+                    ),
+                    end=hl.locus(
+                        promGdf["seqnames"], promGdf["end"], reference_genome=geno_ref
+                    ),
+                    includes_end=False,
                 )
             )
         )
-        
+
         if len(intervals) > 0:
-            is_prom = hl.any(lambda interval: interval.contains(self.annot.locus), intervals)
+            is_prom = hl.any(
+                lambda interval: interval.contains(self.annot.locus), intervals
+            )
         else:
-            is_prom = hl.literal({'foo'}).contains(self.gencode_category) # create all False indices
+            is_prom = hl.literal({"foo"}).contains(
+                self.gencode_category
+            )  # create all False indices
         variant_idx = cage & is_prom
 
         return variant_idx
@@ -134,21 +141,25 @@ class Enhancer(Noncoding):
         type is 'CAGE' or 'DHS'
 
         """
-        genehancer = self.annot.annot[Annotation_name_catalog['GeneHancer']]
+        genehancer = self.annot.annot[Annotation_name_catalog["GeneHancer"]]
         is_genehancer = hl.is_defined(genehancer)
-        cage = hl.is_defined(self.annot.annot[Annotation_name_catalog[self.type.upper()]])
+        cage = hl.is_defined(
+            self.annot.annot[Annotation_name_catalog[self.type.upper()]]
+        )
         variant_idx = cage & is_genehancer
         return variant_idx
-    
+
 
 class NcRNA(Noncoding):
     def extract_variants(self):
-        set1 = hl.literal({'ncRNA_exonic', 'ncRNA_exonic;splicing', 'ncRNA_splicing'})
+        set1 = hl.literal({"ncRNA_exonic", "ncRNA_exonic;splicing", "ncRNA_splicing"})
         variant_idx = set1.contains(self.gencode_category)
         return variant_idx
 
 
-def noncoding_vset_analysis(rv_sumstats, annot, variant_type, vset_test, variant_category, log):
+def noncoding_vset_analysis(
+    rv_sumstats, annot, variant_type, vset_test, variant_category, log
+):
     """
     Single noncoding variant set analysis
 
@@ -166,17 +177,17 @@ def noncoding_vset_analysis(rv_sumstats, annot, variant_type, vset_test, variant
     Returns:
     ---------
     cate_pvalues: a dict (keys: category, values: p-value)
-    
+
     """
     # extracting specific variant category
     category_class_map = {
-        'upstream': (UpDown, 'upstream'),
-        'downstream': (UpDown, 'downstream'),
-        'utr': (UTR, None),
-        'promoter_cage': (Promoter, 'CAGE'),
-        'promoter_dhs': (Promoter, 'DHS'),
-        'enhancer_cage': (Enhancer, 'CAGE'),
-        'enhancer_dhs': (Enhancer, 'DHS')
+        "upstream": (UpDown, "upstream"),
+        "downstream": (UpDown, "downstream"),
+        "utr": (UTR, None),
+        "promoter_cage": (Promoter, "CAGE"),
+        "promoter_dhs": (Promoter, "DHS"),
+        "enhancer_cage": (Enhancer, "CAGE"),
+        "enhancer_dhs": (Enhancer, "DHS"),
     }
 
     # extracting variants in sumstats and annot
@@ -186,8 +197,10 @@ def noncoding_vset_analysis(rv_sumstats, annot, variant_type, vset_test, variant
     # individual analysis
     cate_pvalues = dict()
     for category, (_category_class_, type) in category_class_map.items():
-        if variant_category[0] == 'all' or category in variant_category:
-            category_class = _category_class_(rv_sumstats.locus, variant_type, chr, start, end, type)
+        if variant_category[0] == "all" or category in variant_category:
+            category_class = _category_class_(
+                rv_sumstats.locus, variant_type, chr, start, end, type
+            )
             numeric_idx, phred_cate = category_class.parse_annot()
             if len(numeric_idx) <= 1:
                 log.info(f"Less than 2 variants for {category}, skip.")
@@ -203,7 +216,7 @@ def noncoding_vset_analysis(rv_sumstats, annot, variant_type, vset_test, variant
                 "pvalues": pvalues,
                 "chr": chr,
                 "start": start,
-                "end": end
+                "end": end,
             }
 
     return cate_pvalues
@@ -242,7 +255,7 @@ def check_input(args, log):
                 variant_category.append(category)
     if len(variant_category) == 0:
         raise ValueError("no valid variant category provided")
-    
+
     # if args.maf_max is None:
     #     if args.maf_min is not None and args.maf_min < 0.01 or args.maf_min is None:
     #         args.maf_max = 0.01

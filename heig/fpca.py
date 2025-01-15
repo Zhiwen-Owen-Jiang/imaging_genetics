@@ -24,7 +24,7 @@ class KernelSmooth:
         """
         self.images = images
         self.coord = images.coord
-        self.n = images.n_sub 
+        self.n = images.n_sub
         self.N, self.d = self.coord.shape
         self.logger = logging.getLogger(__name__)
 
@@ -99,7 +99,9 @@ class KernelSmooth:
         bw_opt = bw_list[which_min]
         min_mse = score[which_min]
         if min_mse == np.inf:
-            raise ValueError('the optimal bandwidth is invalid. Try to input one using --bw-opt')
+            raise ValueError(
+                "the optimal bandwidth is invalid. Try to input one using --bw-opt"
+            )
         self.logger.info(
             f"The optimal bandwidth is {np.round(bw_opt, 3)} with GCV score {min_mse:.3f}."
         )
@@ -131,7 +133,7 @@ class KernelSmooth:
     @staticmethod
     def _load_sparse_sm_weight(temp_path):
         if not os.path.exists(f"{temp_path}.npz"):
-            raise FileNotFoundError(f'no {temp_path}.npz. Kernel smoothing failed')
+            raise FileNotFoundError(f"no {temp_path}.npz. Kernel smoothing failed")
         sparse_sm_weight = sp.load_npz(f"{temp_path}.npz")
         sparse_sm_weight = sparse_sm_weight.todok()
         return sparse_sm_weight
@@ -230,7 +232,15 @@ class LocalLinear(KernelSmooth):
 
 
 def do_kernel_smoothing(
-    raw_image_dir, sm_image_dir, keep_idvs, remove_idvs, bw_opt, threads, temp_path, skip_smoothing, log
+    raw_image_dir,
+    sm_image_dir,
+    keep_idvs,
+    remove_idvs,
+    bw_opt,
+    threads,
+    temp_path,
+    skip_smoothing,
+    log,
 ):
     """
     A wrapper function for doing kernel smoothing.
@@ -260,7 +270,7 @@ def do_kernel_smoothing(
 
         ks = LocalLinear(raw_images)
         if skip_smoothing:
-            sparse_sm_weight = eye(raw_images.n_voxels, format='csr')
+            sparse_sm_weight = eye(raw_images.n_voxels, format="csr")
         elif bw_opt is None:
             log.info("\nDoing kernel smoothing ...")
             bw_list = ks.bw_cand()
@@ -293,11 +303,11 @@ def do_kernel_smoothing(
                 sm_images.attrs["coord"] = "coord"
         else:
             raise ValueError("the bandwidth provided by --bw-opt may be problematic")
-        
+
         return subject_wise_mean
 
     finally:
-        if 'raw_images' in locals():
+        if "raw_images" in locals():
             raw_images.close()
 
 
@@ -428,17 +438,15 @@ def do_fpca(sm_image_dir, subject_wise_mean, args, log):
             range(0, max_avail_n_sub, fpca.batch_size),
             desc=f"{fpca.n_batches} batch(es)",
         ):
-            fpca.ipca.partial_fit(
-                next(image_reader)[0] - subject_wise_mean
-            )
+            fpca.ipca.partial_fit(next(image_reader)[0] - subject_wise_mean)
         values = (fpca.ipca.singular_values_**2).astype(np.float32)
         bases = fpca.ipca.components_.T
         bases = bases.astype(np.float32)
 
         return values, bases, fpca.n_top
-    
+
     finally:
-        if 'sm_images' in locals():
+        if "sm_images" in locals():
             sm_images.close()
 
 
@@ -543,7 +551,7 @@ def check_input(args, log):
         raise ValueError("--bw-opt should be positive")
 
     temp_path = os.path.join(os.path.dirname(args.out), "temp_sparse_sm_weight")
-    i = np.random.choice(1000000, 1)[0] 
+    i = np.random.choice(1000000, 1)[0]
     temp_path += str(i)
 
     return temp_path

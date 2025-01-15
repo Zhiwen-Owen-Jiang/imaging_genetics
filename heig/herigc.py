@@ -320,7 +320,9 @@ class OneSample(Estimation):
                         min_gene_cor = np.min((min_gene_cor, gene_cor_min))
                     except Exception as exc:
                         executor.shutdown(wait=False)
-                        raise RuntimeError(f"Computation terminated due to error: {exc}")
+                        raise RuntimeError(
+                            f"Computation terminated due to error: {exc}"
+                        )
 
         mean_gene_cor /= self.N**2
         mean_gene_cor_se /= self.N**2
@@ -661,7 +663,7 @@ class TwoSample(Estimation):
                     future.result()
                 except Exception as exc:
                     executor.shutdown(wait=False)
-                    raise RuntimeError(f"Computation terminated due to error: {exc}")    
+                    raise RuntimeError(f"Computation terminated due to error: {exc}")
 
         return image_lobo_heri
 
@@ -938,7 +940,13 @@ def run(args, log):
 
         # get common snps from gwas, LD matrices, and keep_snps
         common_snps = CommonSNPs(
-            ld, ld_inv, ldr_gwas, y2_gwas, args.extract, exclude_snps=args.exclude, threads=args.threads
+            ld,
+            ld_inv,
+            ldr_gwas,
+            y2_gwas,
+            args.extract,
+            exclude_snps=args.exclude,
+            threads=args.threads,
         )
         log.info(
             (

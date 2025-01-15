@@ -68,7 +68,7 @@ class Relatedness:
             self.resid_ldrs_std
         )  # scale to var 1 for heritability definition
         self.covar = covar
-        
+
         self.logger = logging.getLogger(__name__)
 
     @staticmethod
@@ -119,17 +119,17 @@ class Relatedness:
 
         futures = []
         partial_function = partial(
-            self._level0_ridge_block, 
-            level0_preds, 
-            resid_block, 
-            proj_inner_block, 
-            proj_block_ldrs
-        ) 
-        
+            self._level0_ridge_block,
+            level0_preds,
+            resid_block,
+            proj_inner_block,
+            proj_block_ldrs,
+        )
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
             for _, test_idxs in self.kf.split(range(self.n)):
                 futures.append(executor.submit(partial_function, test_idxs))
-            
+
             for future in concurrent.futures.as_completed(futures):
                 try:
                     future.result()
@@ -137,8 +137,10 @@ class Relatedness:
                     self.logger.info(f"Generated an exception: {exc}.")
 
         return level0_preds
-    
-    def _level0_ridge_block(self, level0_preds, resid_block, proj_inner_block, proj_block_ldrs, test_idxs):
+
+    def _level0_ridge_block(
+        self, level0_preds, resid_block, proj_inner_block, proj_block_ldrs, test_idxs
+    ):
         """
         Computing level 0 ridge prediction for a genotype block with a group of subjects held out
 
@@ -182,16 +184,16 @@ class Relatedness:
         reshaped_idxs = self._get_reshaped_idxs(chr_idxs)
 
         partial_function = partial(
-            self._level1_ridge, 
-            level0_preds_reader, 
-            best_params, 
-            chr_preds, 
-            reshaped_idxs
-        ) 
+            self._level1_ridge,
+            level0_preds_reader,
+            best_params,
+            chr_preds,
+            reshaped_idxs,
+        )
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
             futures = [executor.submit(partial_function, j) for j in range(self.r)]
-            
+
             for future in concurrent.futures.as_completed(futures):
                 try:
                     future.result()
@@ -199,14 +201,16 @@ class Relatedness:
                     self.logger.info(f"Generated an exception: {exc}.")
 
         return chr_preds
-    
-    def _level1_ridge(self, level0_preds_reader, best_params, chr_preds, reshaped_idxs, j):
+
+    def _level1_ridge(
+        self, level0_preds_reader, best_params, chr_preds, reshaped_idxs, j
+    ):
         """
         Computing level 1 ridge predictions for a LDR
-        
+
         """
         best_params[j] = self._level1_ridge_ldr(
-                level0_preds_reader[j], self.resid_ldrs[:, j]
+            level0_preds_reader[j], self.resid_ldrs[:, j]
         )
         chr_preds[j] = self._chr_preds_ldr(
             best_params[j],
@@ -495,14 +499,18 @@ class LOCOpreds:
     def select_ldrs(self, ldr_col=None):
         """
         ldr_col: a list of sorted and consecutive zero-based LDR index
-        
+
         """
         if ldr_col is not None:
             if ldr_col[1] <= self.preds.shape[0]:
                 self.ldr_col = ldr_col
-                self.logger.info(f"Keep LDR{ldr_col[0]+1} to LDR{ldr_col[1]} LOCO predictions.")
+                self.logger.info(
+                    f"Keep LDR{ldr_col[0]+1} to LDR{ldr_col[1]} LOCO predictions."
+                )
             else:
-                raise ValueError(f"{ldr_col[1]} is greater than #LDRs in LOCO predictions")
+                raise ValueError(
+                    f"{ldr_col[1]} is greater than #LDRs in LOCO predictions"
+                )
 
     def keep(self, keep_idvs):
         """
@@ -536,14 +544,18 @@ class LOCOpreds:
         Reading LDR predictions for a chromosome
 
         """
-        loco_preds_chr = self.preds[self.ldr_col[0]: self.ldr_col[1], :, chr - 1].T  # (n, r)
+        loco_preds_chr = self.preds[
+            self.ldr_col[0] : self.ldr_col[1], :, chr - 1
+        ].T  # (n, r)
         return loco_preds_chr[self.id_idxs]
 
 
 def check_input(args):
     # required arguments
     if args.geno_mt is None:
-        raise ValueError("--geno-mt is required. If you have bfile or vcf, convert it into a mt by --make-mt")
+        raise ValueError(
+            "--geno-mt is required. If you have bfile or vcf, convert it into a mt by --make-mt"
+        )
     if args.covar is None:
         raise ValueError("--covar is required.")
     if args.ldrs is None:
@@ -578,20 +590,18 @@ def run(args, log):
         covar = ds.Covar(args.covar, args.cat_covar_list)
 
         # keep common subjects
-        common_ids = ds.get_common_idxs(
-            ldrs.data.index, covar.data.index, args.keep
-        )
+        common_ids = ds.get_common_idxs(ldrs.data.index, covar.data.index, args.keep)
         common_ids = ds.remove_idxs(common_ids, args.remove, single_id=True)
 
         # read genotype data
         gprocessor = read_genotype_data(args, log)
-        
+
         # processing genotype data
         log.info(f"Processing genetic data ...")
         gprocessor.extract_exclude_snps(args.extract, args.exclude)
         gprocessor.keep_remove_idvs(common_ids)
         gprocessor.do_processing(mode="gwas")
-    
+
         # get common subjects
         snps_mt_ids = gprocessor.subject_id()
         ldrs.to_single_index()
@@ -643,7 +653,9 @@ def run(args, log):
                     block.GT.n_alt_alleles(), mean_impute=True
                 )  # (m, n)
                 block = block.to_numpy().astype(np.float32).T
-                block_level0_preds = relatedness_remover.level0_ridge_block(block, args.threads)
+                block_level0_preds = relatedness_remover.level0_ridge_block(
+                    block, args.threads
+                )
                 dset[:, :, :, i] = block_level0_preds
         log.info(f"Save level0 ridge predictions to a temporary file {l0_pred_file}")
 
@@ -651,20 +663,22 @@ def run(args, log):
         with h5py.File(l0_pred_file, "r") as file:
             log.info(f"Doing level1 ridge regression ...")
             level0_preds_reader = file["level0_preds"]
-            chr_preds = relatedness_remover.level1_ridge(level0_preds_reader, chr_idxs, args.threads)
-            
+            chr_preds = relatedness_remover.level1_ridge(
+                level0_preds_reader, chr_idxs, args.threads
+            )
+
         with h5py.File(f"{args.out}_ldr_loco_preds.h5", "w") as file:
             file.create_dataset("ldr_loco_preds", data=chr_preds, dtype="float32")
             file.create_dataset(
                 "id", data=np.array([snps_mt_ids, snps_mt_ids], dtype="S10").T
             )
-        log.info(f"\nSave level1 loco ridge predictions to {args.out}_ldr_loco_preds.h5")
+        log.info(
+            f"\nSave level1 loco ridge predictions to {args.out}_ldr_loco_preds.h5"
+        )
 
     finally:
         if os.path.exists(l0_pred_file):
             os.remove(l0_pred_file)
-            log.info(
-                f"Removed level0 ridge predictions at {l0_pred_file}"
-            )
-        
+            log.info(f"Removed level0 ridge predictions at {l0_pred_file}")
+
         clean(args.out)

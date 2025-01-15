@@ -13,6 +13,7 @@ TODO: test general annotations
 
 """
 
+
 class Annotation:
     """
     Processing and saving functional annotations
@@ -51,10 +52,12 @@ class Annotation:
     def _parse_variant(self):
         """
         Parsing variants
-        
+
         """
         variant_column = self.annot.row.keys()[0]
-        parsed_variant = hl.parse_variant(self.annot[variant_column], reference_genome=self.geno_ref)
+        parsed_variant = hl.parse_variant(
+            self.annot[variant_column], reference_genome=self.geno_ref
+        )
         self.annot = self.annot.annotate(parsed_variant=parsed_variant)
 
     def _create_keys(self):
@@ -64,11 +67,11 @@ class Annotation:
         """
         self.annot = self.annot.annotate(
             locus=self.annot.parsed_variant.locus,
-            alleles=self.annot.parsed_variant.alleles
+            alleles=self.annot.parsed_variant.alleles,
         )
         self.annot = self.annot.key_by("locus", "alleles")
         self.annot = self.annot.drop("parsed_variant")
-        
+
     def extract_exclude_locus(self, extract_locus=None, exclude_locus=None):
         """
         Extracting and excluding variants by locus
@@ -77,7 +80,7 @@ class Annotation:
         ------------
         extract_locus: a pd.DataFrame of SNPs in `chr:pos` format
         exclude_locus: a pd.DataFrame of SNPs in `chr:pos` format
-        
+
         """
         if extract_locus is not None:
             extract_locus = parse_locus(extract_locus["locus"], self.geno_ref)
@@ -97,13 +100,15 @@ class Annotation:
         """
         if chr_interval is not None:
             chr, start, end = parse_interval(chr_interval, self.geno_ref)
-            interval = hl.locus_interval(chr, start, end, reference_genome=self.geno_ref)
+            interval = hl.locus_interval(
+                chr, start, end, reference_genome=self.geno_ref
+            )
             self.annot = self.annot.filter(interval.contains(self.annot.locus))
 
     def extract_annots(self, annot_list=None):
         """
         annot_list: a list/array/series annotation names to extract
-        
+
         """
         if annot_list is not None:
             annot_list = list(annot_list)
@@ -111,9 +116,11 @@ class Annotation:
             self.logger.info(f"{annot_list} extracted from the annotation.")
 
     def save(self, output_dir):
-        self.annot = self.annot.annotate_globals(reference_genome=self.annot.locus.dtype.reference_genome.name)
-        self.annot.write(f'{output_dir}_annot.ht', overwrite=True)
-        
+        self.annot = self.annot.annotate_globals(
+            reference_genome=self.annot.locus.dtype.reference_genome.name
+        )
+        self.annot.write(f"{output_dir}_annot.ht", overwrite=True)
+
 
 class AnnotationFAVOR(Annotation):
 
@@ -147,17 +154,21 @@ class AnnotationFAVOR(Annotation):
         self._add_more_annot()
 
     def _parse_variant(self):
-        self.annot = self.annot.annotate(chromosome=hl.str("chr") + hl.str(self.annot.chromosome))
+        self.annot = self.annot.annotate(
+            chromosome=hl.str("chr") + hl.str(self.annot.chromosome)
+        )
         parsed_variant = hl.variant_str(
             hl.locus(
-                self.annot.chromosome, 
-                self.annot.position, 
-                reference_genome=self.geno_ref
-            ), 
-            [self.annot.ref_vcf, self.annot.alt_vcf]
+                self.annot.chromosome,
+                self.annot.position,
+                reference_genome=self.geno_ref,
+            ),
+            [self.annot.ref_vcf, self.annot.alt_vcf],
         )
         self.annot = self.annot.annotate(
-            parsed_variant=hl.parse_variant(parsed_variant, reference_genome=self.geno_ref)
+            parsed_variant=hl.parse_variant(
+                parsed_variant, reference_genome=self.geno_ref
+            )
         )
 
     def _drop_rename(self):
@@ -210,11 +221,15 @@ def check_valid(annot, log):
     non_key_columns = len(annot.row) - len(annot.key)
     n_variants = annot.count()
     if non_key_columns == 0:
-        raise ValueError('no annotation remaining after preprocessing')
+        raise ValueError("no annotation remaining after preprocessing")
     if n_variants == 0:
-        raise ValueError('no variant remaining after preprocessing')
-    log.info((f"{n_variants} variants (including varying alleles) "
-             f"with {non_key_columns} annotations processed."))
+        raise ValueError("no variant remaining after preprocessing")
+    log.info(
+        (
+            f"{n_variants} variants (including varying alleles) "
+            f"with {non_key_columns} annotations processed."
+        )
+    )
 
 
 def run(args, log):
@@ -239,7 +254,7 @@ def run(args, log):
         annot.extract_annots(args.annot_cols)
         annot.extract_by_interval(args.chr_interval)
         annot.extract_exclude_locus(args.extract_locus, args.exclude_locus)
-        
+
         annot.save(args.out)
         annot = hl.read_table(f"{args.out}_annot.ht")
         try:

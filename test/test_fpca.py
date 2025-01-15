@@ -2,9 +2,7 @@ import unittest
 import logging
 import numpy as np
 
-from heig.fpca import (
-    FPCA
-)
+from heig.fpca import FPCA
 
 log = logging.getLogger()
 log.setLevel(logging.INFO)
@@ -56,13 +54,24 @@ class Test_get_n_top(unittest.TestCase):
         fpca = FPCA(n_sub=10, n_voxels=20, compute_all=True, n_ldrs=None)
         self.assertEqual(10, fpca.n_top)
 
+
 class Test_get_batch_size(unittest.TestCase):
     def test_get_batch_size(self):
-        self.assertEqual(20000, get_batch_size(n_top=10001, n_sub=20000, max_n_pc=15001))
-        self.assertEqual(50000, get_batch_size(n_top=10001, n_sub=50000, max_n_pc=15001))
-        self.assertEqual(30000, get_batch_size(n_top=10001, n_sub=60000, max_n_pc=15001))
-        self.assertEqual(50000, get_batch_size(n_top=10001, n_sub=100000, max_n_pc=15001))
-        self.assertEqual(50000, get_batch_size(n_top=4000, n_sub=100000, max_n_pc=15001))
+        self.assertEqual(
+            20000, get_batch_size(n_top=10001, n_sub=20000, max_n_pc=15001)
+        )
+        self.assertEqual(
+            50000, get_batch_size(n_top=10001, n_sub=50000, max_n_pc=15001)
+        )
+        self.assertEqual(
+            30000, get_batch_size(n_top=10001, n_sub=60000, max_n_pc=15001)
+        )
+        self.assertEqual(
+            50000, get_batch_size(n_top=10001, n_sub=100000, max_n_pc=15001)
+        )
+        self.assertEqual(
+            50000, get_batch_size(n_top=4000, n_sub=100000, max_n_pc=15001)
+        )
         self.assertEqual(10000, get_batch_size(n_top=8000, n_sub=10000, max_n_pc=10000))
         self.assertEqual(10000, get_batch_size(n_top=2000, n_sub=10000, max_n_pc=10000))
         self.assertEqual(5000, get_batch_size(n_top=5000, n_sub=5000, max_n_pc=5000))

@@ -148,7 +148,7 @@ def run(args, log):
         images = ImageManager(args.image)
         if n_voxels != images.n_voxels:
             raise ValueError("the images and bases have different resolution")
-        
+
         # read covariates
         log.info(f"Read covariates from {args.covar}")
         covar = ds.Covar(args.covar, args.cat_covar_list)
@@ -163,7 +163,10 @@ def run(args, log):
         ldrs = np.zeros((len(common_idxs), n_ldrs), dtype=np.float32)
         start_idx, end_idx = 0, 0
         rec_corr = defaultdict(lambda: np.zeros(len(common_idxs)))
-        alt_n_ldrs_list = [int(n_ldrs * prop) for prop in (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1)]
+        alt_n_ldrs_list = [
+            int(n_ldrs * prop)
+            for prop in (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1)
+        ]
 
         log.info(f"Constructing {n_ldrs} LDRs ...")
         with concurrent.futures.ThreadPoolExecutor(
@@ -226,5 +229,5 @@ def run(args, log):
         )
 
     finally:
-        if 'images' in locals():
+        if "images" in locals():
             images.close()

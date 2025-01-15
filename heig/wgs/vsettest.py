@@ -29,7 +29,15 @@ class VariantSetTest:
         self.bases = bases
         self.var = var
 
-    def input_vset(self, half_ldr_score, cov_mat, maf, is_rare, annotation_pred=None, annot_transform=True):
+    def input_vset(
+        self,
+        half_ldr_score,
+        cov_mat,
+        maf,
+        is_rare,
+        annotation_pred=None,
+        annot_transform=True,
+    ):
         """
         Inputing variant set and computing half scores and covariance matrix
 
@@ -79,7 +87,7 @@ class VariantSetTest:
             weights_dict["acatv(1,1)"] = (w2 / w3) ** 2
         else:
             if (annot <= 0).any():
-                raise ValueError('annotation weights must be greater than 0')
+                raise ValueError("annotation weights must be greater than 0")
             if annot_transform:
                 annot = 1 - 10 ** (-annot / 10)
             annot = annot.T
@@ -87,12 +95,8 @@ class VariantSetTest:
             weights_dict["skat(1,1)"] = self._combine_weights(w2, np.sqrt(annot))
             weights_dict["burden(1,25)"] = self._combine_weights(w1, annot)
             weights_dict["burden(1,1)"] = self._combine_weights(w2, annot)
-            weights_dict["acatv(1,25)"] = self._combine_weights(
-                (w1 / w3) ** 2, annot
-            )
-            weights_dict["acatv(1,1)"] = self._combine_weights(
-                (w2 / w3) ** 2, annot
-            )
+            weights_dict["acatv(1,25)"] = self._combine_weights((w1 / w3) ** 2, annot)
+            weights_dict["acatv(1,1)"] = self._combine_weights((w2 / w3) ** 2, annot)
 
         return weights_dict
 

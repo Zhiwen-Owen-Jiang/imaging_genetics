@@ -37,7 +37,7 @@ class RV:
         bases: (N, r) np.array, functional bases
         resid_ldr: (n, r) np.array, LDR residuals
         covar: (n, p) np.array, the same as those used to do projection
-        locus: hail.Table including locus, maf, is_rare, grch37, variant_type, 
+        locus: hail.Table including locus, maf, is_rare, grch37, variant_type,
                 chr, start, and end
         loco_preds: a LOCOpreds instance of loco predictions
             loco_preds.data_reader(j) returns loco preds for chrj with matched subjects
@@ -50,10 +50,10 @@ class RV:
             chr = int(chr.replace("chr", ""))
         else:
             chr = int(chr)
-        
+
         # adjust for relatedness
         if loco_preds is not None:
-            resid_ldr -= loco_preds.data_reader(chr) # (I-M)\Xi, (n, r)
+            resid_ldr -= loco_preds.data_reader(chr)  # (I-M)\Xi, (n, r)
 
         # variance
         inner_ldr = np.dot(resid_ldr.T, resid_ldr)  # \Xi'(I-M)\Xi, (r, r)
@@ -66,10 +66,12 @@ class RV:
 
         self.resid_ldr = BlockMatrix.from_numpy(resid_ldr)
         self.var = var
-        self.half_covar_proj = BlockMatrix.from_numpy(np.dot(covar_U, covar_Vt).astype(np.float32))
+        self.half_covar_proj = BlockMatrix.from_numpy(
+            np.dot(covar_U, covar_Vt).astype(np.float32)
+        )
         self.bases = bases
         self.n_subs = covar.shape[0]
-        
+
     def sumstats(self, vset):
         """
         Computing and writing summary statistics for rare variants
@@ -83,33 +85,35 @@ class RV:
         self.n_variants = vset.shape[0]
 
         # half ldr score
-        self.half_ldr_score = vset @ self.resid_ldr # Z'(I-M)\Xi, (m, r)
+        self.half_ldr_score = vset @ self.resid_ldr  # Z'(I-M)\Xi, (m, r)
 
         # Z'Z
         inner_vset = vset @ vset.T  # Z'Z, sparse matrix (m, m)
-        self.inner_vset = inner_vset.sparsify_band(-2500, 2500) # band size 5000
+        self.inner_vset = inner_vset.sparsify_band(-2500, 2500)  # band size 5000
 
         # Z'X(X'X)^{-1/2} = Z'UV', where X = UDV'
-        self.vset_half_covar_proj = vset @ self.half_covar_proj # Z'UV', (m, p)
+        self.vset_half_covar_proj = vset @ self.half_covar_proj  # Z'UV', (m, p)
 
     def save(self, output_dir):
         """
         Saving summary statistics
-        
+
         """
-        with h5py.File(f"{output_dir}_misc.h5", 'w') as file:
-            file.create_dataset('bases', data=self.bases, dtype='float32')
-            file.create_dataset('var', data=self.var, dtype='float32')
-            file.attrs['n_subs'] = self.n_subs
-            file.attrs['n_variants'] = self.n_variants
+        with h5py.File(f"{output_dir}_misc.h5", "w") as file:
+            file.create_dataset("bases", data=self.bases, dtype="float32")
+            file.create_dataset("var", data=self.var, dtype="float32")
+            file.attrs["n_subs"] = self.n_subs
+            file.attrs["n_variants"] = self.n_variants
 
         self.half_ldr_score.write(f"{output_dir}_half_ldr_score.bm", overwrite=True)
         # print("checkpoint ...")
         # self.inner_vset = self.inner_vset.checkpoint(f"{output_dir}_inner_vset_checkpoint", overwrite=True)
         # print("writing ...")
         self.inner_vset.write(f"{output_dir}_vset_ld.bm", overwrite=True)
-        self.vset_half_covar_proj.write(f"{output_dir}_vset_half_covar.bm", overwrite=True)
-        self.locus.write(f'{output_dir}_locus_info.ht', overwrite=True)
+        self.vset_half_covar_proj.write(
+            f"{output_dir}_vset_half_covar.bm", overwrite=True
+        )
+        self.locus.write(f"{output_dir}_locus_info.ht", overwrite=True)
         # self.locus.export(f'{output_dir}_locus_info.txt')
 
 
@@ -120,19 +124,21 @@ class RVsumstats:
     """
 
     def __init__(self, prefix):
-        self.half_ldr_score = BlockMatrix.read(f"{prefix}_half_ldr_score.bm") # (m, r)
-        self.inner_vset = BlockMatrix.read(f"{prefix}_vset_ld.bm") # (m, m)
-        self.vset_half_covar_proj = BlockMatrix.read(f"{prefix}_vset_half_covar.bm") # (m, p)
-        self.locus = hl.read_table(f'{prefix}_locus_info.ht').key_by('locus', 'alleles')
-        self.locus = self.locus.add_index('idx')
+        self.half_ldr_score = BlockMatrix.read(f"{prefix}_half_ldr_score.bm")  # (m, r)
+        self.inner_vset = BlockMatrix.read(f"{prefix}_vset_ld.bm")  # (m, m)
+        self.vset_half_covar_proj = BlockMatrix.read(
+            f"{prefix}_vset_half_covar.bm"
+        )  # (m, p)
+        self.locus = hl.read_table(f"{prefix}_locus_info.ht").key_by("locus", "alleles")
+        self.locus = self.locus.add_index("idx")
         self.geno_ref = self.locus.reference_genome.collect()[0]
         self.variant_type = self.locus.variant_type.collect()[0]
 
-        with h5py.File(f"{prefix}_misc.h5", 'r') as file:
-            self.bases = file['bases'][:] # (N, r)
-            self.var = file['var'][:] # (N, )
-            self.n_variants = file.attrs['n_variants']
-            self.n_subs = file.attrs['n_subs']
+        with h5py.File(f"{prefix}_misc.h5", "r") as file:
+            self.bases = file["bases"][:]  # (N, r)
+            self.var = file["var"][:]  # (N, )
+            self.n_variants = file.attrs["n_variants"]
+            self.n_subs = file.attrs["n_subs"]
 
         self.variant_idxs = None
         self.voxel_idxs = np.arange(self.bases.shape[0])
@@ -155,17 +161,21 @@ class RVsumstats:
                 self.logger.info(f"{len(voxel_idxs)} voxels included.")
             else:
                 raise ValueError("--voxel index (one-based) out of range")
-            
+
     def select_variants(self):
         """
         Selecting variants from summary statistics
-        
+
         """
         if self.n_variants < self.half_ldr_score.shape[0]:
             self.variant_idxs = self.locus.idx.collect()
             self.half_ldr_score = self.half_ldr_score.filter_rows(self.variant_idxs)
-            self.inner_vset = self.inner_vset.filter(self.variant_idxs, self.variant_idxs)
-            self.vset_half_covar_proj = self.vset_half_covar_proj.filter_rows(self.variant_idxs)
+            self.inner_vset = self.inner_vset.filter(
+                self.variant_idxs, self.variant_idxs
+            )
+            self.vset_half_covar_proj = self.vset_half_covar_proj.filter_rows(
+                self.variant_idxs
+            )
 
     def extract_exclude_locus(self, extract_locus, exclude_locus):
         """
@@ -203,28 +213,32 @@ class RVsumstats:
         """
         if chr_interval is not None:
             chr, start, end = parse_interval(chr_interval, self.geno_ref)
-            interval = hl.locus_interval(chr, start, end, reference_genome=self.geno_ref)
+            interval = hl.locus_interval(
+                chr, start, end, reference_genome=self.geno_ref
+            )
             self.locus = self.locus.filter(interval.contains(self.locus.locus))
             self.n_variants = self.locus.count()
-            self.logger.info(f"{self.n_variants} variants remaining after --chr-interval.")
-    
+            self.logger.info(
+                f"{self.n_variants} variants remaining after --chr-interval."
+            )
+
     def extract_maf(self, maf_min=None, maf_max=None):
         """
-        Extracting variants by MAF 
-        
+        Extracting variants by MAF
+
         """
         if maf_min is not None:
             self.locus = self.locus.filter(self.locus.maf < maf_min)
         if maf_max is not None:
             self.locus = self.locus.filter(self.locus.maf >= maf_max)
         # if maf_min is not None or maf_max is not None:
-            # self.n_variants = self.locus.count()
-            # self.logger.info(f"{self.n_variants} variants remaining after filtering by MAF.")
+        # self.n_variants = self.locus.count()
+        # self.logger.info(f"{self.n_variants} variants remaining after filtering by MAF.")
 
     # def semi_join(self, annot):
     #     """
     #     Semi join with annotations
-        
+
     #     """
     #     self.locus = self.locus.semi_join(annot)
     #     self.n_variants = self.locus.count()
@@ -233,7 +247,7 @@ class RVsumstats:
         """
         Annotating functional annotations to locus
         ensuring no NA in annotations
-        
+
         """
         self.locus = self.locus.annotate(annot=annot[self.locus.key])
         self.locus = self.locus.filter(hl.is_defined(self.locus.annot))
@@ -243,8 +257,13 @@ class RVsumstats:
         # TODO: error here
         chr = self.locus.aggregate(hl.agg.take(self.locus.locus.contig, 1)[0])
         start = self.locus.aggregate(hl.agg.take(self.locus.locus.position, 1)[0])
-        end = self.locus.order_by(hl.desc(self.locus.locus)).head(1).collect()[0].locus.position
-        
+        end = (
+            self.locus.order_by(hl.desc(self.locus.locus))
+            .head(1)
+            .collect()[0]
+            .locus.position
+        )
+
         return chr, start, end
 
     def parse_data(self, numeric_idx):
@@ -259,12 +278,14 @@ class RVsumstats:
         ---------
         half_ldr_score: Z'(I-M)\Xi
         cov_mat: Z'(I-M)Z
-        
-        """ 
+
+        """
         half_ldr_score = self.half_ldr_score.filter_rows[numeric_idx].to_numpy()
         vset_half_covar_proj = self.vset_half_covar_proj.filter_rows[numeric_idx]
         inner_vset = self.inner_vset.filter[numeric_idx, numeric_idx]
-        cov_mat = (inner_vset - vset_half_covar_proj @ vset_half_covar_proj.T).to_numpy()
+        cov_mat = (
+            inner_vset - vset_half_covar_proj @ vset_half_covar_proj.T
+        ).to_numpy()
         # locus_reindex = self.locus.add_index('new_idx')
         # locus_reindex = locus_reindex.filter(hl.literal(idx).contains(locus_reindex.new_idx))
         # locus = self.locus.filter(idx)
@@ -288,15 +309,15 @@ def prepare_vset(snps_mt, variant_type):
     vset: (m, n) BlockMatrix
 
     """
-    locus = snps_mt.rows().key_by().select('locus', 'alleles', 'maf', 'is_rare')
-    locus = locus.annotate_globals(reference_genome=locus.locus.dtype.reference_genome.name)
-    locus = locus.annotate_globals(variant_type=variant_type)
-    vset = BlockMatrix.from_entry_expr(
-        snps_mt.flipped_n_alt_alleles, mean_impute=True
+    locus = snps_mt.rows().key_by().select("locus", "alleles", "maf", "is_rare")
+    locus = locus.annotate_globals(
+        reference_genome=locus.locus.dtype.reference_genome.name
     )
+    locus = locus.annotate_globals(variant_type=variant_type)
+    vset = BlockMatrix.from_entry_expr(snps_mt.flipped_n_alt_alleles, mean_impute=True)
     if vset.shape[0] == 0 or vset.shape[1] == 0:
         raise ValueError("no variant in the genotype data")
-    
+
     return vset, locus
 
 
@@ -349,18 +370,14 @@ def run(args, log):
                         "Try to use --n-ldrs"
                     )
                 )
-            common_ids = ds.get_common_idxs(
-                null_model.ids,
-                loco_preds.ids,
-                args.keep
-            )
+            common_ids = ds.get_common_idxs(null_model.ids, loco_preds.ids, args.keep)
         else:
             common_ids = ds.get_common_idxs(null_model.ids, args.keep, single_id=True)
         common_ids = ds.remove_idxs(common_ids, args.remove, single_id=True)
 
         # read genotype data
         gprocessor = read_genotype_data(args, log)
-    
+
         # do preprocessing
         log.info(f"Processing genetic data ...")
         gprocessor.extract_exclude_locus(args.extract_locus, args.exclude_locus)
@@ -375,8 +392,10 @@ def run(args, log):
         null_model.remove_dependent_columns()
         log.info(f"{len(snps_mt_ids)} common subjects in the data.")
         log.info(
-            (f"{null_model.covar.shape[1]} fixed effects in the covariates (including the intercept) "
-             "after removing redundant effects.\n")
+            (
+                f"{null_model.covar.shape[1]} fixed effects in the covariates (including the intercept) "
+                "after removing redundant effects.\n"
+            )
         )
 
         if args.loco_preds is not None:
@@ -384,20 +403,26 @@ def run(args, log):
         else:
             loco_preds = None
 
-        log.info('Preparing data ...')
+        log.info("Preparing data ...")
         vset, locus = prepare_vset(gprocessor.snps_mt, gprocessor.variant_type)
-        log.info(f'Computing summary statistics for {vset.shape[0]} variants ...\n') 
-        process_wgs = RV(null_model.bases, null_model.resid_ldr, null_model.covar, locus, loco_preds)
+        log.info(f"Computing summary statistics for {vset.shape[0]} variants ...\n")
+        process_wgs = RV(
+            null_model.bases, null_model.resid_ldr, null_model.covar, locus, loco_preds
+        )
         process_wgs.sumstats(vset)
         process_wgs.save(args.out)
 
-        log.info((f'Save summary statistics to\n'
-                  f'{args.out}_half_ldr_score.bm\n'
-                  f'{args.out}_vset_ld.bm\n'
-                  f'{args.out}_vset_half_covar.bm\n'
-                  f'{args.out}_misc.h5\n'
-                  f'{args.out}_locus_info.ht'))
+        log.info(
+            (
+                f"Save summary statistics to\n"
+                f"{args.out}_half_ldr_score.bm\n"
+                f"{args.out}_vset_ld.bm\n"
+                f"{args.out}_vset_half_covar.bm\n"
+                f"{args.out}_misc.h5\n"
+                f"{args.out}_locus_info.ht"
+            )
+        )
 
     finally:
-        if 'loco_preds' in locals():
+        if "loco_preds" in locals():
             loco_preds.close()

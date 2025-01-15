@@ -59,7 +59,9 @@ class LDSC:
                         future.result()
                     except Exception as exc:
                         executor.shutdown(wait=False)
-                        raise RuntimeError(f"Computation terminated due to error: {exc}")
+                        raise RuntimeError(
+                            f"Computation terminated due to error: {exc}"
+                        )
 
     def ldsc(
         self,
