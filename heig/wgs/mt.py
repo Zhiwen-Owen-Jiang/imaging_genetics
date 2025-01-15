@@ -1,6 +1,16 @@
 import shutil
-from heig.wgs.utils import init_hail, read_genotype_data, GProcessor, clean
+import numpy as np
+import pandas as pd
+import hail as hl
+from hail.linalg import BlockMatrix
+from scipy.sparse import coo_matrix, save_npz, load_npz
+from heig.wgs.utils import *
 
+"""
+TODO:
+1. Merge multiple sparse matrix
+
+"""
 
 def check_input(args, log):
     if args.bfile is None and args.vcf is None and args.geno_mt is None:
@@ -12,9 +22,170 @@ def check_input(args, log):
         args.vcf, args.bfile = None, None
     if args.bfile is not None:
         args.vcf = None
+    if args.variant_type is None:
+        args.variant_type = "snv"
+        log.info(f"Set --variant-type as default 'snv'.")
+
     if args.qc_mode is None:
         args.qc_mode = 'gwas'
     log.info(f"Set QC mode as {args.qc_mode}.")
+    if args.qc_mode == 'gwas' and args.save_sparse_matrix:
+        raise ValueError('GWAS data cannot be saved as sparse matrix')
+    if args.bfile is not None or args.vcf is not None and args.save_sparse_matrix:
+        log.info(('WARNING: directly saving a bfile or vcf as a sparse matrix can be '
+                  'very slow. Convert the bfile or vcf into mt first.'))
+
+
+def prepare_vset(snps_mt, variant_type):
+    """
+    Extracting data from MatrixTable
+
+    Parameters:
+    ------------
+    snps_mt: a MatrixTable of genotype data
+    variant_type: variant type
+
+    Returns:
+    ---------
+    vset: (m, n) csr_matrix of genotype
+    locus: a hail.Table of locus info
+
+    """
+    locus = snps_mt.rows().key_by().select('locus', 'alleles')
+    locus = locus.annotate_globals(reference_genome=locus.locus.dtype.reference_genome.name)
+    locus = locus.annotate_globals(variant_type=variant_type)
+    bm = BlockMatrix.from_entry_expr(
+        snps_mt.flipped_n_alt_alleles, mean_impute=True
+    )
+    if bm.shape[0] == 0 or bm.shape[1] == 0:
+        raise ValueError("no variant in the genotype data")
+    
+    entries = bm.entries()
+    non_zero_entries = entries.filter(entries.entry > 0)
+    non_zero_entries = non_zero_entries.collect()
+    rows = [entry['i'] for entry in non_zero_entries]
+    cols = [entry['j'] for entry in non_zero_entries]
+    values = [entry['entry'] for entry in non_zero_entries]
+
+    vset = coo_matrix((values, (rows, cols)), shape=bm.shape, dtype=np.float16)
+    vset = vset.tocsr()
+
+    return vset, locus
+
+
+class SparseGenotype:
+    """
+    This module is used in --rv-sumstats
+    order of steps:
+    1. keep(), update maf
+    2. extract_exclude_locus() and extract_chr_interval()
+    3. extract_maf()
+
+    """
+    def __init__(self, prefix, mac_thresh):
+        """"
+        vset (m, n): csr_matrix
+        locus: a hail.Table of locus info
+        ids: a pd.DataFrame of ids with index FID and IID
+        
+        """
+        self.vset = load_npz(f"{prefix}_genotype.npz")
+        self.locus = hl.read_table(f"{prefix}_locus_info.ht").key_by("locus", "alleles")
+        self.ids = pd.read_csv(f"{prefix}_ids.txt", sep='\t', header=None)
+        self.mac_thresh = mac_thresh
+
+        self.locus = self.locus.add_index('idx')
+        self.geno_ref = self.locus.reference_genome.collect()[0]
+        self.ids['idx'] = list(range(self.ids.shape[0]))
+        self.ids = self.ids.set_index([0, 1])
+        self.variant_idxs = np.arange(self.vset.shape[0])
+        self.maf, self.is_rare = self._update_maf()
+
+    def extract_exclude_locus(self, extract_locus, exclude_locus):
+        """
+        Extracting and excluding variants by locus
+
+        Parameters:
+        ------------
+        extract_locus: a pd.DataFrame of SNPs in `chr:pos` format
+        exclude_locus: a pd.DataFrame of SNPs in `chr:pos` format
+
+        """
+        if extract_locus is not None:
+            extract_locus = parse_locus(extract_locus["locus"], self.geno_ref)
+            self.locus = self.locus.filter(extract_locus.contains(self.locus.locus))
+        if exclude_locus is not None:
+            exclude_locus = parse_locus(exclude_locus["locus"], self.geno_ref)
+            self.locus = self.locus.filter(~exclude_locus.contains(self.locus.locus))
+
+    def extract_chr_interval(self, chr_interval=None):
+        """
+        Extacting a chr interval
+
+        Parameters:
+        ------------
+        chr_interval: chr interval to extract
+
+        """
+        if chr_interval is not None:
+            chr, start, end = parse_interval(chr_interval, self.geno_ref)
+            interval = hl.locus_interval(chr, start, end, reference_genome=self.geno_ref)
+            self.locus = self.locus.filter(interval.contains(self.locus.locus))
+    
+    def extract_maf(self, maf_min=None, maf_max=None):
+        """
+        Extracting variants by MAF
+        this method will only be invoked after keep()
+        
+        """
+        if maf_min is None:
+            maf_min = 0
+        if maf_max is None:
+            maf_max = 0.5
+        self.variant_idxs = self.variant_idxs[(self.maf > maf_min) & (self.maf <= maf_max)]
+
+    def keep(self, keep_idvs):
+        """
+        Keep subjects
+        this method will only be invoked after extracting common subjects
+
+        Parameters:
+        ------------
+        keep_idvs: a pd.MultiIndex of FID and IID
+
+        Returns:
+        ---------
+        self.id_idxs: numeric indices of subjects
+
+        """
+        if not isinstance(keep_idvs, pd.MultiIndex):
+            raise TypeError('keep_idvs must be a pd.MultiIndex instance')
+        self.ids = self.ids[self.ids.index.isin(keep_idvs)]
+        if len(self.ids) == 0:
+            raise ValueError('no subject in genotype data')
+        self.vset = self.vset[:, self.ids['idx'].values]
+        self.maf, self.is_rare = self._update_maf()
+        
+    def _update_maf(self):
+        mac = self.vset.sum(axis=1)
+        maf = mac // 2
+        is_rare = mac < self.mac_thresh
+
+        return maf, is_rare
+    
+    def parse_data(self):
+        """
+        Parsing genotype data as a result of filtering
+        
+        """
+        locus_idxs = set(self.locus.idx.collect())
+        common_variant_idxs = sorted(list(locus_idxs.intersection(self.variant_idxs)))
+        common_variant_idxs = np.array(common_variant_idxs)
+        vset = self.vset[common_variant_idxs]
+        maf = self.maf[common_variant_idxs]
+        is_rare = self.is_rare[common_variant_idxs]
+        
+        return vset, maf, is_rare
 
 
 def run(args, log):
@@ -31,19 +202,33 @@ def run(args, log):
         gprocessor.extract_exclude_snps(args.extract, args.exclude)
         gprocessor.extract_chr_interval(args.chr_interval)
         gprocessor.keep_remove_idvs(args.keep, args.remove)
-        gprocessor.do_processing(mode=args.qc_mode)
-        # gprocessor.check_valid()
+        gprocessor.do_processing(mode=args.qc_mode, skip=True)
 
         # save
-        gprocessor.snps_mt.write(f"{args.out}.mt", overwrite=True)
-
-        # post check
-        gprocessor = GProcessor.read_matrix_table(f"{args.out}.mt")
-        try:
+        if args.save_sparse_matrix:
             gprocessor.check_valid()
-        except:
-            shutil.rmtree(f"{args.out}.mt")
-            raise
-        log.info(f"Save genotype data at {args.out}.mt")
+            log.info((f"Computing sparse matrix for {gprocessor.n_sub} subjects "
+                      f"and {gprocessor.n_variants} variants ..."))
+            vset, locus = prepare_vset(gprocessor.snps_mt, args.variant_type)
+            snps_mt_ids = gprocessor.subject_id()
+            save_npz(f"{args.out}_genotype.npz", vset)
+            locus.write(f"{args.out}_locus_info.ht", overwrite=True)
+            snps_mt_ids = pd.DataFrame({"FID": snps_mt_ids, "IID": snps_mt_ids})
+            snps_mt_ids.to_csv(f"{args.out}_id.txt", sep='\t', header=None, index=None)
+            log.info((f"Save sparse genotype data at\n"
+                      f"{args.out}_genotype.npz\n"
+                      f"{args.out}_locus_info.ht\n"
+                      f"{args.out}_id.txt"))
+
+        else:
+            gprocessor.snps_mt.write(f"{args.out}.mt", overwrite=True)
+            # post check
+            gprocessor = GProcessor.read_matrix_table(f"{args.out}.mt")
+            try:
+                gprocessor.check_valid()
+            except:
+                shutil.rmtree(f"{args.out}.mt")
+                raise
+            log.info(f"Save genotype data at {args.out}.mt")
     finally:
         clean(args.out)
