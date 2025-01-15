@@ -679,6 +679,11 @@ make_mt_parser.add_argument(
     "--vcf",
     help="Direcotory to a VCF file."
 )
+make_mt_parser.add_argument(
+    "--skip-qc",
+    action="store_true",
+    help="Skip QC genotype data."
+)
 
 # arguments for annotation.py
 rv_annotation_parser.add_argument(
@@ -916,6 +921,7 @@ def check_accepted_args(module, args, log):
             "qc_mode",
             "save_sparse_genotype",
             "grch37",
+            "skip_qc",
             "threads"
         },
         "rv_null": {

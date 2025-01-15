@@ -207,7 +207,8 @@ def run(args, log):
         gprocessor.extract_exclude_snps(args.extract, args.exclude)
         gprocessor.extract_chr_interval(args.chr_interval)
         gprocessor.keep_remove_idvs(args.keep, args.remove)
-        gprocessor.do_processing(mode=args.qc_mode, skip=True)
+        if not args.skip_qc:
+            gprocessor.do_processing(mode=args.qc_mode, skip=True)
 
         # save
         if args.save_sparse_genotype:
