@@ -159,7 +159,7 @@ common_parser.add_argument(
     type=int,
     help=(
         "Number of LDRs. Supported modules: "
-        "--make-ldr, --fpca, --heri-gc, --voxel-gwas, --gwas, "
+        "--make-ldr, --fpca, --heri-gc, --voxel-gwas, --gwas, --cluster, "
         "--relatedness, --rv-null, --make-rv-sumstats, --rv-coding, "
         "--rv-noncoding, --rv."
     ),
@@ -175,14 +175,14 @@ common_parser.add_argument(
     "--bases",
     help=(
         "Directory to functional bases. Supported modules: "
-        "--make-ldr, --heri-gc, --voxel-gwas, --rv-null."
+        "--make-ldr, --heri-gc, --voxel-gwas, --cluster, --rv-null."
     ),
 )
 common_parser.add_argument(
     "--ldr-cov",
     help=(
         "Directory to variance-covariance marix of LDRs. "
-        "Supported modules: --heri-gc, --voxel-gwas."
+        "Supported modules: --heri-gc, --voxel-gwas, --cluster."
     ),
 )
 common_parser.add_argument(
@@ -195,7 +195,7 @@ common_parser.add_argument(
         "Other columns will be ignored. "
         "Each row contains only one subject. "
         "Supported modules: --read-image, --fpca, --make-ldr, --ld-matrix, "
-        "--gwas, --make-mt, --relatedness, --rv-null, --make-rv-sumstats."
+        "--gwas, --cluster, --make-mt, --relatedness, --rv-null, --make-rv-sumstats."
     ),
 )
 common_parser.add_argument(
@@ -208,8 +208,8 @@ common_parser.add_argument(
         "Other columns will be ignored. "
         "Each row contains only one subject. "
         "If a subject appears in both --keep and --remove, --remove takes precedence. "
-        "Supported modules: --read-image, --fpca, --make-ldr, --gwas, --make-mt, "
-        "--relatedness, --rv-null, --make-rv-sumstats."
+        "Supported modules: --read-image, --fpca, --make-ldr, --gwas, --cluster, "
+        "--make-mt, --relatedness, --rv-null, --make-rv-sumstats."
     ),
 )
 common_parser.add_argument(
@@ -222,7 +222,7 @@ common_parser.add_argument(
         "Other columns will be ignored. "
         "Each row contains only one SNP. "
         "Supported modules: --heri-gc, --ld-matrix, --voxel-gwas, --gwas, "
-        "--make-mt, --relatedness."
+        "--cluster, --make-mt, --relatedness."
     ),
 )
 common_parser.add_argument(
@@ -247,7 +247,7 @@ common_parser.add_argument(
         "Other columns will be ignored. "
         "Each row contains only one SNP. "
         "Supported modules: --heri-gc, --ld-matrix, --voxel-gwas, --gwas, "
-        "--make-mt, --relatedness."
+        "--cluster, --make-mt, --relatedness."
     ),
 )
 common_parser.add_argument(
@@ -267,7 +267,7 @@ common_parser.add_argument(
     type=float,
     help=(
         "Minimum minor allele frequency for screening SNPs. "
-        "Supported modules: --ld-matrix, --sumstats, --gwas, --make-mt, "
+        "Supported modules: --ld-matrix, --sumstats, --gwas, --cluster, --make-mt, "
         "--relatedness, --make-rv-sumstats, --rv-coding, --rv-noncoding, "
         "--rv."
     ),
@@ -277,7 +277,7 @@ common_parser.add_argument(
     type=float,
     help=(
         "Maximum minor allele frequency for screening SNPs. "
-        "Supported modules: --sumstats, --gwas, --make-mt, "
+        "Supported modules: --sumstats, --gwas, --cluster, --make-mt, "
         "--relatedness, --make-rv-sumstats, --rv-coding, --rv-noncoding, "
         "--rv."
     ),
@@ -289,7 +289,7 @@ common_parser.add_argument(
         "A HWE p-value threshold. "
         "Variants with a HWE p-value less than the threshold "
         "will be removed."
-        "Supported modules: --make-mt, --gwas, --relatedness. "
+        "Supported modules: --make-mt, --gwas, --cluster, --relatedness, "
         "--make-rv-sumstats."
     ),
 )
@@ -300,7 +300,7 @@ common_parser.add_argument(
         "A genotype call rate threshold, equivalent to 1 - missing rate. "
         "Variants with a call rate less than the threshold "
         "will be removed."
-        "Supported modules: --gwas, --relatedness, --make-mt, "
+        "Supported modules: --gwas, --relatedness, --make-mt, --cluster, "
         "--make-rv-sumstats."
     ),
 )
@@ -309,7 +309,7 @@ common_parser.add_argument(
     help=(
         "Directory to covariate file. "
         "The file should be tab or space delimited, with each row only one subject. "
-        "Supported modules: --make-ldr, --gwas, --relatedness, --rv-null."
+        "Supported modules: --make-ldr, --gwas, --cluster, --relatedness, --rv-null."
     ),
 )
 common_parser.add_argument(
@@ -317,7 +317,7 @@ common_parser.add_argument(
     help=(
         "List of categorical covariates to include in the analysis. "
         "Multiple covariates are separated by comma. "
-        "Supported modules: --make-ldr, --gwas, --relatedness, --rv-null."
+        "Supported modules: --make-ldr, --gwas, --cluster, --relatedness, --rv-null."
     ),
 )
 common_parser.add_argument(
@@ -327,15 +327,7 @@ common_parser.add_argument(
         "When estimating LD matrix and its inverse, two prefices should be provided "
         "and seperated by a comma, e.g., `prefix1,prefix2`. "
         "When doing GWAS, only one prefix is allowed. "
-        "Supported modules: --ld-matrix, --gwas, --relatedness, --make-mt, "
-        "--make-rv-sumstats."
-    ),
-)
-common_parser.add_argument(
-    "--vcf",
-    help=(
-        "Direcotory to a VCF file. "
-        "Supported modules: --make-mt, --gwas, --relatedness, --make-rv-sumstats."
+        "Supported modules: --ld-matrix, --make-mt."
     ),
 )
 common_parser.add_argument(
@@ -345,7 +337,7 @@ common_parser.add_argument(
         "from chromosome 3 bp 1000000 to chromosome 3 bp 2000000. "
         "Cross-chromosome is not allowed. And the end position must "
         "be greater than the start position. "
-        "Supported modules: --voxel-gwas, --gwas, --make-mt, --make-rv-sumstats, "
+        "Supported modules: --voxel-gwas, --gwas, --cluster, --make-mt, --make-rv-sumstats, "
         "--rv-coding, --rv-noncoding, --rv."
     ),
 )
@@ -360,15 +352,14 @@ common_parser.add_argument(
     "--ldrs",
     help=(
         "Directory to LDR file. "
-        "Supported modules: --gwas, --relatedness, --rv-null."
+        "Supported modules: --gwas, --cluster, --relatedness, --rv-null."
     ),
 )
 common_parser.add_argument(
     "--geno-mt",
     help=(
         "Directory to genotype MatrixTable. "
-        "Supported modules: --gwas, --make-mt, --relatedness, "
-        "--make-rv-sumstats."
+        "Supported modules: --gwas, --make-mt, --cluster, --relatedness."
     ),
 )
 common_parser.add_argument(
@@ -376,7 +367,7 @@ common_parser.add_argument(
     action="store_true",
     help=(
         "Using reference genome GRCh37. Otherwise using GRCh38. "
-        "Supported modules: --gwas, --make-mt,  --relatedness, --rv-annot, "
+        "Supported modules: --gwas, --make-mt, --cluster, --relatedness, --rv-annot, "
         "--make-rv-sumstats, --rv-coding, --rv-noncoding, --rv."
     ),
 )
@@ -385,7 +376,7 @@ common_parser.add_argument(
     help=(
         "Variant type (case insensitive), "
         "must be one of ('variant', 'snv', 'indel'). "
-        "Supported modules: --gwas, --make-mt,  --relatedness, "
+        "Supported modules: --gwas, --make-mt, --cluster, --relatedness, "
         "--make-rv-sumstats."
     ),
 )
@@ -393,8 +384,7 @@ common_parser.add_argument(
     "--not-save-genotype-data",
     action="store_true",
     help=(
-        "Do not save preprocessed genotype data. "
-        "Supported modules: --gwas, --relatedness."
+        "Do not save preprocessed genotype data (Deprecated)."
     ),
 )
 common_parser.add_argument(
@@ -415,14 +405,14 @@ common_parser.add_argument(
     help=(
         "number of threads. "
         "Supported modules: --read-image, --sumstats, --fpca, "
-        "--voxel-gwas, --heri-gc, --make-ldr, --relatedness."
+        "--voxel-gwas, --heri-gc, --make-ldr, --cluster, --relatedness."
     ),
 ),
 common_parser.add_argument(
     "--spark-conf",
     help=(
         "Spark configuration file. "
-        "Supported modules: --relatedness, --gwas, --make-mt, "
+        "Supported modules: --relatedness, --gwas, --make-mt, --cluster, "
         "--make-rv-sumstats, --rv-annot, --rv-coding, --rv-noncoding, --rv."
     ),
 ),
@@ -430,7 +420,7 @@ common_parser.add_argument(
     "--loco-preds",
     help=(
         "Leave-one-chromosome-out prediction file. "
-        "Supported modules: --gwas, --make-rv-sumstats"
+        "Supported modules: --gwas, --cluster, --make-rv-sumstats"
     ),
 )
 common_parser.add_argument(
@@ -460,9 +450,12 @@ common_parser.add_argument(
     help=(
         "Variant category (case insensitive), "
         "must be one or some of ('all', 'plof', 'plof_ds', 'missense', "
-        "'disruptive_missense', 'synonymous', 'ptv', 'ptv_ds'); "
+        "'disruptive_missense', 'synonymous', 'ptv', 'ptv_ds') for coding variants, "
+        "or one or some of ('all', 'upstream', 'downstream', 'promoter_cage', 'promoter_dhs', "
+        "'enhancer_cage', 'enhancer_dhs') for noncoding variants, "
         "where 'all' means all categories; "
-        "multiple categories should be separated by comma."
+        "multiple categories should be separated by comma. "
+        "Supported modules: --rv-coding, --rv-noncoding."
     ),
 )
 common_parser.add_argument(
@@ -471,10 +464,20 @@ common_parser.add_argument(
         "Variant sets file."
         "The file should be tab or space delimited without header. "
         "Each row contains only one variant set in format "
-        "<gene name> <chr:start,chr:end>."
+        "<gene name> <chr:start,chr:end>. "
+        "Supported modules: --rv-coding, --rv-noncoding."
     )
 )
-
+common_parser.add_argument(
+    "--sig-thresh",
+    type=float,
+    help=(
+        "p-Value threshold for significance, "
+        "can be specified in a decimal 0.00000005 "
+        "or in scientific notation 5e-08. "
+        "Supported modules: --voxel-gwas, --cluster."
+    ),
+)
 
 # arguments for herigc.py
 herigc_parser.add_argument(
@@ -581,7 +584,7 @@ fpca_parser.add_argument(
         "The bandwidth you want to use in kernel smoothing. "
         "HEIG will skip searching the optimal bandwidth. "
         "For images of any dimension, just specify one number, e.g, 0.5 "
-        "for 3D images"
+        "for 3D images."
     ),
 )
 fpca_parser.add_argument(
@@ -598,7 +601,7 @@ make_ld_parser.add_argument(
     help=(
         "Regularization for LD matrix and its inverse. "
         "Two values should be separated by a comma and between 0 and 1, "
-        "e.g., `0.85,0.80`"
+        "e.g., `0.85,0.80`."
     ),
 )
 
@@ -653,15 +656,6 @@ sumstats_parser.add_argument(
 )
 
 # arguments for voxelgwas.py
-voxelgwas_parser.add_argument(
-    "--sig-thresh",
-    type=float,
-    help=(
-        "p-Value threshold for significance, "
-        "can be specified in a decimal 0.00000005 "
-        "or in scientific notation 5e-08."
-    ),
-)
 
 # arguments for relatedness.py
 relatedness_parser.add_argument(
@@ -675,11 +669,15 @@ gwas_parser.add_argument(
 
 # arguments for mt.py
 make_mt_parser.add_argument(
-    "--qc-mode", help="Genotype data QC mode, either gwas or wgs. Default: gwas"
+    "--qc-mode", help="Genotype data QC mode, either gwas or wgs. Default: gwas."
 )
 make_mt_parser.add_argument(
     "--save-sparse-genotype", action="store_true", 
-    help="Save sparse genotype for rare variant analysis"
+    help="Save sparse genotype for rare variant analysis."
+)
+make_mt_parser.add_argument(
+    "--vcf",
+    help="Direcotory to a VCF file."
 )
 
 # arguments for annotation.py
@@ -688,7 +686,7 @@ rv_annotation_parser.add_argument(
     help=(
         "Directory to unzipped FAVOR annotation files. "
         "For multiple files, using * to match any string of characters. "
-        "E.g., favor_db/chr*.csv"
+        "E.g., favor_db/chr*.csv."
     ),
 )
 rv_annotation_parser.add_argument(
@@ -699,7 +697,7 @@ rv_annotation_parser.add_argument(
         "Missing values are not allowed. "
         "Use double quote marks `\"`. "
         "For multiple files, using * to match any string of characters. "
-        "E.g., chr*.csv"
+        "E.g., chr*.csv."
     ),
 )
 
@@ -711,7 +709,7 @@ rv_sumstats_parser.add_argument(
 rv_sumstats_parser.add_argument(
     "--bandwidth",
     type=int,
-    help="Bandwidth of banded LD matrix. Default: 5000"
+    help="Bandwidth of banded LD matrix. Default: 5000."
 )
 rv_sumstats_parser.add_argument(
     "--mac-thresh",
@@ -720,7 +718,7 @@ rv_sumstats_parser.add_argument(
         "A minor allele count threshold. "
         "Variants with a MAC less than the threshold "
         "will be marked as a super rare variants in ACAT-V analysis. "
-        "Default is 10."
+        "Default: 10."
     ),
 )
 rv_sumstats_parser.add_argument(
@@ -739,7 +737,7 @@ rv_parser.add_argument(
 cluster_parser.add_argument(
     "--n-bootstrap",
     type=int,
-    help="Number of bootstrap samples. Default 50."
+    help="Number of bootstrap samples. Default: 50."
 )
 
 def check_accepted_args(module, args, log):
