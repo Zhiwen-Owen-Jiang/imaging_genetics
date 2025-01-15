@@ -6,6 +6,7 @@ import heig.input.dataset as ds
 from heig.wgs.relatedness import LOCOpreds
 from heig.wgs.null import NullModel
 from heig.wgs.utils import *
+from heig.wgs.mt import SparseGenotype
 from hail.linalg import BlockMatrix
 from scipy.sparse import csr_matrix, coo_matrix
 
@@ -28,22 +29,27 @@ class RV:
 
     """
 
-    def __init__(self, bases, resid_ldr, covar, locus, loco_preds=None, rand_v=1):
+    def __init__(self, bases, resid_ldr, covar, locus, maf, is_rare, loco_preds=None, rand_v=1):
         """
         Parameters:
         ------------
         bases: (N, r) np.array, functional bases
         resid_ldr: (n, r) np.array, LDR residuals
         covar: (n, p) np.array, the same as those used to do projection
-        locus: hail.Table including locus, maf, is_rare, grch37, variant_type, 
+        locus: a hail.Table including locus, grch37, variant_type, 
                 chr, start, and end
+        maf: a np.array of MAF
+        is_rare: a np.array of boolean indices indicating MAC <= mac_threshold
         loco_preds: a LOCOpreds instance of loco predictions
             loco_preds.data_reader(j) returns loco preds for chrj with matched subjects
         rand_v (n, 1): a np.array of random standard normal variable for wild bootstrap
 
         """
-        # extract chr
         self.locus = locus
+        self.maf = maf
+        self.is_rare = is_rare
+
+        # extract chr
         chr = self.locus.aggregate(hl.agg.take(self.locus.locus.contig, 1)[0])
         if locus.locus.dtype.reference_genome.name == "GRCh38":
             chr = int(chr.replace("chr", ""))
@@ -146,6 +152,8 @@ class RV:
         
         """
         with h5py.File(f"{output_dir}_rv_sumstats.h5", 'w') as file:
+            file.create_dataset('maf', data=self.maf, dtype='float32')
+            file.create_dataset('is_rare', data=self.is_rare)
             file.create_dataset('bases', data=self.bases, dtype='float32')
             file.create_dataset('inner_ldr', data=self.inner_ldr, dtype='float32')
             file.create_dataset('half_ldr_score', data=self.half_ldr_score, dtype='float32')
@@ -173,10 +181,10 @@ class RVsumstats:
         self.locus = self.locus.add_index('idx')
         self.geno_ref = self.locus.reference_genome.collect()[0]
         self.variant_type = self.locus.variant_type.collect()[0]
-        self.maf = np.array(self.locus.maf.collect())
-        self.is_rare = np.array(self.locus.is_rare.collect())
 
         with h5py.File(f"{prefix}_rv_sumstats.h5", 'r') as file:
+            self.maf = file['maf'][:]
+            self.is_rare = file['is_rare'][:]
             self.bases = file['bases'][:] # (N, r)
             self.inner_ldr = file['inner_ldr'][:] # (r, r)
             self.half_ldr_score = file['half_ldr_score'][:]
@@ -284,15 +292,15 @@ class RVsumstats:
             interval = hl.locus_interval(chr, start, end, reference_genome=self.geno_ref)
             self.locus = self.locus.filter(interval.contains(self.locus.locus))
     
-    def extract_maf(self, maf_min=None, maf_max=None):
-        """
-        Extracting variants by MAF 
+    # def extract_maf(self, maf_min=None, maf_max=None):
+    #     """
+    #     Extracting variants by MAF 
         
-        """
-        if maf_min is not None:
-            self.locus = self.locus.filter(self.locus.maf > maf_min)
-        if maf_max is not None:
-            self.locus = self.locus.filter(self.locus.maf <= maf_max)
+    #     """
+    #     if maf_min is not None:
+    #         self.locus = self.locus.filter(self.locus.maf > maf_min)
+    #     if maf_max is not None:
+    #         self.locus = self.locus.filter(self.locus.maf <= maf_max)
 
     def annotate(self, annot):
         """
@@ -414,10 +422,8 @@ def prepare_vset(snps_mt, variant_type):
 
 def check_input(args, log):
     # required arguments
-    # if args.geno_mt is None and args.vcf is None and args.bfile is None:
-    #     raise ValueError("one of --geno-mt, --vcf, or --bfile is required")
-    if args.geno_mt is None:
-        raise ValueError("--geno-mt is required. If you have bfile or vcf, convert it into a mt by --make-mt")
+    if args.sparse_genotype is None:
+        raise ValueError("--sparse-genotype is required")
     if args.spark_conf is None:
         raise ValueError("--spark-conf is required")
     if args.null_model is None:
@@ -456,6 +462,9 @@ def run(args, log):
         null_model = NullModel(args.null_model)
         null_model.select_ldrs(args.n_ldrs)
 
+        # reading sparse genotype data
+        sparse_genotype = SparseGenotype(args.sparse_genotype, args.mac_thresh)
+
         # read loco preds
         if args.loco_preds is not None:
             log.info(f"Read LOCO predictions from {args.loco_preds}")
@@ -470,43 +479,46 @@ def run(args, log):
                     )
                 )
             common_ids = ds.get_common_idxs(
+                sparse_genotype.ids.index,
                 null_model.ids,
                 loco_preds.ids,
-                args.keep
+                args.keep,
             )
         else:
-            common_ids = ds.get_common_idxs(null_model.ids, args.keep, single_id=True)
-        common_ids = ds.remove_idxs(common_ids, args.remove, single_id=True)
+            common_ids = ds.get_common_idxs(sparse_genotype.ids.index, null_model.ids, args.keep)
+        common_ids = ds.remove_idxs(common_ids, args.remove)
 
-        # read genotype data
-        gprocessor = read_genotype_data(args, log)
-    
-        # do preprocessing
-        log.info(f"Processing genetic data ...")
-        gprocessor.extract_exclude_locus(args.extract_locus, args.exclude_locus)
-        gprocessor.extract_chr_interval(args.chr_interval)
-        gprocessor.keep_remove_idvs(common_ids)
-        gprocessor.do_processing(mode="wgs", skip=True)
+        log.info(f"Processing sparse genetic data ...")
+        sparse_genotype.keep(common_ids)
+        sparse_genotype.extract_exclude_locus(args.extract_locus, args.exclude_locus)
+        sparse_genotype.extract_chr_interval(args.chr_interval)
+        sparse_genotype.extract_maf(args.maf_min, args.maf_max)
 
         # extract and align subjects with the genotype data
-        snps_mt_ids = gprocessor.subject_id()
-        null_model.keep(snps_mt_ids)
+        null_model.keep(common_ids)
         null_model.remove_dependent_columns()
-        log.info(f"{len(snps_mt_ids)} common subjects in the data.")
+        log.info(f"{len(common_ids)} common subjects in the data.")
         log.info(
             (f"{null_model.covar.shape[1]} fixed effects in the covariates (including the intercept) "
              "after removing redundant effects.\n")
         )
 
         if args.loco_preds is not None:
-            loco_preds.keep(snps_mt_ids)
+            loco_preds.keep(common_ids)
         else:
             loco_preds = None
 
-        log.info('Preparing data ...')
-        vset, locus = prepare_vset(gprocessor.snps_mt, gprocessor.variant_type)
+        vset, locus, maf, is_rare = sparse_genotype.parse_data()
         log.info(f'Computing summary statistics for {vset.shape[0]} variants ...\n') 
-        process_wgs = RV(null_model.bases, null_model.resid_ldr, null_model.covar, locus, loco_preds)
+        process_wgs = RV(
+            null_model.bases, 
+            null_model.resid_ldr, 
+            null_model.covar, 
+            locus, 
+            maf, 
+            is_rare, 
+            loco_preds
+        )
         process_wgs.sumstats(vset, args.bandwidth)
         process_wgs.save(args.out)
 

@@ -62,12 +62,13 @@ class NullModel:
 
         Parameters:
         ------------
-        keep_idvs: a list of subject ids to keep
+        keep_idvs: a list or pd.MultiIndex of subject ids to keep
 
         """
-        keep_idvs = pd.MultiIndex.from_arrays(
-            [keep_idvs, keep_idvs], names=["FID", "IID"]
-        )
+        if isinstance(keep_idvs, list):
+            keep_idvs = pd.MultiIndex.from_arrays(
+                [keep_idvs, keep_idvs], names=["FID", "IID"]
+            )
         common_ids = ds.get_common_idxs(keep_idvs, self.ids).get_level_values("IID")
         ids_df = pd.DataFrame(
             {"id": self.id_idxs}, index=self.ids.get_level_values("IID")

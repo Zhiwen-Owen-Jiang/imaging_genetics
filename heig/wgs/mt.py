@@ -8,7 +8,7 @@ from heig.wgs.utils import *
 
 """
 TODO:
-1. Merge multiple sparse matrix
+1. Merge multiple sparse genotype datasets
 
 """
 
@@ -29,10 +29,10 @@ def check_input(args, log):
     if args.qc_mode is None:
         args.qc_mode = 'gwas'
     log.info(f"Set QC mode as {args.qc_mode}.")
-    if args.qc_mode == 'gwas' and args.save_sparse_matrix:
-        raise ValueError('GWAS data cannot be saved as sparse matrix')
-    if args.bfile is not None or args.vcf is not None and args.save_sparse_matrix:
-        log.info(('WARNING: directly saving a bfile or vcf as a sparse matrix can be '
+    if args.qc_mode == 'gwas' and args.save_sparse_genotype:
+        raise ValueError('GWAS data cannot be saved as sparse genotype')
+    if args.bfile is not None or args.vcf is not None and args.save_sparse_genotype:
+        log.info(('WARNING: directly saving a bfile or vcf as a sparse genotype can be '
                   'very slow. Convert the bfile or vcf into mt first.'))
 
 
@@ -65,7 +65,7 @@ def prepare_vset(snps_mt, variant_type):
     non_zero_entries = non_zero_entries.collect()
     rows = [entry['i'] for entry in non_zero_entries]
     cols = [entry['j'] for entry in non_zero_entries]
-    values = [entry['entry'] for entry in non_zero_entries]
+    values = np.array([entry['entry'] for entry in non_zero_entries], dtype=np.float16)
 
     vset = coo_matrix((values, (rows, cols)), shape=bm.shape, dtype=np.float16)
     vset = vset.tocsr()
@@ -91,13 +91,14 @@ class SparseGenotype:
         """
         self.vset = load_npz(f"{prefix}_genotype.npz")
         self.locus = hl.read_table(f"{prefix}_locus_info.ht").key_by("locus", "alleles")
-        self.ids = pd.read_csv(f"{prefix}_ids.txt", sep='\t', header=None)
+        self.ids = pd.read_csv(f"{prefix}_id.txt", sep='\t', header=None, dtype={0: object, 1: object})
+        self.ids = self.ids.rename({0: "FID", 1: "IID"}, axis=1)
         self.mac_thresh = mac_thresh
 
         self.locus = self.locus.add_index('idx')
         self.geno_ref = self.locus.reference_genome.collect()[0]
         self.ids['idx'] = list(range(self.ids.shape[0]))
-        self.ids = self.ids.set_index([0, 1])
+        self.ids = self.ids.set_index(["FID", "IID"])
         self.variant_idxs = np.arange(self.vset.shape[0])
         self.maf, self.is_rare = self._update_maf()
 
@@ -160,16 +161,17 @@ class SparseGenotype:
         """
         if not isinstance(keep_idvs, pd.MultiIndex):
             raise TypeError('keep_idvs must be a pd.MultiIndex instance')
-        self.ids = self.ids[self.ids.index.isin(keep_idvs)]
+        # self.ids = self.ids[self.ids.index.isin(keep_idvs)]
+        self.ids = self.ids.loc[keep_idvs]
         if len(self.ids) == 0:
             raise ValueError('no subject in genotype data')
         self.vset = self.vset[:, self.ids['idx'].values]
         self.maf, self.is_rare = self._update_maf()
         
     def _update_maf(self):
-        mac = self.vset.sum(axis=1)
-        maf = mac // 2
-        is_rare = mac < self.mac_thresh
+        mac = np.squeeze(np.array(self.vset.sum(axis=1)))
+        maf = mac / (self.vset.shape[1] * 2)
+        is_rare = mac <= self.mac_thresh
 
         return maf, is_rare
     
@@ -179,13 +181,16 @@ class SparseGenotype:
         
         """
         locus_idxs = set(self.locus.idx.collect())
-        common_variant_idxs = sorted(list(locus_idxs.intersection(self.variant_idxs)))
+        common_variant_idxs_set = locus_idxs.intersection(self.variant_idxs)
+        locus = self.locus.filter(hl.literal(common_variant_idxs_set).contains(self.locus.idx))
+        locus = locus.drop('idx')
+        common_variant_idxs = sorted(list(common_variant_idxs_set))
         common_variant_idxs = np.array(common_variant_idxs)
         vset = self.vset[common_variant_idxs]
         maf = self.maf[common_variant_idxs]
         is_rare = self.is_rare[common_variant_idxs]
         
-        return vset, maf, is_rare
+        return vset, locus, maf, is_rare
 
 
 def run(args, log):
@@ -205,11 +210,10 @@ def run(args, log):
         gprocessor.do_processing(mode=args.qc_mode, skip=True)
 
         # save
-        if args.save_sparse_matrix:
-            gprocessor.check_valid()
-            log.info((f"Computing sparse matrix for {gprocessor.n_sub} subjects "
-                      f"and {gprocessor.n_variants} variants ..."))
+        if args.save_sparse_genotype:
+            log.info("Computing sparse genotype ...")
             vset, locus = prepare_vset(gprocessor.snps_mt, args.variant_type)
+            log.info(f"{vset.shape[1]} subjects and {vset.shape[0]} variants in the sparse genotype")
             snps_mt_ids = gprocessor.subject_id()
             save_npz(f"{args.out}_genotype.npz", vset)
             locus.write(f"{args.out}_locus_info.ht", overwrite=True)
@@ -219,7 +223,6 @@ def run(args, log):
                       f"{args.out}_genotype.npz\n"
                       f"{args.out}_locus_info.ht\n"
                       f"{args.out}_id.txt"))
-
         else:
             gprocessor.snps_mt.write(f"{args.out}.mt", overwrite=True)
             # post check

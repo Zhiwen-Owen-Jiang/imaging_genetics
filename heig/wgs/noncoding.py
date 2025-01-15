@@ -139,6 +139,13 @@ class Enhancer(Noncoding):
         cage = hl.is_defined(self.annot.annot[Annotation_name_catalog[self.type.upper()]])
         variant_idx = cage & is_genehancer
         return variant_idx
+    
+
+class NcRNA(Noncoding):
+    def extract_variants(self):
+        set1 = hl.literal({'ncRNA_exonic', 'ncRNA_exonic;splicing', 'ncRNA_splicing'})
+        variant_idx = set1.contains(self.gencode_category)
+        return variant_idx
 
 
 def noncoding_vset_analysis(rv_sumstats, annot, variant_type, vset_test, variant_category, log):
@@ -255,7 +262,7 @@ def run(args, log):
         rv_sumstats = RVsumstats(args.rv_sumstats)
         rv_sumstats.extract_exclude_locus(args.extract_locus, args.exclude_locus)
         rv_sumstats.extract_chr_interval(args.chr_interval)
-        rv_sumstats.extract_maf(args.maf_min, args.maf_max)
+        # rv_sumstats.extract_maf(args.maf_min, args.maf_max)
         rv_sumstats.select_ldrs(args.n_ldrs)
         rv_sumstats.select_voxels(args.voxels)
         rv_sumstats.calculate_var()
