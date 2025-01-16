@@ -177,6 +177,7 @@ def coding_vset_analysis(
 
         # individual analysis
         cate_pvalues = dict()
+
         for cate, idx in coding.category_dict.items():
             if variant_category[0] != "all" and cate not in variant_category:
                 continue
@@ -194,24 +195,16 @@ def coding_vset_analysis(
                 )
                 pvalues = vset_test.do_inference(coding.annot_name)
                 cate_pvalues[cate] = {
-                    "set_name": gene[0],
                     "n_variants": vset_test.n_variants,
                     "pvalues": pvalues,
-                    "chr": chr,
-                    "start": start,
-                    "end": end,
                 }
 
         if "missense" in cate_pvalues and "disruptive_missense" in cate_pvalues:
             cate_pvalues["missense"] = process_missense(
                 cate_pvalues["missense"], cate_pvalues["disruptive_missense"]
             )
-            cate_pvalues["missense"]["set_name"] = gene[0]
-            cate_pvalues["missense"]["chr"] = chr
-            cate_pvalues["missense"]["start"] = start
-            cate_pvalues["missense"]["end"] = end
 
-        yield cate_pvalues
+        yield gene[0], chr, start, end, cate_pvalues
 
 
 def process_missense(m_pvalues, dm_pvalues):
@@ -282,6 +275,11 @@ def check_input(args, log):
     if args.variant_sets is None:
         raise ValueError("--variant-sets is required")
     log.info(f"{args.variant_sets.shape[0]} genes in --variant-sets.")
+    
+    if args.staar_only:
+        log.info("Saving STAAR-O results only.")
+    if args.sig_thresh is not None:
+        log.info(f"Saving results with a p-value less than {args.sig_thresh}")
 
     if args.variant_category is None:
         variant_category = ["all"]
@@ -314,11 +312,6 @@ def check_input(args, log):
         ):
             variant_category.append("disruptive_missense")
 
-    # if args.maf_max is None:
-    #     if args.maf_min is not None and args.maf_min < 0.01 or args.maf_min is None:
-    #         args.maf_max = 0.01
-    #         log.info(f"Set --maf-max as default 0.01")
-
     return variant_category
 
 
@@ -333,7 +326,6 @@ def run(args, log):
         rv_sumstats = RVsumstats(args.rv_sumstats)
         rv_sumstats.extract_exclude_locus(args.extract_locus, args.exclude_locus)
         rv_sumstats.extract_chr_interval(args.chr_interval)
-        # rv_sumstats.extract_maf(args.maf_min, args.maf_max)
         rv_sumstats.select_ldrs(args.n_ldrs)
         rv_sumstats.select_voxels(args.voxels)
         rv_sumstats.calculate_var()
@@ -353,19 +345,25 @@ def run(args, log):
             log,
         )
 
-        for cate_pvalues in all_vset_test_pvalues:
-            # format output
-            for cate, cate_results in cate_pvalues.items():
-                cate_output = format_output(
-                    cate_results["pvalues"],
-                    cate_results["n_variants"],
-                    rv_sumstats.voxel_idxs,
-                    cate_results["chr"],
-                    cate_results["start"],
-                    cate_results["end"],
-                    f"{cate_results['set_name']}_{cate}",
+        index_file = IndexFile(f"{args.out}_result_index.txt")
+        log.info(f"Write result index file to {args.out}_result_index.txt")
+
+        for set_name, chr, start, end, cate_pvalues in all_vset_test_pvalues:
+            cate_output = format_output(
+                cate_pvalues,
+                rv_sumstats.voxel_idxs,
+                args.staar_only,
+                args.sig_thresh
+            )
+            if cate_output is not None:
+                out_path = f"{args.out}_{set_name}.txt"
+                index_file.write_index(
+                    set_name,
+                    chr,
+                    start,
+                    end,
+                    out_path
                 )
-                out_path = f"{args.out}_{cate_results['set_name']}_{cate}.txt"
                 cate_output.to_csv(
                     out_path,
                     sep="\t",
@@ -374,8 +372,10 @@ def run(args, log):
                     index=None,
                     float_format="%.5e",
                 )
-            log.info(
-                f"Save results for {cate_results['set_name']} to {args.out}_{cate_results['set_name']}*"
-            )
+                log.info(
+                    f"Save results for {set_name} to {args.out}_{set_name}.txt"
+                )
+            else:
+                log.info(f"No significant results for {set_name}.")
     finally:
         clean(args.out)

@@ -475,8 +475,18 @@ common_parser.add_argument(
         "p-Value threshold for significance, "
         "can be specified in a decimal 0.00000005 "
         "or in scientific notation 5e-08. "
-        "Supported modules: --voxel-gwas, --cluster."
+        "Supported modules: --voxel-gwas, --cluster, --rv-coding, "
+        "--rv-noncoding, --rv."
     ),
+)
+common_parser.add_argument(
+    "--staar-only",
+    action="store_true",
+    help=(
+        "Save STAAR-O results only, the omnibus test aggregating all "
+        "methods and functional annotations. "
+        "Supported modules: --rv-coding, --rv-noncoding, --rv."
+    )
 )
 
 # arguments for herigc.py
@@ -874,7 +884,6 @@ def check_accepted_args(module, args, log):
             "cat_covar_list",
             "loco_preds",
             "spark_conf",
-            "not_save_genotype_data",
         },
         "relatedness": {
             "relatedness",
@@ -980,7 +989,9 @@ def check_accepted_args(module, args, log):
             "grch37",
             "n_ldrs",
             "voxels",
-            "annot_ht"
+            "annot_ht",
+            "staar_only",
+            "sig_thresh"
         },
         "rv_noncoding":{
             "rv_noncoding",
@@ -995,7 +1006,9 @@ def check_accepted_args(module, args, log):
             "grch37",
             "n_ldrs",
             "voxels",
-            "annot_ht"
+            "annot_ht",
+            "staar_only",
+            "sig_thresh"
         },
         "rv":{
             "rv",
@@ -1011,6 +1024,8 @@ def check_accepted_args(module, args, log):
             "annot_ht",
             "annot_cols",
             "window_length",
+            "staar_only",
+            "sig_thresh"
         },
         "cluster":{
             "cluster",
@@ -1139,6 +1154,9 @@ def process_args(args, log):
             args.voxels = ds.read_voxel(args.voxels)
         if np.min(args.voxels) <= -1:
             raise ValueError("voxel index must be one-based")
+    
+    if args.sig_thresh is not None and (args.sig_thresh <= 0 or args.sig_thresh >= 1):
+        raise ValueError("--sig-thresh should be greater than 0 and less than 1")
 
     if args.maf_min is not None:
         if args.maf_min >= 0.5 or args.maf_min < 0:

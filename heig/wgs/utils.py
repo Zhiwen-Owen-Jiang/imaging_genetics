@@ -19,6 +19,7 @@ __all__ = [
     "read_genotype_data",
     "format_output",
     "clean",
+    "IndexFile"
 ]
 
 
@@ -739,37 +740,56 @@ def parse_locus(variant_list, geno_ref):
     return variant_set
 
 
-def format_output(cate_pvalues, n_variants, voxels, chr, start, end, set_name):
+def format_output(cate_pvalues, voxels, staar_only, sig_thresh):
     """
     organizing pvalues to a structured format
 
     Parameters:
     ------------
     cate_pvalues: a pd.DataFrame of pvalues of the variant category
-    n_variants: #variants of the category
-    chr: chr of the variant set
-    start: start location
-    end: end location
     voxels: zero-based voxel idxs of the image
-    set_name: can be variant category or window index
+    staar_only: if saving STAAR-O results only
+    sig_thresh: significance threshold
 
     Returns:
     ---------
     output: a pd.DataFrame of pvalues with metadata
 
     """
-    meta_data = pd.DataFrame(
-        {
-            "INDEX": voxels + 1,
-            "SET_NAME": set_name,
-            "CHR": chr,
-            "START": start,
-            "END": end,
-            "N_VARIANT": n_variants,
-        }
-    )
-    output = pd.concat([meta_data, cate_pvalues], axis=1)
+    output = None
+
+    for mask, cate_results in cate_pvalues.items():
+        meta_data = pd.DataFrame(
+            {
+                "INDEX": voxels + 1, 
+                "MASK": mask, 
+                "N_VARIANTS": cate_results["n_variants"]
+            }
+        )
+        if staar_only:
+            cate_results = cate_results["pvalues"][["STAAR-O"]]
+        cate_results = pd.concat([meta_data, cate_results], axis=1)
+        if sig_thresh is not None:
+            cate_results = cate_results.loc[cate_results["STAAR-O"] < sig_thresh]
+        if cate_results.shape[0] > 0:
+            if output is None:
+                output = cate_results.copy()
+            else:
+                output = pd.concat([output, cate_results])
+
     return output
+
+
+class IndexFile:
+    def __init__(self, out_dir):
+        self.out_dir = out_dir
+        with open(self.out_dir, 'w') as file:
+            file.write("VARIANT_SET\tCHR\tSTART\tEND\tRESULT_FILE\n")
+
+    def write_index(self, gene, chr, start, end, result_file):
+        with open(self.out_dir, 'a') as file:
+            msg = f"{gene}\t{chr}\t{start}\t{end}\t{result_file}\n"
+            file.write(msg)
 
 
 # class Table:
