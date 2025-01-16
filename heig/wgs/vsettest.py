@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from functools import reduce
 from scipy.stats import chi2, cauchy, beta
-from heig.wgs.pvalue import saddle
+from heig.wgs.pvalue import saddle2
 
 
 """
@@ -154,7 +154,7 @@ class VariantSetTest:
         egvalues = np.flip(egvalues)
         egvalues[egvalues < 10**-8] = 0
 
-        pvalues = saddle(score_stat, egvalues, wcov_mat)
+        pvalues = saddle2(score_stat, egvalues)
         return pvalues
 
     def _burden_test(self, weights):

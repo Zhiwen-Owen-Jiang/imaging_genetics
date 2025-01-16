@@ -11,7 +11,7 @@ https://github.com/xihaoli/STAAR
 
 def saddle(score_stat, egvalues, wcov_mat):
     """
-    Saddlepoint approximation.
+    Saddlepoint approximation (Deprecated).
     Score statistics have been normalized such that
     they share the same eigenvalues.
     p-Values for all voxels can be computed without for loop.
@@ -151,3 +151,111 @@ def _handle_invalid_pvalues(score_stat, wcov_mat):
     pvalues = chi2.sf(score_stat * np.sqrt(2 * l) + l, l)
 
     return pvalues
+
+
+def liu(score_stat, egvalues):
+    """
+    Liu's method (Liu et al. 2009) for computing SKAT p-values
+    
+    """
+    c1 = np.sum(egvalues)
+    c2 = np.sum(egvalues ** 2)
+    c3 = np.sum(egvalues ** 3)
+    c4 = np.sum(egvalues ** 4)
+    s1 = c3 / (c2 ** (3/2))
+    s2 = c4 / c2 ** 2
+    sigmaQ = np.sqrt(2 * c2)
+    tstar = (score_stat - c1) / sigmaQ
+
+    if s1 ** 2 > s2:
+        a = 1 / (s1 - np.sqrt(s1 ** 2 - s2))
+        delta = s1 * a ** 3 - a ** 2
+        l = a ** 2 - 2 * delta
+    else:
+        a = 1 / s1
+        delta = 0
+        l = c2 ** 3 / c3 ** 2
+
+    muX = l + delta
+    sigmaX = np.sqrt(2) * a
+    Qq = chi2.sf(tstar * sigmaX + muX, l, loc=delta)
+
+    return Qq
+
+
+def liu_mod(score_stat, egvalues):
+    """
+    Liu's modified method from R package SKAT 
+    
+    """
+    c1 = np.sum(egvalues)
+    c2 = np.sum(egvalues ** 2)
+    c3 = np.sum(egvalues ** 3)
+    c4 = np.sum(egvalues ** 4)
+    s1 = c3 / (c2 ** (3/2))
+    s2 = c4 / c2 ** 2
+    sigmaQ = np.sqrt(2 * c2)
+    tstar = (score_stat - c1) / sigmaQ
+
+    if s1 ** 2 > s2:
+        a = 1 / (s1 - np.sqrt(s1 ** 2 - s2))
+        delta = s1 * a ** 3 - a ** 2
+        l = a ** 2 - 2 * delta
+    else:
+        l = 1 / s2
+        a = np.sqrt(l)
+        delta = 0
+    muX = l + delta
+    sigmaX = np.sqrt(2) * a
+
+    Qq = chi2.sf(tstar * sigmaX + muX, l, loc=delta)
+
+    return Qq
+
+
+def saddle2(score_stat, egvalues):
+    """
+    Saddlepoint approximation for R package survey
+    Score statistics have been normalized such that
+    they share the same eigenvalues.
+    p-Values for all voxels can be computed without for loop.
+
+    Parameters:
+    ------------
+    score_stat: (N, ) array of score statistics
+    egvalues: (m, ) array of sorted eigenvalues, must be no less than 0
+
+    Returns:
+    ---------
+    pvalues: N by 1 array of pvalues
+
+    """
+    if egvalues.ndim == 1:
+        egvalues = egvalues.reshape(-1, 1)
+    score_stat[score_stat <= 0] = 0.0001
+    d = np.max(egvalues)
+    egvalues /= d
+    score_stat /= d
+    n = len(egvalues)
+    n_voxels = len(score_stat)
+
+    xmin = -n / (2 * score_stat)
+    xmin[score_stat > np.sum(egvalues)] = -0.01
+    xmax = np.ones(n_voxels) * 1 / egvalues[0] * 0.499995
+
+    xhat = _bisection(egvalues, score_stat, xmin, xmax)
+    w = np.sqrt(2 * (xhat * score_stat - _k(xhat, egvalues)))
+    w[xhat < 0] *= -1
+    w[xhat == 0] = 0
+    v = xhat * np.sqrt(_k2(xhat, egvalues))
+
+    res = np.zeros(n_voxels)
+    valid_res = abs(xhat) >= 0.0001
+    res[valid_res] = norm.sf(
+        w[valid_res] + np.log(v[valid_res] / w[valid_res]) / w[valid_res], 0, 1
+    )
+
+    if (~valid_res).any():
+        res[~valid_res] = liu_mod(score_stat[~valid_res], egvalues)
+
+    return res
