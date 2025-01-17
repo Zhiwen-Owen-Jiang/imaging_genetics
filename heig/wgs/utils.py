@@ -140,14 +140,14 @@ class GProcessor:
                 "mac_thresh": 10,
             },
             "methods": [
-                # "_vcf_filter",
-                # "_flip_snps",
-                # "_extract_variant_type",
+                "_vcf_filter",
+                "_flip_snps",
+                "_extract_variant_type",
                 "_extract_maf",
                 "_extract_call_rate",
                 "_filter_hwe",
                 "_annotate_rare_variants",
-                # "_filter_missing_alt",
+                "_filter_missing_alt",
                 # "_impute_missing_snps"
                 # "_extract_chr_interval"
             ],
@@ -219,7 +219,7 @@ class GProcessor:
             )
         )
 
-    def do_processing(self, mode, skip=False):
+    def do_processing(self, mode):
         """
         Processing genotype data in a dynamic way
         extract_idvs() should be done before it
@@ -229,7 +229,6 @@ class GProcessor:
         mode: the analysis mode which affects preprocessing pipelines
             should be one of ('gwas', 'wgs'). For a given mode, there
             are default filtering and optional filtering.
-        skip: boolean, if skip '_vcf_filter' and '_filter_missing_alt'
         """
         self.snps_mt = hl.variant_qc(self.snps_mt, name="info")
         self.snps_mt = self.snps_mt.annotate_rows(
@@ -254,15 +253,8 @@ class GProcessor:
                 self.logger.info(f"{para_v}: {getattr(self, para_k)}")
         if mode == "wgs":
             self.logger.info("Flipped alleles for those with a MAF > 0.5")
-            if not skip:
-                self.logger.info("Removed variants with missing alternative alleles.")
-                self.logger.info("Extracted variants with PASS in FILTER.")
-                methods += [
-                    "_extract_variant_type",
-                    "_vcf_filter",
-                    "_filter_missing_alt",
-                    "_flip_snps",
-                ]
+            self.logger.info("Removed variants with missing alternative alleles.")
+            self.logger.info("Extracted variants with PASS in FILTER.")
         self.logger.info("---------------------\n")
 
         for method in methods:
@@ -474,7 +466,8 @@ class GProcessor:
         """
         self.snps_mt = self.snps_mt.annotate_entries(
             flipped_n_alt_alleles=hl.if_else(
-                self.snps_mt.info.AF[self.snps_mt.minor_allele_index] > 0.5,
+                # self.snps_mt.info.AF[self.snps_mt.minor_allele_index] > 0.5,
+                self.snps_mt.minor_allele_index == 0,
                 self.snps_mt.GT.ploidy - self.snps_mt.GT.n_alt_alleles(),
                 self.snps_mt.GT.n_alt_alleles(),
             )
@@ -768,6 +761,8 @@ def format_output(cate_pvalues, voxels, staar_only, sig_thresh):
         )
         if staar_only:
             cate_results = cate_results["pvalues"][["STAAR-O"]]
+        else:
+            cate_results = cate_results["pvalues"]
         cate_results = pd.concat([meta_data, cate_results], axis=1)
         if sig_thresh is not None:
             cate_results = cate_results.loc[cate_results["STAAR-O"] < sig_thresh]

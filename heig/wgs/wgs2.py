@@ -173,10 +173,10 @@ class RV:
                 "vset_half_covar_proj", data=self.vset_half_covar_proj, dtype="float32"
             )
             file.create_dataset(
-                "vset_ld_diag", data=self.banded_vset_ld[0], dtype="float32"
+                "vset_ld_diag", data=self.banded_vset_ld[0], dtype="float16"
             )
             file.create_dataset(
-                "vset_ld_data", data=self.banded_vset_ld[1], dtype="float32"
+                "vset_ld_data", data=self.banded_vset_ld[1], dtype="float16"
             )
             file.create_dataset("vset_ld_row", data=self.banded_vset_ld[2])
             file.create_dataset("vset_ld_col", data=self.banded_vset_ld[3])
@@ -350,7 +350,9 @@ class RVsumstats:
 
         """
         if max(numeric_idx) - min(numeric_idx) > self.bandwidth:
-            raise ValueError("the variant set has exceeded the bandwidth of LD matrix")
+            # raise ValueError("the variant set has exceeded the bandwidth of LD matrix")
+            self.logger.info("WARNING: the variant set has exceeded the bandwidth of LD matrix.")
+            return None, None, None, None
         half_ldr_score = np.array(self.half_ldr_score[numeric_idx])
         vset_half_covar_proj = np.array(self.vset_half_covar_proj[numeric_idx])
         vset_ld = self.vset_ld[numeric_idx][:, numeric_idx]
@@ -485,6 +487,8 @@ def run(args, log):
 
         # reading sparse genotype data
         sparse_genotype = SparseGenotype(args.sparse_genotype, args.mac_thresh)
+        log.info(f"Read sparse genotype data from {args.sparse_genotype}")
+        log.info(f"{sparse_genotype.vset.shape[1]} subjects and {sparse_genotype.vset.shape[0]} variants.")
 
         # read loco preds
         if args.loco_preds is not None:
@@ -511,7 +515,7 @@ def run(args, log):
             )
         common_ids = ds.remove_idxs(common_ids, args.remove)
 
-        log.info(f"Processing sparse genetic data ...")
+        # log.info(f"Processing sparse genetic data ...")
         sparse_genotype.keep(common_ids)
         sparse_genotype.extract_exclude_locus(args.extract_locus, args.exclude_locus)
         sparse_genotype.extract_chr_interval(args.chr_interval)
@@ -534,7 +538,7 @@ def run(args, log):
             loco_preds = None
 
         vset, locus, maf, is_rare = sparse_genotype.parse_data()
-        log.info(f"Computing summary statistics for {vset.shape[0]} variants ...\n")
+        log.info(f"Computing summary statistics for {vset.shape[0]} variants after processing ...\n")
         process_wgs = RV(
             null_model.bases,
             null_model.resid_ldr,

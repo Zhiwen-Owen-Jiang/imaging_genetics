@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import hail as hl
 from hail.linalg import BlockMatrix
-from scipy.sparse import coo_matrix, save_npz, load_npz
+from scipy.sparse import csr_matrix, save_npz, load_npz
 from heig.wgs.utils import *
 
 """
@@ -29,7 +29,8 @@ def check_input(args, log):
 
     if args.qc_mode is None:
         args.qc_mode = "gwas"
-    log.info(f"Set QC mode as {args.qc_mode}.")
+    if not args.skip_qc:
+        log.info(f"Set QC mode as {args.qc_mode}.")
     if args.qc_mode == "gwas" and args.save_sparse_genotype:
         raise ValueError("GWAS data cannot be saved as sparse genotype")
     if args.bfile is not None or args.vcf is not None and args.save_sparse_genotype:
@@ -70,10 +71,9 @@ def prepare_vset(snps_mt, variant_type):
     non_zero_entries = non_zero_entries.collect()
     rows = [entry["i"] for entry in non_zero_entries]
     cols = [entry["j"] for entry in non_zero_entries]
-    values = np.array([entry["entry"] for entry in non_zero_entries], dtype=np.float16)
+    values = np.array([entry["entry"] for entry in non_zero_entries], dtype=np.float32)
 
-    vset = coo_matrix((values, (rows, cols)), shape=bm.shape, dtype=np.float16)
-    vset = vset.tocsr()
+    vset = csr_matrix((values, (rows, cols)), shape=bm.shape, dtype=np.float32)
 
     return vset, locus
 
@@ -222,7 +222,7 @@ def run(args, log):
         gprocessor.extract_chr_interval(args.chr_interval)
         gprocessor.keep_remove_idvs(args.keep, args.remove)
         if not args.skip_qc:
-            gprocessor.do_processing(mode=args.qc_mode, skip=True)
+            gprocessor.do_processing(mode=args.qc_mode)
 
         # save
         if args.save_sparse_genotype:

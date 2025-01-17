@@ -189,6 +189,8 @@ def coding_vset_analysis(
                 half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(
                     numeric_idx
                 )
+                if half_ldr_score is None:
+                    continue
                 vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)
                 log.info(
                     f"Doing analysis for {OFFICIAL_NAME[cate]} ({vset_test.n_variants} variants) ..."
