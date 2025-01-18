@@ -32,8 +32,8 @@ def saddle(score_stat, egvalues, wcov_mat):
     # normalize eigenvalues
     n_voxels = len(score_stat)
     max_egvalue = egvalues[0]
-    score_stat /= max_egvalue
-    egvalues /= max_egvalue
+    score_stat = score_stat / max_egvalue
+    egvalues = egvalues / max_egvalue
 
     xmin = -len(egvalues) / (2 * score_stat)
     xmin[score_stat > np.sum(egvalues)] = -0.01
@@ -141,9 +141,11 @@ def _handle_invalid_pvalues(score_stat, wcov_mat):
 
     """
     c1 = np.sum(np.diag(wcov_mat))
-    wcov_mat = np.dot(wcov_mat, wcov_mat)
+    # wcov_mat = np.dot(wcov_mat, wcov_mat)
+    wcov_mat = wcov_mat ** 2
     c2 = np.sum(np.diag(wcov_mat))
-    wcov_mat = np.dot(wcov_mat, wcov_mat)
+    # wcov_mat = np.dot(wcov_mat, wcov_mat)
+    wcov_mat = wcov_mat ** 2
     c4 = np.sum(np.diag(wcov_mat))
 
     score_stat = (score_stat - c1) / np.sqrt(2 * c2)
@@ -234,8 +236,8 @@ def saddle2(score_stat, egvalues):
         egvalues = egvalues.reshape(-1, 1)
     score_stat[score_stat <= 0] = 0.0001
     d = np.max(egvalues)
-    egvalues /= d
-    score_stat /= d
+    egvalues = egvalues / d
+    score_stat = score_stat / d
     n = len(egvalues)
     n_voxels = len(score_stat)
 
@@ -243,17 +245,16 @@ def saddle2(score_stat, egvalues):
     xmin[score_stat > np.sum(egvalues)] = -0.01
     xmax = np.ones(n_voxels) * 1 / egvalues[0] * 0.499995
 
-    xhat = _bisection(egvalues, score_stat, xmin, xmax)
-    w = np.sqrt(2 * (xhat * score_stat - _k(xhat, egvalues)))
-    w[xhat < 0] *= -1
-    w[xhat == 0] = 0
-    v = xhat * np.sqrt(_k2(xhat, egvalues))
-
     res = np.zeros(n_voxels)
+    xhat = _bisection(egvalues, score_stat, xmin, xmax)
     valid_res = abs(xhat) >= 0.0001
-    res[valid_res] = norm.sf(
-        w[valid_res] + np.log(v[valid_res] / w[valid_res]) / w[valid_res], 0, 1
-    )
+    xhat_valid = xhat[valid_res]
+
+    w = np.sqrt(2 * (xhat_valid * score_stat[valid_res] - _k(xhat_valid, egvalues)))
+    w[xhat_valid < 0] *= -1
+    w[xhat_valid == 0] = 0
+    v = xhat_valid * np.sqrt(_k2(xhat_valid, egvalues))
+    res[valid_res] = norm.sf(w + np.log(v / w) / w, 0, 1)
 
     if (~valid_res).any():
         res[~valid_res] = liu_mod(score_stat[~valid_res], egvalues)
