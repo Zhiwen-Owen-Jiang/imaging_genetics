@@ -498,7 +498,7 @@ class LOCOpreds:
 
     def select_ldrs(self, ldr_col=None):
         """
-        ldr_col: a list of sorted and consecutive zero-based LDR index
+        ldr_col: [start, end) of zero-based LDR index
 
         """
         if ldr_col is not None:

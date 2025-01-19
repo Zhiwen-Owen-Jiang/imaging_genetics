@@ -233,8 +233,6 @@ def check_input(args, log):
         raise ValueError("--covar is required")
     if args.spark_conf is None:
         raise ValueError("--spark-conf is required")
-    # if args.bfile is None and args.geno_mt is None and args.vcf is None:
-    #     raise ValueError("--geno-mt, --bfile or --vcf is required")
     if args.geno_mt is None:
         raise ValueError(
             "--geno-mt is required. If you have bfile or vcf, convert it into a mt by --make-mt"
@@ -288,8 +286,9 @@ def run(args, log):
         if args.loco_preds is not None:
             log.info(f"Read LOCO predictions from {args.loco_preds}")
             loco_preds = LOCOpreds(args.loco_preds)
-            loco_preds.select_ldrs(list(range(args.n_ldrs)))
-            if loco_preds.n_ldrs != ldrs.data.shape[1]:
+            if args.n_ldrs is not None:
+                loco_preds.select_ldrs((0, args.n_ldrs))
+            if loco_preds.ldr_col[1] - loco_preds.ldr_col[0] != ldrs.data.shape[1]:
                 raise ValueError(
                     (
                         "inconsistent dimension in LDRs and LDR LOCO predictions. "
@@ -342,7 +341,7 @@ def run(args, log):
             if np.max(args.voxels) + 1 <= bases.shape[0] and np.min(args.voxels) >= 0:
                 log.info(f"{len(args.voxels)} voxels included.")
             else:
-                raise ValueError("--voxel index (one-based) out of range")
+                raise ValueError("--voxels index (one-based) out of range")
         else:
             args.voxels = np.arange(bases.shape[0])
 
