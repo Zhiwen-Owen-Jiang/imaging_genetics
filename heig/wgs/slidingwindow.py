@@ -1,15 +1,9 @@
 import hail as hl
-from tqdm import tqdm
 import numpy as np
-from heig.wgs.wgs2 import RVsumstats
+import pandas as pd
+from heig.wgs.wgs2 import RVsumstats, get_interval, extract_chr_interval
 from heig.wgs.vsettest import VariantSetTest
 from heig.wgs.utils import *
-
-
-"""
-TODO: load all data into memory
-
-"""
 
 
 class GeneralAnnotation:
@@ -18,21 +12,18 @@ class GeneralAnnotation:
 
     """
 
-    def __init__(self, rv_sumstats, annot=None, annot_cols=None):
+    def __init__(self, annot, annot_cols=None):
         """
         Parameters:
         ------------
-        rv_sumstats: a RVsumstats instance
-        annot: a hail.Table of annotations
+        annot: a hail.Table of locus w/ or w/o annotations
         annot_cols: annotations used as weights
 
         """
-        self.rv_sumstats = rv_sumstats
+        self.annot = annot
         self.annot_cols = annot_cols
-        if annot is not None:
-            self.rv_sumstats.annotate(annot)
 
-    def _parse_annot(self, idx):
+    def parse_annot(self, idx=None):
         """
         Parsing annotations, maf, and is_rare from locus
 
@@ -44,19 +35,17 @@ class GeneralAnnotation:
         ---------
         numeric_idx: a list of numeric indices for extracting sumstats
         annot: a np.array of annotations
-        maf: a np.array of MAF
-        is_rare: a np.array of boolean indices indicating MAC < mac_threshold
 
         """
         if idx is not None:
-            filtered_annot = self.rv_sumstats.locus.filter(idx)
+            filtered_annot = self.annot.filter(idx)
         else:
-            filtered_annot = self.rv_sumstats.locus
+            filtered_annot = self.annot
         numeric_idx = filtered_annot.idx.collect()
         if len(numeric_idx) <= 1:
             return numeric_idx, None
 
-        if "annot" in self.rv_sumstats.locus.row and self.annot_cols is not None:
+        if "annot" in self.annot.row and self.annot_cols is not None:
             annot = filtered_annot.annot.select(*self.annot_cols).collect()
             annot = np.array(
                 [[getattr(row, col) for col in self.annot_cols] for row in annot]
@@ -70,33 +59,6 @@ class GeneralAnnotation:
 
         return numeric_idx, annot
 
-    def parse_data(self, idx):
-        """
-        Parse data for analysis
-
-        Parameters:
-        ------------
-        idx: a hail.expr of boolean indices to extract variants
-
-        Returns:
-        ---------
-        half_ldr_score: Z'(I-M)\Xi
-        cov_mat: Z'(I-M)Z
-        maf: a np.array of MAF
-        is_rare: a np.array of boolean indices indicating MAC < mac_threshold
-        annot : a np.array of annotations
-
-        """
-        numeric_idx, annot = self._parse_annot(idx)
-        if len(numeric_idx) <= 1:
-            half_ldr_score, cov_mat, maf, is_rare = None, None, None, None
-        else:
-            half_ldr_score, cov_mat, maf, is_rare = self.rv_sumstats.parse_data(
-                numeric_idx
-            )
-
-        return half_ldr_score, cov_mat, maf, is_rare, annot
-
 
 class SlidingWindow(GeneralAnnotation):
     """
@@ -106,10 +68,10 @@ class SlidingWindow(GeneralAnnotation):
 
     def __init__(
         self,
-        rv_sumstats,
+        annot,
         window_length,
+        geno_ref,
         sliding_length=None,
-        annot=None,
         annot_cols=None,
     ):
         """
@@ -119,16 +81,13 @@ class SlidingWindow(GeneralAnnotation):
         sliding_length: step size of moving forward (bp)
 
         """
-        super().__init__(rv_sumstats, annot, annot_cols)
-        self.geno_ref = self.rv_sumstats.locus.reference_genome.collect()[0]
-        self.chr, self.start, self.end = rv_sumstats.get_interval()
+        super().__init__(annot, annot_cols)
+        self.geno_ref = geno_ref
+        self.chr, self.start, self.end = get_interval(self.annot)
         self.window_length = window_length
-        if sliding_length is None:
-            self.sliding_length = self.window_length // 2
-        else:
-            self.sliding_length = sliding_length
+        self.sliding_length = sliding_length
 
-        self.windows = self._partition_windows()
+        self.chr_intervals, self.windows = self._partition_windows()
 
     def _partition_windows(self):
         """
@@ -137,31 +96,33 @@ class SlidingWindow(GeneralAnnotation):
 
         """
         windows = list()
+        chr_intervals = list()
         cur_left = self.start
-        cur_right = self.start + self.sliding_length
-        while cur_right < self.end:
-            windows.append(tuple([cur_left, cur_right]))
-            cur_left, cur_right = cur_right, cur_right + self.sliding_length
-        windows.append(tuple([cur_left, self.end]))
+        cur_right = self.start + self.window_length
 
-        return windows
-
-    def parse_window_data(self):
-        """
-        Parsing data for each window
-
-        """
-        for start, end in self.windows:
+        while cur_right <= self.end:
             interval = hl.locus_interval(
-                self.chr, start, end, reference_genome=self.geno_ref
+                self.chr, cur_left, cur_right, reference_genome=self.geno_ref
             )
-            window = interval.contains(self.rv_sumstats.locus.locus)
-            half_ldr_score, cov_mat, maf, is_rare, annot = self.parse_data(window)
+            window = interval.contains(self.annot.locus)
+            windows.append(window)
+            chr_intervals.append([cur_left, cur_right])
+            cur_left += self.sliding_length
+            cur_right += self.sliding_length
 
-            yield half_ldr_score, cov_mat, maf, is_rare, annot, self.chr, start, end
+        return chr_intervals, windows
 
 
-def vset_analysis(rv_sumstats, vset_test, annot, annot_cols, window_length, log):
+def vset_analysis(
+        rv_sumstats, 
+        vset_test, 
+        variant_sets, 
+        annot, 
+        annot_cols, 
+        window_length, 
+        sliding_length,
+        log
+    ):
     """
     Variant set analysis
 
@@ -170,8 +131,11 @@ def vset_analysis(rv_sumstats, vset_test, annot, annot_cols, window_length, log)
     rv_sumstats: a RVsumstats instance
     annot: a hail.Table of locus containing annotations
     vset_test: an instance of VariantSetTest
+    variant_sets: a pd.DataFrame of multiple variant sets to test 
+    annot: general annotation data, can be None
     annot_cols: a list of columns of annotations to use
     window_length: window length
+    sliding_length: silding length
     log: a logger
 
     Returns:
@@ -179,54 +143,68 @@ def vset_analysis(rv_sumstats, vset_test, annot, annot_cols, window_length, log)
     pvalues: a dict (keys: vset/window_idx, values: p-value)
 
     """
-    # analysis
+    annot_locus = rv_sumstats.annotate(annot)
+    # annot_locus = annot_locus.cache() # TODO: check this
     all_pvalues = dict()
+
     if window_length is None:
-        general_annot = GeneralAnnotation(rv_sumstats, annot, annot_cols)
-        half_ldr_score, cov_mat, maf, is_rare, annot = general_annot.parse_data()
-        if half_ldr_score is None:
-            log.info(f"Less than 2 variants, skip the analysis.")
-        else:
-            chr, start, end = rv_sumstats.get_interval()
-            vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, annot)
+        for _, gene in variant_sets.iterrows():
+            variant_set_locus = extract_chr_interval(
+                annot_locus, gene[0], gene[1], rv_sumstats.geno_ref, log
+            )
+            if variant_set_locus is None:
+                continue
+            general_annot = GeneralAnnotation(variant_set_locus, annot_cols)
+            chr, start, end = get_interval(variant_set_locus)
+
+            # individual analysis
+            numeric_idx, phred_cate = general_annot.parse_annot()
+            half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(
+                numeric_idx
+            )
+            vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)
             log.info(
-                f"Doing analysis for variant set ({vset_test.n_variants} variants) ..."
+                f"Doing analysis for {gene[0]} ({vset_test.n_variants} variants) ..."
             )
             pvalues = vset_test.do_inference(general_annot.annot_cols)
-            all_pvalues["vset"] = {
+            all_pvalues[gene[0]] = {
                 "n_variants": vset_test.n_variants,
                 "pvalues": pvalues,
-                "chr": chr,
-                "start": start,
-                "end": end,
             }
-    else:
-        sliding_window = SlidingWindow(rv_sumstats, annot, annot_cols, window_length)
-        n_windows = len(sliding_window.windows)
-        log.info(f"Partitioned the variant set into {n_windows} windows")
-        for i, *results in tqdm(
-            enumerate(sliding_window.parse_window_data()),
-            total=n_windows,
-            desc="Analyzing windows",
-        ):
-            half_ldr_score, cov_mat, maf, is_rare, annot, chr, start, end = results[0]
-            if half_ldr_score is None:
-                log.info(f"Less than 2 variants, skip window {i+1}.")
-            else:
-                vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, annot)
-                log.info(
-                    f"Doing analysis for window {i+1} ({vset_test.n_variants} variants) ..."
-                )
-                pvalues = vset_test.do_inference(sliding_window.annot_cols)
-                all_pvalues[f"window{i+1}"] = {
-                    "n_variants": vset_test.n_variants,
-                    "pvalues": pvalues,
-                    "chr": chr,
-                    "start": start,
-                    "end": end,
-                }
+            
+            yield gene[0], chr, start, end, all_pvalues
 
-    return all_pvalues
+    else:
+        sliding_window = SlidingWindow(
+            annot_locus, window_length, rv_sumstats.geno_ref, sliding_length, annot_cols
+        )
+        n_windows = len(sliding_window.windows)
+        log.info(f"Partitioned the genotype data into {n_windows} windows")
+        
+        window_i = 0
+        for chr_interval, window in zip(sliding_window.chr_intervals, sliding_window.windows):
+            numeric_idx, phred_cate = sliding_window.parse_annot(window)
+            if len(numeric_idx) <= 1:
+                log.info(f"Skip window from {chr_interval[0]} to {chr_interval[1]} (< 2 variants).")
+                continue
+            window_i += 1
+            half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(
+                numeric_idx
+            )
+            vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)
+            log.info(
+                f"Doing analysis for window{window_i} ({vset_test.n_variants} variants) ..."
+            )
+            pvalues = vset_test.do_inference(sliding_window.annot_cols)
+            all_pvalues[f"window{window_i}"] = {
+                "n_variants": vset_test.n_variants,
+                "pvalues": pvalues,
+            }
+            
+            yield (
+                f"window{window_i}", sliding_window.chr, 
+                chr_interval[0], chr_interval[1], all_pvalues
+            )
 
 
 def check_input(args, log):
@@ -235,14 +213,23 @@ def check_input(args, log):
         raise ValueError("--rv-sumstats is required")
     if args.spark_conf is None:
         raise ValueError("--spark-conf is required")
+    if args.window_length is None and args.variant_sets is None:
+        raise ValueError(("either --variant-sets (general annotation) " 
+                          "or --window-length is required"))
     if args.annot_cols is not None:
         args.annot_cols = args.annot_cols.split(",")
     if args.window_length is not None and args.window_length < 2:
-        raise ValueError("--window-length must be greater than 2")
-    # if args.maf_max is None:
-    #     if args.maf_min is not None and args.maf_min < 0.01 or args.maf_min is None:
-    #         args.maf_max = 0.01
-    #         log.info(f"Set --maf-max as default 0.01")
+        raise ValueError("--window-length must be greater than 1")
+    if args.sliding_length is not None and args.sliding_length < 1:
+        raise ValueError("--sliding-length must be greater than 0")
+    if args.window_length is not None and args.sliding_length is None:
+        args.sliding_length = args.window_length // 2
+        log.info(f"Set sliding length as {args.sliding_length}.")
+    
+    if args.staar_only:
+        log.info("Saving STAAR-O results only.")
+    if args.sig_thresh is not None:
+        log.info(f"Saving results with a p-value less than {args.sig_thresh}")
 
 
 def run(args, log):
@@ -256,7 +243,6 @@ def run(args, log):
         rv_sumstats = RVsumstats(args.rv_sumstats)
         rv_sumstats.extract_exclude_locus(args.extract_locus, args.exclude_locus)
         rv_sumstats.extract_chr_interval(args.chr_interval)
-        # rv_sumstats.extract_maf(args.maf_min, args.maf_max)
         rv_sumstats.select_ldrs(args.n_ldrs)
         rv_sumstats.select_voxels(args.voxels)
         rv_sumstats.calculate_var()
@@ -269,30 +255,48 @@ def run(args, log):
 
         # single gene analysis
         vset_test = VariantSetTest(rv_sumstats.bases, rv_sumstats.var)
-        all_pvalues = vset_analysis(
-            rv_sumstats, vset_test, annot, args.annot_cols, args.window_length, log
+        all_vset_test_pvalues = vset_analysis(
+            rv_sumstats, 
+            vset_test, 
+            args.variant_sets, 
+            annot,
+            args.annot_cols, 
+            args.window_length,
+            args.sliding_length,
+            log
         )
 
-        # format output
-        for window_idx, window_results in all_pvalues.items():
-            results = format_output(
-                window_results["pvalues"],
-                window_results["n_variants"],
+        index_file = IndexFile(f"{args.out}_result_index.txt")
+        log.info(f"Write result index file to {args.out}_result_index.txt")
+
+        for set_name, chr, start, end, cate_pvalues in all_vset_test_pvalues:
+            cate_output = format_output(
+                cate_pvalues,
                 rv_sumstats.voxel_idxs,
-                window_results["chr"],
-                window_results["start"],
-                window_results["end"],
-                window_idx,
+                args.staar_only,
+                args.sig_thresh
             )
-            out_path = f"{args.out}_{window_idx}.txt"
-            results.to_csv(
-                out_path,
-                sep="\t",
-                header=True,
-                na_rep="NA",
-                index=None,
-                float_format="%.5e",
-            )
-            log.info(f"Save {window_idx} results to {out_path}")
+            if cate_output is not None:
+                out_path = f"{args.out}_{set_name}.txt"
+                index_file.write_index(
+                    set_name,
+                    chr,
+                    start,
+                    end,
+                    out_path
+                )
+                cate_output.to_csv(
+                    out_path,
+                    sep="\t",
+                    header=True,
+                    na_rep="NA",
+                    index=None,
+                    float_format="%.5e",
+                )
+                log.info(
+                    f"Save results for {set_name} to {args.out}_{set_name}.txt"
+                )
+            else:
+                log.info(f"No significant results for {set_name}.")
     finally:
         clean(args.out)

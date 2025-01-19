@@ -747,6 +747,11 @@ rv_parser.add_argument(
     type=int,
     help="Length of sliding window. E.g., 10000 means 10kb."
 )
+rv_parser.add_argument(
+    "--sliding-length",
+    type=int,
+    help="Sliding length. E.g., 10000 means 10kb. Default: --window-length // 2."
+)
 
 # arguments for cluster.py
 cluster_parser.add_argument(
@@ -1018,12 +1023,14 @@ def check_accepted_args(module, args, log):
             "exclude_locus",
             "chr_interval",
             "spark_conf",
+            "variant_sets",
             "grch37",
             "n_ldrs",
             "voxels",
             "annot_ht",
             "annot_cols",
             "window_length",
+            "sliding_length",
             "staar_only",
             "sig_thresh"
         },
