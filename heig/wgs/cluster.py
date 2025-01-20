@@ -1,4 +1,5 @@
 import os
+import time
 import shutil
 import numpy as np
 import pandas as pd
@@ -347,6 +348,7 @@ def run(args, log):
 
         # wild bootstrap
         temp_path = get_temp_path(args.out)
+        gprocessor.cache()
         cluster = Cluster(
             gprocessor,
             resid_ldrs,
@@ -358,12 +360,16 @@ def run(args, log):
             args.threads,
             loco_preds,
         )
-        for _ in tqdm(
+        for i in tqdm(
             range(args.n_bootstrap), desc=f"{args.n_bootstrap} bootstrap samples"
         ):
+            log.info(f"Doing bootstrap sample {i+1} ...")
+            start_time = time.time()
             null_cluster_size = cluster.cluster_analysis()
             with open(args.out + ".txt", "a") as file:
                 file.write("\n".join(str(x) for x in null_cluster_size) + "\n")
+            elapsed_time = int((time.time() - start_time) * 1000)
+            log.info(f"done ({elapsed_time}ms)")
 
         # save results
         log.info(f"\nSave null distribution of cluster size to {args.out}.txt")

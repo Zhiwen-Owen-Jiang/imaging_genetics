@@ -1,4 +1,5 @@
 import os
+import time
 import shutil
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
@@ -54,7 +55,6 @@ class RVcluster:
             locus, 
             maf, 
             is_rare, 
-            voxels,
             temp_path, 
             sig_thresh=0.0001, 
             threads=1,
@@ -69,7 +69,6 @@ class RVcluster:
                 chr, start, and end
         maf: a np.array of MAF
         is_rare: a np.array of boolean indices indicating MAC <= mac_threshold
-        voxels: a np.array of voxels numeric indices
         temp_path: a temporary path for saving interim data
         sig_thresh: significant threshold
         threads: number of threads
@@ -82,7 +81,6 @@ class RVcluster:
         self.locus = locus
         self.maf = maf
         self.is_rare = is_rare
-        self.voxels = voxels
         self.temp_path = temp_path
         self.sig_thresh = sig_thresh
         self.threads = threads
@@ -122,7 +120,6 @@ class RVcluster:
 
         """
         rv_sumstats = RVsumstats(f"{self.temp_path}_bootstrap")
-        rv_sumstats.select_voxels(self.voxels)
         rv_sumstats.calculate_var()
         numeric_idx_list = self._partition_genome(self.n_variants)
 
@@ -182,7 +179,7 @@ class RVcluster:
         left = 0
         right = 0
         while right < n_variants:
-            right += np.random.choice(list(range(2, 21)), 1)[0]
+            right += np.random.choice(list(range(2, 20)), 1)[0]
             numeric_idx_list.append(list(range(left, min(right, n_variants))))
             left = right
             
@@ -215,6 +212,9 @@ def check_input(args, log):
         log.info(f"Set --mac-thresh as default 10")
     elif args.mac_thresh < 0:
         raise ValueError("--mac-thresh must be greater than 0")
+    if args.sig_thresh is None:
+        args.sig_thresh = 0.0001
+        log.info("Set significance threshold as 0.0001")
 
 
 def run(args, log):
@@ -227,14 +227,7 @@ def run(args, log):
         log.info(f"Read null model from {args.null_model}")
         null_model = NullModel(args.null_model)
         null_model.select_ldrs(args.n_ldrs)
-
-        if args.voxels is not None:
-            if np.max(args.voxels) + 1 <= null_model.bases.shape[0] and np.min(args.voxels) >= 0:
-                log.info(f"{len(args.voxels)} voxels included.")
-            else:
-                raise ValueError("--voxels index (one-based) out of range")
-        else:
-            args.voxels = np.arange(null_model.bases.shape[0])
+        null_model.select_voxels(args.voxels)
 
         # reading sparse genotype data
         sparse_genotype = SparseGenotype(args.sparse_genotype, args.mac_thresh)
@@ -289,7 +282,7 @@ def run(args, log):
             loco_preds = None
 
         vset, locus, maf, is_rare = sparse_genotype.parse_data()
-        log.info(f"Using {vset.shape[0]} variants in wild bootstrap ...\n")
+        log.info(f"Using {vset.shape[0]} variants in wild bootstrap ...")
 
         # wild bootstrap
         temp_path = get_temp_path(args.out)
@@ -299,19 +292,22 @@ def run(args, log):
             locus, 
             maf, 
             is_rare, 
-            args.voxels, 
             temp_path, 
             args.sig_thresh, 
             args.threads, 
             loco_preds
         )
 
-        for _ in tqdm(
+        for i in tqdm(
             range(args.n_bootstrap), desc=f"{args.n_bootstrap} bootstrap samples"
         ):
+            log.info(f"Doing bootstrap sample {i+1} ...")
+            start_time = time.time()
             cluster_size_list = cluster.cluster_analysis()
             with open(args.out + ".txt", "a") as file:
                 file.write("\n".join(str(x) for x in cluster_size_list) + "\n")
+            elapsed_time = int((time.time() - start_time) * 1000)
+            log.info(f"done ({elapsed_time}ms)")
 
         # save results
         log.info(f"\nSave null distribution of cluster size to {args.out}.txt")

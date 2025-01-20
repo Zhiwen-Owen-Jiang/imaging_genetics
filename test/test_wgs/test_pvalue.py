@@ -76,3 +76,5 @@ if __name__ == "__main__":
 
     print(saddle2(np.array([6.0]), np.array([3.0, 2.0, 1.0])))
     print(saddle2(np.array([10.0]), np.array([4.0, 3.0, 2.0, 1.0])))
+
+    print(saddle2(np.array([1e-7]), np.array([1e-8, 1e-9, 1e-10])))

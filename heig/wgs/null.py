@@ -53,7 +53,7 @@ class NullModel:
                 self.bases = self.bases[voxel_idxs]
                 self.logger.info(f"{len(voxel_idxs)} voxels included.")
             else:
-                raise ValueError("--voxel index (one-based) out of range")
+                raise ValueError("--voxels index (one-based) out of range")
 
     def keep(self, keep_idvs):
         """

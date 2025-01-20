@@ -23,14 +23,14 @@ def check_input(args, log):
         args.vcf, args.bfile = None, None
     if args.bfile is not None:
         args.vcf = None
+    if args.variant_type is None:
+        args.variant_type = "snv"
+        log.info(f"Set --variant-type as default 'snv'.")
 
     if args.qc_mode is None:
         args.qc_mode = "gwas"
     if not args.skip_qc:
         log.info(f"Set QC mode as {args.qc_mode}.")
-        if args.variant_type is None:
-            args.variant_type = "snv"
-            log.info(f"Set --variant-type as default 'snv'.")
         if args.qc_mode == "gwas" and args.save_sparse_genotype:
             raise ValueError("GWAS data cannot be saved as sparse genotype")
     if (args.bfile is not None or args.vcf is not None) and args.save_sparse_genotype:
@@ -150,7 +150,7 @@ class SparseGenotype:
 
         """
         if maf_min is None:
-            maf_min = 0
+            maf_min = 1 / len(self.ids) / 2
         if maf_max is None:
             maf_max = 0.5
         self.variant_idxs = self.variant_idxs[
