@@ -23,17 +23,17 @@ def check_input(args, log):
         args.vcf, args.bfile = None, None
     if args.bfile is not None:
         args.vcf = None
-    if args.variant_type is None:
-        args.variant_type = "snv"
-        log.info(f"Set --variant-type as default 'snv'.")
 
     if args.qc_mode is None:
         args.qc_mode = "gwas"
     if not args.skip_qc:
         log.info(f"Set QC mode as {args.qc_mode}.")
-    if args.qc_mode == "gwas" and args.save_sparse_genotype:
-        raise ValueError("GWAS data cannot be saved as sparse genotype")
-    if args.bfile is not None or args.vcf is not None and args.save_sparse_genotype:
+        if args.variant_type is None:
+            args.variant_type = "snv"
+            log.info(f"Set --variant-type as default 'snv'.")
+        if args.qc_mode == "gwas" and args.save_sparse_genotype:
+            raise ValueError("GWAS data cannot be saved as sparse genotype")
+    if (args.bfile is not None or args.vcf is not None) and args.save_sparse_genotype:
         log.info(
             (
                 "WARNING: directly saving a bfile or vcf as a sparse genotype can be "
@@ -216,12 +216,12 @@ def run(args, log):
         gprocessor = read_genotype_data(args, log)
 
         # do preprocessing
-        log.info(f"Processing genotype data ...")
         gprocessor.extract_exclude_locus(args.extract_locus, args.exclude_locus)
         gprocessor.extract_exclude_snps(args.extract, args.exclude)
         gprocessor.extract_chr_interval(args.chr_interval)
         gprocessor.keep_remove_idvs(args.keep, args.remove)
         if not args.skip_qc:
+            log.info(f"Processing genotype data ...")
             gprocessor.do_processing(mode=args.qc_mode)
 
         # save

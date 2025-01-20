@@ -7,8 +7,7 @@ from heig.wgs.relatedness import LOCOpreds
 from heig.wgs.null import NullModel
 from heig.wgs.utils import *
 from heig.wgs.mt import SparseGenotype
-from hail.linalg import BlockMatrix
-from scipy.sparse import csr_matrix, coo_matrix
+from scipy.sparse import csr_matrix
 
 
 """
@@ -327,9 +326,10 @@ class RVsumstats:
         ensuring no NA in annotations
 
         """
-        self.locus = self.locus.annotate(annot=annot[self.locus.key])
-        self.locus = self.locus.filter(hl.is_defined(self.locus.annot))
-        # self.locus = self.locus.cache()
+        if annot is not None:
+            self.locus = self.locus.annotate(annot=annot[self.locus.key])
+            self.locus = self.locus.filter(hl.is_defined(self.locus.annot))
+        self.locus = self.locus.cache()
         return self.locus
 
     def parse_data(self, numeric_idx):
@@ -405,42 +405,6 @@ def extract_chr_interval(locus, gene_name, chr_interval, geno_ref, log):
             f"\n{n_variants} variants in gene {gene_name} overlapping in the summary statistics and annotations."
         )
     return locus
-
-
-def prepare_vset(snps_mt, variant_type):
-    """
-    Extracting data from MatrixTable
-
-    Parameters:
-    ------------
-    snps_mt: a MatrixTable of genotype data
-    variant_type: variant type
-
-    Returns:
-    ---------
-    vset: (m, n) csr_matrix of genotype
-
-    """
-    locus = snps_mt.rows().key_by().select("locus", "alleles", "maf", "is_rare")
-    locus = locus.annotate_globals(
-        reference_genome=locus.locus.dtype.reference_genome.name
-    )
-    locus = locus.annotate_globals(variant_type=variant_type)
-    bm = BlockMatrix.from_entry_expr(snps_mt.flipped_n_alt_alleles, mean_impute=True)
-    if bm.shape[0] == 0 or bm.shape[1] == 0:
-        raise ValueError("no variant in the genotype data")
-
-    entries = bm.entries()
-    non_zero_entries = entries.filter(entries.entry > 0)
-    non_zero_entries = non_zero_entries.collect()
-    rows = [entry["i"] for entry in non_zero_entries]
-    cols = [entry["j"] for entry in non_zero_entries]
-    values = [entry["entry"] for entry in non_zero_entries]
-
-    vset = coo_matrix((values, (rows, cols)), shape=bm.shape, dtype=np.float32)
-    vset = vset.tocsr()
-
-    return vset, locus
 
 
 def check_input(args, log):

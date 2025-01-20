@@ -114,8 +114,8 @@ def clean(out):
 class GProcessor:
     MODE = {
         "gwas": {
-            "defaults": {"maf_min": 0, "maf_max": 0.5},
-            # "defaults": {},
+            # "defaults": {"maf_min": 0, "maf_max": 0.5},
+            "defaults": {},
             "methods": [
                 "_extract_variant_type",
                 "_extract_maf",
@@ -739,7 +739,7 @@ def format_output(cate_pvalues, voxels, staar_only, sig_thresh):
 
     Parameters:
     ------------
-    cate_pvalues: a pd.DataFrame of pvalues of the variant category
+    cate_pvalues: a dict of pvalues of a variant category and n_variants
     voxels: zero-based voxel idxs of the image
     staar_only: if saving STAAR-O results only
     sig_thresh: significance threshold
