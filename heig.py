@@ -78,6 +78,9 @@ rv_parser = parser.add_argument_group(
 cluster_parser = parser.add_argument_group(
     title="Arguments specific to cluster inference"
 )
+rv_cluster_parser = parser.add_argument_group(
+    title="Arguments specific to cluster inference for rare variant associations"
+)
 
 
 # module arguments
@@ -144,6 +147,12 @@ cluster_parser.add_argument(
     action="store_true",
     help="Generating null distribution of cluster size (number of associated voxels).",
 )
+rv_cluster_parser.add_argument(
+    "--rv-cluster",
+    action="store_true",
+    help="Generating null distribution of cluster size for rare variant associations.",
+)
+
 
 # common arguments
 common_parser.add_argument("--out", help="Prefix of output.")
@@ -1039,6 +1048,7 @@ def check_accepted_args(module, args, log):
             "out",
             "ldrs",
             "covar",
+            "voxels",
             "cat_covar_list",
             "spark_conf",
             "grch37",
@@ -1057,6 +1067,27 @@ def check_accepted_args(module, args, log):
             "hwe",
             "call_rate",
             "variant_type",
+            "chr_interval",
+            "loco_preds",
+            "threads"
+        },
+        "rv_cluster":{
+            "rv_cluster",
+            "out",
+            "null_model",
+            "spark_conf",
+            "grch37",
+            "sparse_genotype",
+            "sig_thresh",
+            "n_bootstrap",
+            "n_ldrs",
+            "keep",
+            "remove",
+            "extract_locus",
+            "exclude_locus",
+            "maf_min",
+            "maf_max",
+            "mac_thresh",
             "chr_interval",
             "loco_preds",
             "threads"
@@ -1213,6 +1244,7 @@ def main(args, log):
         + args.rv_noncoding
         + args.rv
         + args.cluster
+        + args.rv_cluster
         != 1
     ):
         raise ValueError(
@@ -1220,7 +1252,7 @@ def main(args, log):
                 "must raise one and only one of following module flags: "
                 "--read-image, --fpca, --make-ldr, --heri-gc, --ld-matrix, --sumstats, "
                 "--voxel-gwas, --gwas, --relatedness, --make-mt, --rv-null, --make-rv-sumstats, "
-                "--rv-annot, --rv-coding, --rv-noncoding, --rv, --cluster"
+                "--rv-annot, --rv-coding, --rv-noncoding, --rv, --cluster, --rv-cluster"
             )
         )
 
@@ -1275,6 +1307,9 @@ def main(args, log):
     elif args.cluster:
         check_accepted_args('cluster', args, log)
         import heig.wgs.cluster as module
+    elif args.rv_cluster:
+        check_accepted_args('rv_cluster', args, log)
+        import heig.wgs.cluster_rare as module
 
     process_args(args, log)
     module.run(args, log)
