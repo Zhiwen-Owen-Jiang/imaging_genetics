@@ -191,6 +191,9 @@ def coding_vset_analysis(
                 )
                 if half_ldr_score is None:
                     continue
+                if np.sum(maf * rv_sumstats.n_subs * 2) < 10:
+                    log.info(f"Skip {OFFICIAL_NAME[cate]} (< 10 total MAC).")
+                    continue
                 vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)
                 log.info(
                     f"Doing analysis for {OFFICIAL_NAME[cate]} ({vset_test.n_variants} variants) ..."

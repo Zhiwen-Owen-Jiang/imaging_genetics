@@ -1,4 +1,5 @@
 import os
+import time
 import shutil
 import json
 import logging
@@ -108,7 +109,13 @@ def clean(out):
     if os.path.exists(out + "_spark"):
         shutil.rmtree(out + "_spark")
     if os.path.exists(out + "_tmp"):
-        shutil.rmtree(out + "_tmp")
+        # shutil.rmtree(out + "_tmp")
+        for _ in range(5):  # Retry up to 5 times
+            try:
+                shutil.rmtree(out + "_tmp")
+                break  # Break if successful
+            except OSError as e:
+                time.sleep(1)  # Wait and retry
 
 
 class GProcessor:

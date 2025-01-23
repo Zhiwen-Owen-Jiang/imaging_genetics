@@ -111,7 +111,7 @@ class RVcluster:
             self.loco_preds,
             rand_v,
         )
-        rv_sumstats.sumstats(self.vset, 20)
+        rv_sumstats.sumstats(self.vset, 50)
         rv_sumstats.save(f"{self.temp_path}_bootstrap")
 
     def _variant_set_test(self):
@@ -179,7 +179,7 @@ class RVcluster:
         left = 0
         right = 0
         while right < n_variants:
-            right += np.random.choice(list(range(2, 20)), 1)[0]
+            right += np.random.choice(list(range(10, 50)), 1)[0]
             numeric_idx_list.append(list(range(left, min(right, n_variants))))
             left = right
             

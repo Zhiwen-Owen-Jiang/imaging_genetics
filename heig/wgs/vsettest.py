@@ -153,9 +153,6 @@ class VariantSetTest:
 
         egvalues = np.flip(egvalues)
         egvalues[egvalues < 10**-8] = 0
-        if egvalues[0] < 0:
-            print(egvalues)
-            return np.ones(len(score_stat)) * 0.5
 
         pvalues = saddle2(score_stat, egvalues)
         return pvalues
