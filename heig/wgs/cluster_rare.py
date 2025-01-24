@@ -162,6 +162,8 @@ class RVcluster:
         )
         if half_ldr_score is None:
             return None
+        if np.sum(maf * rv_sumstats.n_subs * 2) < 10:
+            return None
         vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, None)
         pvalues = vset_test.do_inference()
         cluster_size = (pvalues["STAAR-O"] < self.sig_thresh).sum()
@@ -181,7 +183,8 @@ class RVcluster:
         while right < n_variants:
             right += np.random.choice(list(range(10, 50)), 1)[0]
             numeric_idx_list.append(list(range(left, min(right, n_variants))))
-            left = right
+            left = right + 50
+            right += 50
             
         return numeric_idx_list
 

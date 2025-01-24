@@ -162,6 +162,11 @@ def vset_analysis(
             half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(
                 numeric_idx
             )
+            if half_ldr_score is None:
+                continue
+            if np.sum(maf * rv_sumstats.n_subs * 2) < 10:
+                log.info(f"Skip {gene[0]} (< 10 cumulative MAC).")
+                continue
             vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)
             log.info(
                 f"Doing analysis for {gene[0]} ({vset_test.n_variants} variants) ..."
@@ -191,6 +196,11 @@ def vset_analysis(
             half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(
                 numeric_idx
             )
+            if half_ldr_score is None:
+                continue
+            if np.sum(maf * rv_sumstats.n_subs * 2) < 10:
+                log.info(f"Skip window (< 10 cumulative MAC).")
+                continue
             vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)
             log.info(
                 f"Doing analysis for window{window_i} ({vset_test.n_variants} variants) ..."
