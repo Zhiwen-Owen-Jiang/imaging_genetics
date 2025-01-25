@@ -3,12 +3,13 @@ import numpy as np
 import pandas as pd
 import hail as hl
 from hail.linalg import BlockMatrix
-from scipy.sparse import csr_matrix, save_npz, load_npz
+from scipy.sparse import lil_matrix, save_npz, load_npz
 from heig.wgs.utils import *
 
 """
 TODO:
 1. Merge multiple sparse genotype datasets
+2. Add an option of MAC filtering
 
 """
 
@@ -62,18 +63,22 @@ def prepare_vset(snps_mt, variant_type):
         reference_genome=locus.locus.dtype.reference_genome.name
     )
     locus = locus.annotate_globals(variant_type=variant_type)
-    bm = BlockMatrix.from_entry_expr(snps_mt.flipped_n_alt_alleles, mean_impute=True)
+    # bm = BlockMatrix.from_entry_expr(snps_mt.GT.n_alt_alleles(), mean_impute=True)
+    bm = BlockMatrix.from_entry_expr(snps_mt.imputed_n_alt_alleles)
     if bm.shape[0] == 0 or bm.shape[1] == 0:
         raise ValueError("no variant in the genotype data")
 
     entries = bm.entries()
     non_zero_entries = entries.filter(entries.entry > 0)
     non_zero_entries = non_zero_entries.collect()
-    rows = [entry["i"] for entry in non_zero_entries]
-    cols = [entry["j"] for entry in non_zero_entries]
-    values = np.array([entry["entry"] for entry in non_zero_entries], dtype=np.float32)
+    rows, cols, values = zip(*map(lambda e: (e["i"], e["j"], e["entry"]), non_zero_entries))
+    values = np.array(values, dtype=np.int8)
 
-    vset = csr_matrix((values, (rows, cols)), shape=bm.shape, dtype=np.float32)
+    vset = lil_matrix(bm.shape, dtype=np.int8)
+    vset[rows, cols] = values
+    to_flip = np.squeeze(np.array(vset.mean(axis=1) / 2 > 0.5))
+    vset[to_flip] = 2 - vset[to_flip].toarray().astype(np.int8)
+    vset = vset.tocsr()
 
     return vset, locus
 
@@ -108,7 +113,7 @@ class SparseGenotype:
         self.ids["idx"] = list(range(self.ids.shape[0]))
         self.ids = self.ids.set_index(["FID", "IID"])
         self.variant_idxs = np.arange(self.vset.shape[0])
-        self.maf, self.is_rare = self._update_maf()
+        self.maf, self.mac = self._update_maf()
 
     def extract_exclude_locus(self, extract_locus, exclude_locus):
         """
@@ -150,12 +155,15 @@ class SparseGenotype:
 
         """
         if maf_min is None:
-            maf_min = 1 / len(self.ids) / 2
+            # maf_min = 1 / len(self.ids) / 2
+            maf_min = 0
         if maf_max is None:
             maf_max = 0.5
         self.variant_idxs = self.variant_idxs[
             (self.maf > maf_min) & (self.maf <= maf_max)
         ]
+        if len(self.variant_idxs) == 0:
+            raise ValueError("no variant in genotype data")
 
     def keep(self, keep_idvs):
         """
@@ -178,15 +186,14 @@ class SparseGenotype:
         if len(self.ids) == 0:
             raise ValueError("no subject in genotype data")
         self.vset = self.vset[:, self.ids["idx"].values]
-        self.maf, self.is_rare = self._update_maf()
+        self.maf, self.mac = self._update_maf()
 
     def _update_maf(self):
         mac = np.squeeze(np.array(self.vset.sum(axis=1)))
         maf = mac / (self.vset.shape[1] * 2)
-        is_rare = mac <= self.mac_thresh
 
-        return maf, is_rare
-
+        return maf, mac
+    
     def parse_data(self):
         """
         Parsing genotype data as a result of filtering
@@ -202,7 +209,8 @@ class SparseGenotype:
         common_variant_idxs = np.array(common_variant_idxs)
         vset = self.vset[common_variant_idxs]
         maf = self.maf[common_variant_idxs]
-        is_rare = self.is_rare[common_variant_idxs]
+        is_rare = self.mac[common_variant_idxs] < self.mac_thresh
+        # mac = self.mac[common_variant_idxs]
 
         return vset, locus, maf, is_rare
 
@@ -226,7 +234,7 @@ def run(args, log):
 
         # save
         if args.save_sparse_genotype:
-            log.info("Computing sparse genotype ...")
+            log.info("Constructing sparse genotype ...")
             vset, locus = prepare_vset(gprocessor.snps_mt, args.variant_type)
             log.info(
                 f"{vset.shape[1]} subjects and {vset.shape[0]} variants in the sparse genotype"
