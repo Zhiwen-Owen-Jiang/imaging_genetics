@@ -6,6 +6,7 @@ import logging
 import hail as hl
 import numpy as np
 import pandas as pd
+from functools import reduce
 
 
 __all__ = [
@@ -109,7 +110,6 @@ def clean(out):
     if os.path.exists(out + "_spark"):
         shutil.rmtree(out + "_spark")
     if os.path.exists(out + "_tmp"):
-        # shutil.rmtree(out + "_tmp")
         for _ in range(5):  # Retry up to 5 times
             try:
                 shutil.rmtree(out + "_tmp")
@@ -144,18 +144,18 @@ class GProcessor:
                 "variant_type": "snv",
                 "maf_max": 0.01,
                 "maf_min": 0,
-                "mac_thresh": 10,
+                # "mac_thresh": 10,
             },
             "methods": [
                 "_vcf_filter",
-                "_flip_snps",
+                # "_flip_snps",
                 "_extract_variant_type",
                 "_extract_maf",
                 "_extract_call_rate",
                 "_filter_hwe",
-                "_annotate_rare_variants",
+                # "_annotate_rare_variants",
                 "_filter_missing_alt",
-                # "_impute_missing_snps"
+                # "_impute_missing_snps",
                 # "_extract_chr_interval"
             ],
             "conditions": {
@@ -173,7 +173,7 @@ class GProcessor:
         "geno_ref": "Reference genome",
         "maf_min": "Minimum MAF (>)",
         "maf_max": "Maximum MAF (<=)",
-        "mac_thresh": "MAC threshold to annotate very rare variants (<=)",
+        # "mac_thresh": "MAC threshold to annotate very rare variants (<=)",
         "call_rate": "Call rate (>=)",
         "hwe": "HWE p-value (>=)",
     }
@@ -186,7 +186,6 @@ class GProcessor:
         hwe=None,
         maf_min=None,
         maf_max=None,
-        mac_thresh=None,
         call_rate=None,
     ):
         """
@@ -199,9 +198,6 @@ class GProcessor:
         grch37: if the reference genome is GRCh37
         maf_max: a float number between 0 and 0.5
         maf_min: a float number between 0 and 0.5, must be smaller than maf_max
-            (maf_min, maf_max) is the maf range for analysis
-        mac_thresh: a int number greater than 0, variants with a mac less than this
-            will be identified as a rarer variants in ACAT-V
         call_rate: a float number between 0 and 1, 1 - genotype missingness
         hwe: a float number between 0 and 1, variants with a HWE pvalue less than
             this will be removed
@@ -212,7 +208,7 @@ class GProcessor:
         self.geno_ref = "GRCh37" if grch37 else "GRCh38"
         self.maf_min = maf_min
         self.maf_max = maf_max
-        self.mac_thresh = mac_thresh
+        # self.mac_thresh = mac_thresh
         self.call_rate = call_rate
         self.hwe = hwe
         self.chr, self.start, self.end = None, None, None
@@ -243,6 +239,13 @@ class GProcessor:
                 self.snps_mt.info.AF
             )  # Index of the minor allele
         )
+        self.snps_mt = self.snps_mt.annotate_rows(
+            maf=self.snps_mt.info.AF[self.snps_mt.minor_allele_index]
+        )
+        # self.snps_mt = self.snps_mt.annotate_rows(
+        #     mac=self.snps_mt.info.AC[self.snps_mt.minor_allele_index]
+        # )
+
         config = self.MODE.get(mode, {})
         defaults = config.get("defaults", {})
         methods = config.get("methods", [])
@@ -259,15 +262,28 @@ class GProcessor:
             if getattr(self, para_k) is not None:
                 self.logger.info(f"{para_v}: {getattr(self, para_k)}")
         if mode == "wgs":
-            self.logger.info("Flipped alleles for those with a MAF > 0.5")
+            # self.logger.info("Flipped alleles for those with a MAF > 0.5")
             self.logger.info("Removed variants with missing alternative alleles.")
             self.logger.info("Extracted variants with PASS in FILTER.")
+            self.logger.info("Imputed missing genotypes by 0.")
         self.logger.info("---------------------\n")
 
+        variant_idx_list = list()
         for method in methods:
             method_conditions = conditions.get(method, [])
             if all(getattr(self, attr) is not None for attr in method_conditions):
-                getattr(self, method)()
+                filtering_idx = getattr(self, method)()
+                if filtering_idx is not None:
+                    variant_idx_list.append(filtering_idx)
+        
+        if len(variant_idx_list) > 0:
+            variant_idx = reduce(lambda x, y: x & y, variant_idx_list)
+            self.snps_mt = self.snps_mt.filter_rows(variant_idx)
+
+        if mode == "wgs":
+            self._impute_missing_snps()
+            # self._flip_snps()
+            # self._annotate_rare_variants()
 
     @classmethod
     def read_matrix_table(cls, dir, *args, **kwargs):
@@ -399,10 +415,7 @@ class GProcessor:
 
         """
         if "filters" in self.snps_mt.row:
-            self.snps_mt = self.snps_mt.filter_rows(
-                (hl.len(self.snps_mt.filters) == 0)
-                | hl.is_missing(self.snps_mt.filters)
-            )
+            return (hl.len(self.snps_mt.filters) == 0) | hl.is_missing(self.snps_mt.filters)
 
     def _extract_variant_type(self):
         """
@@ -417,10 +430,7 @@ class GProcessor:
             func = hl.is_indel
         else:
             raise ValueError("variant_type must be snv, indel or variant")
-        self.snps_mt = self.snps_mt.annotate_rows(
-            target_type=func(self.snps_mt.alleles[0], self.snps_mt.alleles[1])
-        )
-        self.snps_mt = self.snps_mt.filter_rows(self.snps_mt.target_type)
+        return func(self.snps_mt.alleles[0], self.snps_mt.alleles[1])
 
     def _extract_maf(self):
         """
@@ -431,40 +441,28 @@ class GProcessor:
             self.maf_min = 0
         if self.maf_min > self.maf_max:
             raise ValueError("maf_min is greater than maf_max")
-        self.snps_mt = self.snps_mt.annotate_rows(
-            maf=self.snps_mt.info.AF[self.snps_mt.minor_allele_index]
-        )
-        self.snps_mt = self.snps_mt.filter_rows(
-            (self.snps_mt.maf > self.maf_min) & (self.snps_mt.maf <= self.maf_max)
-        )
+        return (self.snps_mt.maf > self.maf_min) & (self.snps_mt.maf <= self.maf_max)
 
     def _extract_call_rate(self):
         """
         Extracting variants with a call rate >= call_rate
 
         """
-        self.snps_mt = self.snps_mt.filter_rows(
-            self.snps_mt.info.call_rate >= self.call_rate
-        )
+        return self.snps_mt.info.call_rate >= self.call_rate
 
     def _filter_hwe(self):
         """
         Filtering variants with a HWE pvalues < hwe
 
         """
-        self.snps_mt = self.snps_mt.filter_rows(
-            self.snps_mt.info.p_value_hwe >= self.hwe
-        )
+        return self.snps_mt.info.p_value_hwe >= self.hwe
 
     def _filter_missing_alt(self):
         """
         Filtering variants with missing alternative allele
 
         """
-        # self.snps_mt = self.snps_mt.filter_rows(self.snps_mt.alleles[1] != '*')
-        self.snps_mt = self.snps_mt.filter_rows(
-            hl.is_star(self.snps_mt.alleles[0], self.snps_mt.alleles[1]), keep=False
-        )
+        return ~hl.is_star(self.snps_mt.alleles[0], self.snps_mt.alleles[1])
 
     def _flip_snps(self):
         """
@@ -473,33 +471,20 @@ class GProcessor:
         """
         self.snps_mt = self.snps_mt.annotate_entries(
             flipped_n_alt_alleles=hl.if_else(
-                # self.snps_mt.info.AF[self.snps_mt.minor_allele_index] > 0.5,
                 self.snps_mt.minor_allele_index == 0,
                 self.snps_mt.GT.ploidy - self.snps_mt.GT.n_alt_alleles(),
                 self.snps_mt.GT.n_alt_alleles(),
             )
         )
 
-    # def _impute_missing_snps(self):
-    #     """
-    #     Imputing missing SNPs after flipping alleles
+    def _impute_missing_snps(self):
+        """
+        Imputing missing SNPs by 0
 
-    #     """
-    #     if "flipped_n_alt_alleles" in self.snps_mt.entry:
-    #         column_means = self.snps_mt.aggregate_entries(
-    #             hl.agg.group_by(
-    #                 self.snps_mt.col_key,
-    #                 hl.agg.mean(self.snps_mt.flipped_n_alt_alleles)
-    #             )
-    #         )
-    #         self.snps_mt = self.snps_mt.annotate_entries(
-    #             flipped_n_alt_alleles=hl.or_else(
-    #                 self.snps_mt.flipped_n_alt_alleles,
-    #                 column_means[self.snps_mt.col_key]
-    #             )
-    #         )
-    #     else:
-    #         raise ValueError(f"call _flip_snps() before doing imputation")
+        """
+        self.snps_mt = self.snps_mt.annotate_entries(
+            imputed_n_alt_alleles=hl.or_else(self.snps_mt.GT.n_alt_alleles(), 0)
+        )
 
     def _annotate_rare_variants(self):
         """
@@ -663,7 +648,6 @@ def read_genotype_data(args, log):
         variant_type=args.variant_type,
         maf_min=args.maf_min,
         maf_max=args.maf_max,
-        mac_thresh=args.mac_thresh,
         call_rate=args.call_rate,
     )
 
