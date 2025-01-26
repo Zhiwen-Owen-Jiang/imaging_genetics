@@ -47,3 +47,4 @@ temp*
 
 # code to manipulate promGdf
 misc/wgs/merge_interval.ipynb*
+misc/wgs/create_ht.ipynb
