@@ -131,8 +131,8 @@ class RV:
         for start in range(0, n_variants, bandwidth):
             end1 = start + bandwidth
             end2 = end1 + bandwidth
-            vset_block1 = vset[start:end1]
-            vset_block2 = vset[start:end2]
+            vset_block1 = vset[start:end1].astype(np.uint16)
+            vset_block2 = vset[start:end2].astype(np.uint16)
             ld_rec = vset_block1 @ vset_block2.T
             ld_rec_row, ld_rec_col = ld_rec.nonzero()
             ld_rec_row += start
@@ -172,14 +172,14 @@ class RV:
                 "vset_half_covar_proj", data=self.vset_half_covar_proj, dtype="float32"
             )
             file.create_dataset(
-                "vset_ld_diag", data=self.banded_vset_ld[0], dtype="float16"
+                "vset_ld_diag", data=self.banded_vset_ld[0], dtype="uint16"
             )
             file.create_dataset(
-                "vset_ld_data", data=self.banded_vset_ld[1], dtype="float16"
+                "vset_ld_data", data=self.banded_vset_ld[1], dtype="uint16"
             )
-            file.create_dataset("vset_ld_row", data=self.banded_vset_ld[2])
-            file.create_dataset("vset_ld_col", data=self.banded_vset_ld[3])
-            file.create_dataset("vset_ld_shape", data=self.banded_vset_ld[4])
+            file.create_dataset("vset_ld_row", data=self.banded_vset_ld[2], dtype="int32")
+            file.create_dataset("vset_ld_col", data=self.banded_vset_ld[3], dtype="int32")
+            file.create_dataset("vset_ld_shape", data=self.banded_vset_ld[4], dtype="int32")
             file.attrs["n_subs"] = self.n_subs
             file.attrs["n_covars"] = self.n_covars
             file.attrs["n_variants"] = self.n_variants
