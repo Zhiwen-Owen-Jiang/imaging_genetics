@@ -7,18 +7,30 @@ from heig.wgs.vsettest import VariantSetTest
 from heig.wgs.utils import *
 
 
+OFFICIAL_NAME = {
+    "upstream": "upstream variants",
+    "downstream": "downstream variants",
+    "utr": "untranslated regions (UTR)",
+    "promoter_cage": "promoter-CAGE variants",
+    "promoter_dhs": "promoter-DHS variants",
+    "enhancer_cage": "enhancer-CAGE variants",
+    "enhancer_dhs": "enhancer-DHS variants",
+    "ncrna": "long noncoding RNA (ncRNA)",
+}
+
+
 class Noncoding(ABC):
-    def __init__(self, annot, variant_type, promG_intervals=None):
+    def __init__(self, annot, variant_type, type=None):
         """
         Parameters:
         ------------
         annot: a hail.Table of annotations with key ('locus', 'alleles') and hail.struct of annotations
         variant_type: variant type, one of ('variant', 'snv, 'indel')
-        promG_intervals: locus intervals of promG
+        type: subtype of variants
 
         """
         self.annot = annot
-        self.promG_intervals = promG_intervals
+        self.type = type
         self.gencode_category = self.annot.annot[
             Annotation_name_catalog["GENCODE.Category"]
         ]
@@ -35,14 +47,13 @@ class Noncoding(ABC):
             self.annot_cols, self.annot_name = None, None
 
     @abstractmethod
-    def extract_variants(self, gene, type=None):
+    def extract_variants(self, gene):
         """
         Extracting variants by boolean indices
 
         Parameters:
         ------------
         gene: gene_name
-        type: specific type of non-coding variants
 
         """
         pass
@@ -59,13 +70,14 @@ class Noncoding(ABC):
         """
         filtered_annot = self.annot.filter(variant_idx)
         numeric_idx = filtered_annot.idx.collect()
+        if len(numeric_idx) <= 1:
+            return numeric_idx, None, None, None, None
+        
         all_locus = filtered_annot.locus.collect()
         chr = all_locus[0].contig
         start = all_locus[0].position
         end = all_locus[-1].position
 
-        if len(numeric_idx) <= 1:
-            return numeric_idx, None
         if self.annot_cols is not None:
             annot_phred = filtered_annot.annot.select(*self.annot_cols).collect()
             phred_cate = np.array(
@@ -78,106 +90,98 @@ class Noncoding(ABC):
 
 
 class UpDown(Noncoding):
-    def extract_variants(self, gene, type):
+    def __init__(self, annot, variant_type, type):
+        super().__init__(annot, variant_type, type)
+        self.variant_idx1 = self.gencode_category == self.type
+                                         
+    def extract_variants(self, gene):
         """
         type is 'upstream' or 'downstream'
 
         """
-        variant_idx1 = self.gencode_category == type
         variant_idx2 = self.genecode_info.contains(gene)
 
-        return variant_idx1 & variant_idx2
+        return self.variant_idx1 & variant_idx2
 
 
 class UTR(Noncoding):
-    def extract_variants(self, gene):
+    def __init__(self, annot, variant_type, type):
+        super().__init__(annot, variant_type, type)
+        self.annot = self.annot.annotate(utr=self.genecode_info.split(r'\(')[0])
+        self.gencode_category = self.annot.annot[
+            Annotation_name_catalog["GENCODE.Category"]
+        ]
         set1 = hl.literal({"UTR3", "UTR5", "UTR5;UTR3"})
-        variant_idx1 = set1.contains(self.gencode_category)
-        # self.annot = self.annot.annonate(utr=hl.str.split(self.genecode_info, r'\(')[0])
-        # variant_idx2 = self.annot.utr == self.gene
-        variant_idx2 = self.genecode_info.startswith(gene)
+        self.variant_idx1 = set1.contains(self.gencode_category)
 
-        return variant_idx1 & variant_idx2
+    def extract_variants(self, gene):
+        variant_idx2 = self.annot.utr == gene
+
+        return self.variant_idx1 & variant_idx2
 
 
 class Promoter(Noncoding):
-    def __init__(self, annot, variant_type, promG_intervals):
-        super().__init__(annot, variant_type, promG_intervals)
-        self.annot = self.annot.annotate(split_genes=self.genecode_info.split(r'[(),;\\-]')[0])
+    def __init__(self, annot, variant_type, type, promG_intervals):
+        """
+        promG_intervals: locus intervals of promG
 
-    def extract_variants(self, gene, type):
+        """
+        super().__init__(annot, variant_type, type)
+        self.annot = self.annot.annotate(split_genes=self.genecode_info.split(r'[(),;\\-]')[0])
+        self.is_prom = hl.is_defined(promG_intervals.index(self.annot.locus))
+        self.is_type = hl.is_defined(self.annot.annot[Annotation_name_catalog[self.type]])
+
+    def extract_variants(self, gene):
         """
         type is 'CAGE' or 'DHS'
 
         """
-        cage = hl.is_defined(self.annot.annot[Annotation_name_catalog[type]])
-        is_prom = hl.any(
-            lambda interval: interval.contains(self.annot.locus), self.promG_intervals
-        )
         gene_idx = self.annot.split_genes == gene
-        variant_idx = cage & is_prom & gene_idx
+        variant_idx = self.is_type & self.is_prom & gene_idx
 
         return variant_idx
 
 
 class Enhancer(Noncoding):
-    def __init__(self, annot, variant_type, promG_intervals):
-        super().__init__(annot, variant_type, promG_intervals)
+    def __init__(self, annot, variant_type, type):
+        super().__init__(annot, variant_type, type)
         genehancer = self.annot.annot[Annotation_name_catalog["GeneHancer"]]
         self.annot = self.annot.annotate(genehancer=genehancer.split('connected_gene=')[1].split(';')[0])
-
-    def extract_variants(self, gene, type):
+        self.is_type = hl.is_defined(self.annot.annot[Annotation_name_catalog[self.type]])
+        
+    def extract_variants(self, gene):
         """
         type is 'CAGE' or 'DHS'
 
         """
-        genehancer = self.annot.annot[Annotation_name_catalog["GeneHancer"]]
-        is_genehancer = hl.is_defined(genehancer)
-        cage = hl.is_defined(
-            self.annot.annot[Annotation_name_catalog[type]]
-        )
         gene_idx = self.annot.genehancer == gene
-        variant_idx = cage & is_genehancer & gene_idx
+        variant_idx = self.is_type & gene_idx
 
         return variant_idx
 
 
 class NcRNA(Noncoding):
-    def extract_variants(self, gene):
+    def __init__(self, annot, variant_type, type):
+        super().__init__(annot, variant_type, type)
+        self.annot = self.annot.annotate(ncrna=self.genecode_info.split(';')[0])
+        self.gencode_category = self.annot.annot[
+            Annotation_name_catalog["GENCODE.Category"]
+        ]
         set1 = hl.literal({"ncRNA_exonic", "ncRNA_exonic;splicing", "ncRNA_splicing"})
-        variant_idx1 = set1.contains(self.gencode_category)
-        # self.annot = self.annot.annonate(ncrna=hl.str.split(self.genecode_info, r';')[0])
-        # variant_idx2 = self.annot.ncrna == self.gene
-        variant_idx2 = self.genecode_info.contains(gene)
+        self.variant_idx1 = set1.contains(self.gencode_category)
 
-        return variant_idx1 & variant_idx2
+    def extract_variants(self, gene):
+        variant_idx2 = self.annot.ncrna == gene
+
+        return self.variant_idx1 & variant_idx2
 
 
 def read_promG(geno_ref):
     base_dir = os.path.dirname(os.path.abspath(__file__))
     main_dir = os.path.dirname(os.path.dirname(base_dir))
-    promGdf = hl.import_table(
-        os.path.join(main_dir, f"misc/wgs/promGdf_{geno_ref}.csv"),
-        no_header=False,
-        delimiter=",",
-        impute=True,
-    )
-
-    intervals = promGdf.aggregate(
-        hl.agg.collect(
-            hl.interval(
-                start=hl.locus(
-                    promGdf["seqnames"], promGdf["start"], reference_genome=geno_ref
-                ),
-                end=hl.locus(
-                    promGdf["seqnames"], promGdf["end"], reference_genome=geno_ref
-                ),
-                includes_end=False,
-            )
-        )
-    )
-
+    intervals = hl.read_table(os.path.join(main_dir, f"misc/wgs/promGdf_{geno_ref}.ht"))
     return intervals
+
 
 def noncoding_vset_analysis(
     rv_sumstats, annot, variant_sets, variant_type, vset_test, variant_category, log
@@ -219,36 +223,40 @@ def noncoding_vset_analysis(
 
     # creating annotation class
     category_class_dict = dict()
-    promGdf_intervals = None
+    promGdf_intervals = read_promG(rv_sumstats.geno_ref)
     for category, (_category_class_, type) in category_class_map.items():
         if variant_category[0] == "all" or category in variant_category:
-            if category == "promoter_cage" or category == "promoter_dhs" and promGdf_intervals is None:
-                promGdf_intervals = read_promG(rv_sumstats.geno_ref)
+            if category == "promoter_cage" or category == "promoter_dhs":
+                category_class = _category_class_(
+                    annot_locus, variant_type, type, promGdf_intervals
+                )
+            else:
+                category_class = _category_class_(
+                    annot_locus, variant_type, type
+                )
 
-            category_class = _category_class_(
-                annot_locus, variant_type, promGdf_intervals
-            )
-            category_class_dict[category] = category_class, type
+            category_class_dict[category] = category_class
 
     for _, gene in variant_sets.iterrows():
         # individual analysis
+        log.info(f"\nGene: {gene[0]}")
         cate_pvalues = dict()
 
-        for category, (category_class, type) in category_class_dict.items():
-            variant_idx = category_class.extract_variants(gene[0], type)
+        for category, category_class in category_class_dict.items():
+            variant_idx = category_class.extract_variants(gene[0])
             numeric_idx, phred_cate, chr, start, end = category_class.parse_annot(variant_idx)
             if len(numeric_idx) <= 1:
-                log.info(f"Less than 2 variants for {category}, skip.")
+                log.info(f"Skip {OFFICIAL_NAME[category]} (< 2 variants).")
                 continue
             half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(numeric_idx)
             if half_ldr_score is None:
                 continue
             if np.sum(maf * rv_sumstats.n_subs * 2) < 10:
-                log.info(f"Skip {category} (< 10 total MAC).")
+                log.info(f"Skip {OFFICIAL_NAME[category]} (< 10 total MAC).")
                 continue
             vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)
             log.info(
-                f"Doing analysis for {category} ({vset_test.n_variants} variants) ..."
+                f"Doing analysis for {OFFICIAL_NAME[category]} ({vset_test.n_variants} variants) ..."
             )
             pvalues = vset_test.do_inference(category_class.annot_name)
             cate_pvalues[category] = {
@@ -256,7 +264,7 @@ def noncoding_vset_analysis(
                 "pvalues": pvalues,
             }
 
-    yield gene[0], cate_pvalues, chr, start, end
+        yield gene[0], chr, start, end, cate_pvalues
 
 
 def check_input(args, log):
@@ -338,7 +346,7 @@ def run(args, log):
         index_file = IndexFile(f"{args.out}_result_index.txt")
         log.info(f"Write result index file to {args.out}_result_index.txt")
 
-        for set_name, chr, start, end, cate_pvalues in all_vset_test_pvalues.items():
+        for set_name, chr, start, end, cate_pvalues in all_vset_test_pvalues:
             cate_output = format_output(
                 cate_pvalues,
                 rv_sumstats.voxel_idxs,
