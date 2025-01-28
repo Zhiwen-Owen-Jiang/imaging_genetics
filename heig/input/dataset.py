@@ -458,6 +458,8 @@ def read_extract(extract_files, locus=False):
         data_type = "locus"
     else:
         data_type = "SNP"
+        
+    keep_snps_ = None
     for i, extract_file in enumerate(extract_files):
         if os.path.getsize(extract_file) == 0:
             continue
@@ -475,6 +477,8 @@ def read_extract(extract_files, locus=False):
         else:
             keep_snps_ = keep_snps_.merge(keep_snps)
 
+    if keep_snps_ is None:
+        raise ValueError("no variants in --extract(-locus)")
     if not pd.api.types.is_object_dtype(keep_snps_[data_type]):
         raise TypeError(
             "invalid variants in --extract(-locus). Did you input other data in the first column?"
@@ -595,7 +599,7 @@ def parse_input(arg):
         files = [re.sub(p2, str(i), arg) for i in range(start, end + 1)]
         return files
     else:
-        return [arg]
+        return arg.split(",")
 
 
 def keep_ldrs(n_ldrs, bases=None, ldr_cov=None, ldr_gwas=None, resid_ldrs=None):

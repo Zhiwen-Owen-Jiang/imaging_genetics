@@ -76,11 +76,21 @@ def prepare_vset(snps_mt, variant_type):
 
     vset = lil_matrix(bm.shape, dtype=np.int8)
     vset[rows, cols] = values
-    to_flip = np.squeeze(np.array(vset.mean(axis=1) / 2 > 0.5))
-    vset[to_flip] = 2 - vset[to_flip].toarray().astype(np.int8)
+    vset = flip_variants(vset)
     vset = vset.tocsr()
 
     return vset, locus
+
+
+def flip_variants(vset):
+    """
+    vset: a lil_matrix of sparse genotype
+    
+    """
+    to_flip = np.squeeze(np.array(vset.mean(axis=1) / 2 > 0.5))
+    vset[to_flip] = 2 - vset[to_flip].toarray().astype(np.int8)
+
+    return vset
 
 
 class SparseGenotype:

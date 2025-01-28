@@ -319,3 +319,12 @@ class Test_parse_input(unittest.TestCase):
             parse_input("file{1:a}.a")
         with self.assertRaises(ValueError):
             parse_input("file{:}.a")
+            
+    def test_split_voxels(self):
+        true_value = ["1"]
+        self.assertEqual(true_value, parse_input("1"))
+        true_value = ["1", "2"]
+        self.assertEqual(true_value, parse_input("1,2"))
+        true_value = ["1", "2", "3"]
+        self.assertEqual(true_value, parse_input("{1:3}"))
+

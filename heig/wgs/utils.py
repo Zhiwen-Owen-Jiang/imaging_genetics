@@ -110,7 +110,7 @@ def clean(out):
     if os.path.exists(out + "_spark"):
         shutil.rmtree(out + "_spark")
     if os.path.exists(out + "_tmp"):
-        for _ in range(5):  # Retry up to 5 times
+        for _ in range(100):  # Retry up to 100 times
             try:
                 shutil.rmtree(out + "_tmp")
                 break  # Break if successful
