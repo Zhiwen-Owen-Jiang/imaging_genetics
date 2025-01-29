@@ -311,7 +311,7 @@ def check_input(args, log):
 
     # optional arguments
     if args.sig_thresh is not None and (args.sig_thresh <= 0 or args.sig_thresh >= 1):
-        raise ValueError("--sig-thresh should be greater than 0 and less than 1")
+        raise ValueError("--sig-thresh must be greater than 0 and less than 1")
     if (
         args.chr_interval is None
         and args.voxels is None
@@ -378,7 +378,7 @@ def run(args, log):
             bases, ldr_cov, ldr_gwas, _ = ds.keep_ldrs(
                 args.n_ldrs, bases, ldr_cov, ldr_gwas
             )
-            log.info(f"Keep the top {args.n_ldrs} LDRs.")
+            log.info(f"Keeping the top {args.n_ldrs} LDRs.")
 
         if bases.shape[1] != ldr_cov.shape[0] or bases.shape[1] != ldr_gwas.n_gwas:
             raise ValueError(
@@ -395,7 +395,7 @@ def run(args, log):
             if np.max(args.voxels) + 1 <= bases.shape[0] and np.min(args.voxels) >= 0:
                 log.info(f"{len(args.voxels)} voxels included.")
             else:
-                raise ValueError("--voxel index (one-based) out of range")
+                raise ValueError("--voxels index (one-based) out of range")
         else:
             args.voxels = np.arange(bases.shape[0])
 
@@ -465,7 +465,7 @@ def run(args, log):
                 args.threads,
             )
 
-        log.info(f"\nSave the output to {outpath}")
+        log.info(f"\nSaved the output to {outpath}")
 
     finally:
         if "ldr_gwas" in locals():

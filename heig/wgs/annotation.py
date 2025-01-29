@@ -210,7 +210,7 @@ def check_input(args, log):
     if args.favor_annot is None and args.general_annot is None:
         raise ValueError("either --favor-annot or --general-annot is required")
     elif args.favor_annot is not None and args.general_annot is not None:
-        log.info("WARNING: ignore --general-annot as --favor-annot specified.")
+        log.info("WARNING: ignoring --general-annot as --favor-annot has been specified.")
     if args.annot_cols is not None:
         args.annot_cols = args.annot_cols.split(",")
 
@@ -265,6 +265,6 @@ def run(args, log):
         except:
             os.remove(f"{args.out}_annot.ht")
             raise
-        log.info(f"\nSave the annotations to {args.out}_annot.ht")
+        log.info(f"\nSaved the annotations to {args.out}_annot.ht")
     finally:
         clean(args.out)

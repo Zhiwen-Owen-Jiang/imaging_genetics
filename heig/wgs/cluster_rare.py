@@ -318,7 +318,7 @@ def run(args, log):
             log.info(f"done ({elapsed_time}ms)")
 
         # save results
-        log.info(f"\nSave null distribution of cluster size to {args.out}.txt")
+        log.info(f"\nSaved null distribution of cluster size to {args.out}.txt")
 
     finally:
         if "temp_path" in locals():

@@ -505,7 +505,7 @@ class LOCOpreds:
             if ldr_col[1] <= self.preds.shape[0]:
                 self.ldr_col = ldr_col
                 self.logger.info(
-                    f"Keep LDR{ldr_col[0]+1} to LDR{ldr_col[1]} LOCO predictions."
+                    f"Keeping LDR{ldr_col[0]+1} to LDR{ldr_col[1]} LOCO predictions."
                 )
             else:
                 raise ValueError(
@@ -582,9 +582,9 @@ def run(args, log):
         if args.n_ldrs is not None:
             ldrs.data = ldrs.data.iloc[:, : args.n_ldrs]
             if ldrs.data.shape[1] > args.n_ldrs:
-                log.info(f"WARNING: --n-ldrs greater than #LDRs, use all LDRs.")
+                log.info(f"WARNING: --n-ldrs greater than #LDRs, using all LDRs.")
             else:
-                log.info(f"Keep the top {args.n_ldrs} LDRs.")
+                log.info(f"Keeping the top {args.n_ldrs} LDRs.")
 
         log.info(f"Read covariates from {args.covar}")
         covar = ds.Covar(args.covar, args.cat_covar_list)
@@ -619,10 +619,10 @@ def run(args, log):
             genome_part = ds.read_geno_part(args.partition)
             log.info(f"{genome_part.shape[0]} genome blocks to partition ...")
             if genome_part.shape[0] > 200:
-                log.info(f"Merge into ~200 blocks.")
+                log.info(f"Merging into ~200 blocks.")
         else:
             genome_part = None
-            log.info(f"Partition the genome into blocks of size ~{args.bsize} ...")
+            log.info(f"Partitioning the genome into blocks of size ~{args.bsize} ...")
 
         gprocessor.cache()
         geno_block = GenoBlocks(gprocessor.snps_mt, genome_part, args.bsize)
@@ -657,7 +657,7 @@ def run(args, log):
                     block, args.threads
                 )
                 dset[:, :, :, i] = block_level0_preds
-        log.info(f"Save level0 ridge predictions to a temporary file {l0_pred_file}")
+        log.info(f"Saved level0 ridge predictions to a temporary file {l0_pred_file}")
 
         # load level 0 predictions by each ldr and do level 1 ridge prediction
         with h5py.File(l0_pred_file, "r") as file:
@@ -673,7 +673,7 @@ def run(args, log):
                 "id", data=np.array([snps_mt_ids, snps_mt_ids], dtype="S10").T
             )
         log.info(
-            f"\nSave level1 loco ridge predictions to {args.out}_ldr_loco_preds.h5"
+            f"\nSaved level1 loco ridge predictions to {args.out}_ldr_loco_preds.h5"
         )
 
     finally:

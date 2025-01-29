@@ -271,7 +271,7 @@ def run(args, log):
             bases, ldr_cov, _, ldrs.data = ds.keep_ldrs(
                 args.n_ldrs, bases, ldr_cov, resid_ldrs=ldrs.data
             )
-            log.info(f"Keep the top {args.n_ldrs} LDRs.")
+            log.info(f"Keeping the top {args.n_ldrs} LDRs.")
 
         # check numbers of LDRs are the same
         if bases.shape[1] != ldr_cov.shape[0] or bases.shape[1] != ldrs.data.shape[1]:
@@ -372,7 +372,7 @@ def run(args, log):
             log.info(f"done ({elapsed_time}ms)")
 
         # save results
-        log.info(f"\nSave null distribution of cluster size to {args.out}.txt")
+        log.info(f"\nSaved null distribution of cluster size to {args.out}.txt")
 
     finally:
         if "temp_path" in locals():

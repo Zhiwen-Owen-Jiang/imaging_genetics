@@ -220,10 +220,10 @@ def run(args, log):
         ldr_df.to_csv(f"{args.out}_ldr_top{n_ldrs}.txt", sep="\t")
         np.save(f"{args.out}_ldr_cov_top{n_ldrs}.npy", ldr_cov)
 
-        log.info(f"Save the raw LDRs to {args.out}_ldr_top{n_ldrs}.txt")
+        log.info(f"Saved the raw LDRs to {args.out}_ldr_top{n_ldrs}.txt")
         log.info(
             (
-                f"Save the variance-covariance matrix of covariate-effect-removed LDRs "
+                f"Saved the variance-covariance matrix of covariate-effect-removed LDRs "
                 f"to {args.out}_ldr_cov_top{n_ldrs}.npy"
             )
         )

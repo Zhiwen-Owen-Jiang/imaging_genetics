@@ -93,7 +93,7 @@ def check_input(args, log):
         args.ldr_col = parse_ldr_col(args.ldr_col)
         if args.n_ldrs is not None:
             log.info(
-                "WARNING: both --ldr-col and --n-ldrs are provided. Ignore --n-ldrs."
+                "WARNING: ignoring --n-ldrs as --ldr-col has been provided."
             )
     elif args.n_ldrs is not None:
         args.ldr_col = (0, args.n_ldrs)
@@ -278,7 +278,7 @@ def run(args, log):
             if ldrs.data.shape[1] < args.ldr_col[1]:
                 raise ValueError(f"--ldr-col or --n-ldrs out of index")
             else:
-                log.info(f"keep LDR{args.ldr_col[0]+1} to LDR{args.ldr_col[1]}.")
+                log.info(f"Keeping LDR{args.ldr_col[0]+1} to LDR{args.ldr_col[1]}.")
             ldrs.data = ldrs.data.iloc[:, args.ldr_col[0] : args.ldr_col[1]]
 
         log.info(f"Read covariates from {args.covar}")
@@ -342,7 +342,7 @@ def run(args, log):
 
         # save gwas results
         gwas.save(args.out)
-        log.info(f"\nSave GWAS results to {args.out}.parquet")
+        log.info(f"\nSaved GWAS results to {args.out}.parquet")
     finally:
         if "temp_path" in locals():
             if os.path.exists(f"{temp_path}_covar.txt"):

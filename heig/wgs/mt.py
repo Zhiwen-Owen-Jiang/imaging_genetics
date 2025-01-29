@@ -264,7 +264,7 @@ def run(args, log):
             snps_mt_ids.to_csv(f"{args.out}_id.txt", sep="\t", header=None, index=None)
             log.info(
                 (
-                    f"Save sparse genotype data at\n"
+                    f"Saved sparse genotype data at\n"
                     f"{args.out}_genotype.npz\n"
                     f"{args.out}_locus_info.ht\n"
                     f"{args.out}_id.txt"
@@ -279,6 +279,6 @@ def run(args, log):
             except:
                 shutil.rmtree(f"{args.out}.mt")
                 raise
-            log.info(f"Save genotype data at {args.out}.mt")
+            log.info(f"Saved genotype data at {args.out}.mt")
     finally:
         clean(args.out)

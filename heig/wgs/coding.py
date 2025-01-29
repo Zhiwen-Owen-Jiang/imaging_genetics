@@ -184,7 +184,7 @@ def coding_vset_analysis(
             else:
                 numeric_idx, phred_cate = coding.parse_annot(idx)
                 if len(numeric_idx) <= 1:
-                    log.info(f"Skip {OFFICIAL_NAME[cate]} (< 2 variants).")
+                    log.info(f"Skipping {OFFICIAL_NAME[cate]} (< 2 variants).")
                     continue
                 half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(
                     numeric_idx
@@ -192,7 +192,7 @@ def coding_vset_analysis(
                 if half_ldr_score is None:
                     continue
                 if np.sum(maf * rv_sumstats.n_subs * 2) < 10:
-                    log.info(f"Skip {OFFICIAL_NAME[cate]} (< 10 cumulative MAC).")
+                    log.info(f"Skipping {OFFICIAL_NAME[cate]} (< 10 cumulative MAC).")
                     continue
                 vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)
                 log.info(
@@ -306,7 +306,7 @@ def check_input(args, log):
                 "ptv",
                 "ptv_ds",
             }:
-                log.info(f"Ingore invalid variant category {category}.")
+                log.info(f"Ingored invalid variant category {category}.")
             else:
                 variant_category.append(category)
         if len(variant_category) == 0:
@@ -356,7 +356,7 @@ def run(args, log):
         )
 
         index_file = IndexFile(f"{args.out}_result_index.txt")
-        log.info(f"Write result index file to {args.out}_result_index.txt")
+        log.info(f"Saved result index file to {args.out}_result_index.txt")
 
         for set_name, chr, start, end, cate_pvalues in all_vset_test_pvalues:
             cate_output = format_output(
@@ -383,7 +383,7 @@ def run(args, log):
                     float_format="%.5e",
                 )
                 log.info(
-                    f"Save results for {set_name} to {args.out}_{set_name}.txt"
+                    f"Saved results for {set_name} to {args.out}_{set_name}.txt"
                 )
             else:
                 log.info(f"No significant results for {set_name}.")

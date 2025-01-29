@@ -78,7 +78,7 @@ class KernelSmooth:
 
                 if score[cii] == 0:
                     score[cii] = np.nan
-                    self.logger.info(f"This bandwidth is invalid.")
+                    self.logger.info(f"The bandwidth is invalid.")
                 if score[cii] < min_score:
                     min_score = score[cii]
                     self._save_sparse_sm_weight(sparse_sm_weight, temp_path)
@@ -92,8 +92,8 @@ class KernelSmooth:
         if which_min == 0 or which_min == len(bw_list) - 1:
             self.logger.info(
                 (
-                    "WARNING: the optimal bandwidth was obtained at the boundary, "
-                    "which may not be the best one."
+                    "WARNING: the optimal bandwidth obtained at the boundary "
+                    "may not be the best one."
                 )
             )
         bw_opt = bw_list[which_min]
@@ -193,9 +193,9 @@ class LocalLinear(KernelSmooth):
         if np.mean(nonzero_weights) > self.N // 10:
             self.logger.info(
                 (
-                    f"On average, the non-zero weight for each voxel "
-                    f"are greater than {self.N // 10}. "
-                    "Skip this bandwidth."
+                    f"On average, the number of non-zero weights for each voxel "
+                    f"is greater than {self.N // 10}. "
+                    "Skipping this bandwidth."
                 )
             )
             return None
@@ -351,14 +351,14 @@ class FPCA:
             if n_ldrs > max_n_pc:
                 n_top = max_n_pc
                 self.logger.info(
-                    "WARNING: --n-ldrs is greater than the maximum #components."
+                    "WARNING: --n-ldrs is greater than the maximum number of components."
                 )
             else:
                 n_top = n_ldrs
                 if n_ldrs < int(max_n_pc / 5):
                     self.logger.info(
                         (
-                            "WARNING: --n-ldrs is less than 20% of the maximum #components. "
+                            "WARNING: --n-ldrs is less than 20% of the maximum number of components. "
                             "The number of LDRs for a proportion of variance and "
                             "the effective number of indenpendent voxels may be downward biased."
                         )
@@ -428,7 +428,7 @@ def do_fpca(sm_image_dir, subject_wise_mean, args, log):
         max_avail_n_sub = fpca.n_batches * fpca.batch_size
         log.info(
             (
-                f"The smoothed images are split into {fpca.n_batches} batch(es), "
+                f"Split the smoothed images into {fpca.n_batches} batch(es), "
                 f"with batch size {fpca.batch_size}."
             )
         )
@@ -542,13 +542,13 @@ def check_input(args, log):
             )
         )
     if args.all_pc and args.n_ldrs is not None:
-        log.info("--all-pc is ignored as --n-ldrs specified.")
+        log.info("WARNING: ignoring --all-pc as --n-ldrs has been specified.")
         args.all_pc = False
     if args.skip_smoothing:
-        log.info("Skip kernel smoothing.")
+        log.info("Skipping kernel smoothing.")
         args.bw_opt = None
     if args.bw_opt is not None and args.bw_opt <= 0:
-        raise ValueError("--bw-opt should be positive")
+        raise ValueError("--bw-opt must be positive")
 
     temp_path = os.path.join(os.path.dirname(args.out), "temp_sparse_sm_weight")
     i = np.random.choice(1000000, 1)[0]
@@ -590,9 +590,9 @@ def run(args, log):
                 "across all voxels (vertices).\n"
             )
         )
-        log.info(f"Save the top {n_top} bases to {args.out}_bases_top{n_top}.npy")
-        log.info(f"Save the eigenvalues to {args.out}_eigenvalues.npy")
-        log.info(f"Save the number of LDRs table to {args.out}_ldrs_prop_var.txt")
+        log.info(f"Saved the top {n_top} bases to {args.out}_bases_top{n_top}.npy")
+        log.info(f"Saved the eigenvalues to {args.out}_eigenvalues.npy")
+        log.info(f"Saved the number of LDRs table to {args.out}_ldrs_prop_var.txt")
 
     finally:
         if os.path.exists(f"{temp_path}.npz"):

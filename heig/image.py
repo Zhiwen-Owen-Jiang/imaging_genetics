@@ -232,7 +232,7 @@ def get_image_list(img_dirs, suffixes, log, keep_idvs=None, remove_idvs=None):
     )
     img_files_list = list(img_files.values())
     if n_dup > 0:
-        log.info(f"WARNING: {n_dup} duplicated subject(s). Keep the first one.")
+        log.info(f"WARNING: {n_dup} duplicated subject(s). Keeping the first one.")
 
     return ids, img_files_list
 
@@ -392,7 +392,7 @@ def merge_images(image_files, out_dir, log, keep_idvs=None, remove_idvs=None):
         log.info(
             (
                 f"{n_unique_sub} unique subjects in these image files. "
-                f"{n_all_sub - n_unique_sub} duplicated subject(s). Keep the first one."
+                f"{n_all_sub - n_unique_sub} duplicated subject(s). Keeping the first one."
             )
         )
         all_ids = ds.get_common_idxs(all_ids, keep_idvs)
@@ -502,7 +502,7 @@ def run(args, log):
         images.keep_and_remove(args.keep, args.remove, merge=True)
         ids = images.get_ids()
         images = np.array(images.data, dtype=np.float32)
-        log.info(f"Keep {images.shape[0]} subjects.")
+        log.info(f"Keeping {images.shape[0]} subjects.")
 
         coord = pd.read_csv(args.coord_txt, sep="\s+", header=None)
         log.info(f"Read coordinates from {args.coord_txt}")
@@ -546,4 +546,4 @@ def run(args, log):
         img_reader.create_dataset(args.coord_dir)
         img_reader.read_save_image(args.threads)
 
-    log.info(f"\nSave the images to {out_dir}")
+    log.info(f"\nSaved the images to {out_dir}")

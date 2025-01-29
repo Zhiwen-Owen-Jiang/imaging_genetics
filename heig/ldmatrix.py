@@ -358,7 +358,7 @@ def partition_genome(ld_bim, part, log):
                 log.info(
                     (
                         f"A large LD block with size {block_size}, "
-                        "evenly partition it to small blocks with size ~1000."
+                        "evenly partitioning it to small blocks with size ~1000."
                     )
                 )
                 sub_blocks = get_sub_blocks(begin, end)
@@ -380,8 +380,8 @@ def partition_genome(ld_bim, part, log):
         else:
             n_skipped_blocks += 1
     if len(num_snps_part) == 0:
-        raise ValueError("no SNP is overlapped with LD blocks")
-    log.info(f"{n_skipped_blocks} blocks with no SNP are skipped.")
+        raise ValueError("no SNP overlapped with LD blocks")
+    log.info(f"Skipping {n_skipped_blocks} blocks with no SNP.")
 
     return num_snps_part, ld_bim
 
@@ -451,7 +451,7 @@ def check_input(args):
 
 
 def read_process_snps(bim_dir, log):
-    log.info(f"Read SNP list from {bim_dir} and remove duplicated SNPs.")
+    log.info(f"Read SNP list from {bim_dir} and removed duplicated SNPs.")
     ld_bim = pd.read_csv(
         bim_dir,
         sep="\s+",
@@ -507,7 +507,7 @@ def run(args, log):
     # merging two SNP lists
     ld_merged = ld_bim.merge(ld_inv_bim, on=["SNP", "A1", "A2"])
     log.info(
-        f"{ld_merged.shape[0]} SNPs are common in two bfiles with identical A1 and A2."
+        f"{ld_merged.shape[0]} SNPs common in two bfiles with identical A1 and A2."
     )
 
     # extracting SNPs
@@ -521,10 +521,10 @@ def run(args, log):
     if args.keep is not None:
         ld_fam = read_process_idvs(ld_bfile + ".fam")
         ld_keep_idv = ld_fam.loc[args.keep]
-        log.info(f"{len(ld_keep_idv)} subjects kept in {ld_bfile}")
+        log.info(f"Keeping {len(ld_keep_idv)} subjects in {ld_bfile}")
         ld_inv_fam = read_process_idvs(ld_inv_bfile + ".fam")
         ld_inv_keep_idv = ld_inv_fam.loc[args.keep]
-        log.info(f"{len(ld_inv_keep_idv)} subjects kept in {ld_inv_bfile}")
+        log.info(f"Keeping {len(ld_inv_keep_idv)} subjects in {ld_inv_bfile}")
     else:
         ld_keep_idv, ld_inv_keep_idv = None, None
 
@@ -575,9 +575,9 @@ def run(args, log):
     )
 
     ld_prefix = ld.save(args.out, False, ld_regu)
-    log.info(f"Save LD matrix to {ld_prefix}.ldmatrix")
-    log.info(f"Save LD matrix info to {ld_prefix}.ldinfo")
+    log.info(f"Saved LD matrix to {ld_prefix}.ldmatrix")
+    log.info(f"Saved LD matrix info to {ld_prefix}.ldinfo")
 
     ld_inv_prefix = ld_inv.save(args.out, True, ld_inv_regu)
-    log.info(f"Save LD inverse matrix to {ld_inv_prefix}.ldmatrix")
-    log.info(f"Save LD inverse matrix info to {ld_inv_prefix}.ldinfo")
+    log.info(f"Saved LD inverse matrix to {ld_inv_prefix}.ldmatrix")
+    log.info(f"Saved LD inverse matrix info to {ld_inv_prefix}.ldinfo")

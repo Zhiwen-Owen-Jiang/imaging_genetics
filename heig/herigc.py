@@ -26,7 +26,7 @@ def check_input(args, log):
     if args.ld is None:
         raise ValueError("--ld is required")
     if args.overlap and args.y2_sumstats is None:
-        log.info("WARNING: ignore --overlap as --y2-sumstats is not specified.")
+        log.info("WARNING: ignoring --overlap as --y2-sumstats has not been specified.")
 
     ds.check_existence(args.y2_sumstats, ".snpinfo")
     ds.check_existence(args.y2_sumstats, ".sumstats")
@@ -917,7 +917,7 @@ def run(args, log):
             bases, ldr_cov, ldr_gwas, _ = ds.keep_ldrs(
                 args.n_ldrs, bases, ldr_cov, ldr_gwas
             )
-            log.info(f"Keep the top {args.n_ldrs} LDRs.")
+            log.info(f"Keeping the top {args.n_ldrs} LDRs.")
 
         # check numbers of LDRs are the same
         if bases.shape[1] != ldr_cov.shape[0] or bases.shape[1] != ldr_gwas.n_gwas:
@@ -950,7 +950,7 @@ def run(args, log):
         )
         log.info(
             (
-                f"{len(common_snps.common_snps)} SNPs are common in these files with identical alleles. "
+                f"{len(common_snps.common_snps)} SNPs common in these files with identical alleles. "
                 "Extracting them from each file ..."
             )
         )
@@ -981,7 +981,7 @@ def run(args, log):
                 float_format="%.5e",
                 na_rep="NA",
             )
-            log.info(f"Save the heritability results to {args.out}_heri.txt")
+            log.info(f"Saved the heritability results to {args.out}_heri.txt")
 
             if not args.heri_only:
                 mean_gene_cor, min_gene_cor, mean_gene_cor_se = heri_gc.get_gene_cor_se(
@@ -989,7 +989,7 @@ def run(args, log):
                 )
                 msg = print_results_gc(mean_gene_cor, min_gene_cor, mean_gene_cor_se)
                 log.info(f"{msg}")
-                log.info(f"Save the genetic correlation results to {args.out}_gc.h5")
+                log.info(f"Saved the genetic correlation results to {args.out}_gc.h5")
         else:
             heri_gc = TwoSample(
                 ldr_gwas,
@@ -1017,7 +1017,7 @@ def run(args, log):
                 float_format="%.5e",
                 na_rep="NA",
             )
-            log.info(f"Save the genetic correlation results to {args.out}_gc.txt")
+            log.info(f"Saved the genetic correlation results to {args.out}_gc.txt")
     finally:
         ldr_gwas.close()
         if args.y2_sumstats:

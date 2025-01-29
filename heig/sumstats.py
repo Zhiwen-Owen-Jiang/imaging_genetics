@@ -78,7 +78,7 @@ def check_input(args, log):
         if args.maf_min <= 0 or args.maf_min >= 0.5:
             raise ValueError("--maf-min must be greater than 0 and less than 0.5")
     elif args.maf_col is None and args.maf_min is not None:
-        log.info("WARNING: No --maf-col is provided. Ignore --maf-min")
+        log.info("WARNING: ignoring --maf-min as --maf-col has not been provided.")
         args.maf_min = None
     elif args.maf_col and args.maf_min is None:
         log.info("Set minimum MAF as 0.9 by default.")
@@ -86,15 +86,15 @@ def check_input(args, log):
 
     if args.info_col is not None and args.info_min is not None:
         if args.info_min <= 0 or args.info_min >= 1:
-            raise ValueError("--info-min should be between 0 and 1")
+            raise ValueError("--info-min must be between 0 and 1")
     elif args.info_col is None and args.info_min:
-        log.info("WARNING: No --info-col column is provided. Ignore --info-min")
+        log.info("WARNING: ignoring --info-min as --info-col has not been provided.")
         args.info_min = None
     elif args.info_col and args.info_min is None:
         log.info("Set minimum INFO as 0.9 by default.")
         args.info_min = 0.9
     if args.n is not None and args.n <= 0:
-        raise ValueError("--n should be greater than 0")
+        raise ValueError("--n must be greater than 0")
 
     # processing some arguments
     if args.ldr_gwas is not None:
@@ -116,9 +116,9 @@ def check_input(args, log):
             args.effect, args.null_value = args.effect_col.split(",")
             args.null_value = int(args.null_value)
         except:
-            raise ValueError("--effect-col should be specified as `BETA,0` or `OR,1`")
+            raise ValueError("--effect-col must be specified as `BETA,0` or `OR,1`")
         if args.null_value not in (0, 1):
-            raise ValueError("The null value should be 0 for BETA (log OR) or 1 for OR")
+            raise ValueError("The null value must be 0 for BETA (log OR) or 1 for OR")
     else:
         args.effect, args.null_value = None, None
 
@@ -1007,6 +1007,5 @@ def run(args, log):
         )
     sumstats.process(args.threads)
 
-    log.info(
-        f"\nSave the processed summary statistics to {args.out}.sumstats and {args.out}.snpinfo"
-    )
+    log.info(f"\nSave the processed summary statistics to {args.out}.sumstats")
+    log.info(f"Save the summary statistics information to {args.out}.snpinfo")

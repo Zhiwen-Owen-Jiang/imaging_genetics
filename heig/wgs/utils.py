@@ -366,7 +366,7 @@ class GProcessor:
         temp_dir: directory to temporarily save the MatrixTable
 
         """
-        self.logger.info(f"Save preprocessed genotype data to {temp_dir}")
+        self.logger.info(f"Saved preprocessed genotype data to {temp_dir}")
         self.snps_mt.write(temp_dir)  # slow but fair
         self.snps_mt = hl.read_matrix_table(temp_dir)
 

@@ -42,7 +42,7 @@ class NullModel:
                 self.n_ldrs = n_ldrs
                 self.resid_ldr = self.resid_ldr[:, :n_ldrs]
                 self.bases = self.bases[:, :n_ldrs]
-                self.logger.info(f"Keep the top {n_ldrs} LDRs and bases.")
+                self.logger.info(f"Keeping the top {n_ldrs} LDRs and bases.")
             else:
                 raise ValueError("--n-ldrs is greater than #LDRs in null model")
 
@@ -152,7 +152,7 @@ def run(args, log):
     else:
         n_ldrs = np.min((ldrs.data.shape[1], bases.shape[1]))
     bases, _, _, ldrs.data = ds.keep_ldrs(n_ldrs, bases, resid_ldrs=ldrs.data)
-    log.info(f"Keep the top {n_ldrs} LDRs and bases.")
+    log.info(f"Keeping the top {n_ldrs} LDRs and bases.")
     covar.data = np.array(covar.data)
     ldrs.data = np.array(ldrs.data)
 
@@ -165,4 +165,4 @@ def run(args, log):
         file.create_dataset("bases", data=bases, dtype="float32")
         file.create_dataset("id", data=np.array(ids.tolist(), dtype="S10"))
 
-    log.info(f"\nSave the null model to {args.out}_null_model.h5")
+    log.info(f"\nSaved the null model to {args.out}_null_model.h5")

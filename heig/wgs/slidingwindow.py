@@ -165,7 +165,7 @@ def vset_analysis(
             if half_ldr_score is None:
                 continue
             if np.sum(maf * rv_sumstats.n_subs * 2) < 10:
-                log.info(f"Skip {gene[0]} (< 10 cumulative MAC).")
+                log.info(f"Skipping {gene[0]} (< 10 cumulative MAC).")
                 continue
             vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)
             log.info(
@@ -190,7 +190,7 @@ def vset_analysis(
         for chr_interval, window in zip(sliding_window.chr_intervals, sliding_window.windows):
             numeric_idx, phred_cate = sliding_window.parse_annot(window)
             if len(numeric_idx) <= 1:
-                log.info(f"Skip window from {chr_interval[0]} to {chr_interval[1]} (< 2 variants).")
+                log.info(f"Skipping window from {chr_interval[0]} to {chr_interval[1]} (< 2 variants).")
                 continue
             window_i += 1
             half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(
@@ -199,7 +199,7 @@ def vset_analysis(
             if half_ldr_score is None:
                 continue
             if np.sum(maf * rv_sumstats.n_subs * 2) < 10:
-                log.info(f"Skip window (< 10 cumulative MAC).")
+                log.info(f"Skipping window (< 10 cumulative MAC).")
                 continue
             vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)
             log.info(
@@ -282,7 +282,7 @@ def run(args, log):
         )
 
         index_file = IndexFile(f"{args.out}_result_index.txt")
-        log.info(f"Write result index file to {args.out}_result_index.txt")
+        log.info(f"Saved result index file to {args.out}_result_index.txt")
 
         for set_name, chr, start, end, cate_pvalues in all_vset_test_pvalues:
             cate_output = format_output(
@@ -309,7 +309,7 @@ def run(args, log):
                     float_format="%.5e",
                 )
                 log.info(
-                    f"Save results for {set_name} to {args.out}_{set_name}.txt"
+                    f"Saved results for {set_name} to {args.out}_{set_name}.txt"
                 )
             else:
                 log.info(f"No significant results for {set_name}.")
