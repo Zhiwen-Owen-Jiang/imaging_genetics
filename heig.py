@@ -1170,13 +1170,13 @@ def process_args(args, log):
 
     if args.extract_locus is not None:
         args.extract_locus = split_files(args.extract_locus)
-        args.extract_locus = ds.read_extract(args.extract_locus, locus=True)
-        log.info(f"{len(args.extract_locus)} SNP(s) in --extract-locus (logical 'and' for multiple files).")
+        # args.extract_locus = ds.read_extract(args.extract_locus, locus=True)
+        # log.info(f"{len(args.extract_locus)} SNP(s) in --extract-locus (logical 'and' for multiple files).")
         
     if args.exclude_locus is not None:
         args.exclude_locus = split_files(args.exclude_locus)
-        args.exclude_locus = ds.read_exclude(args.exclude_locus, locus=True)
-        log.info(f"{len(args.exclude_locus)} SNP(s) in --exclude-locus (logical 'or' for multiple files).")
+        # args.exclude_locus = ds.read_exclude(args.exclude_locus, locus=True)
+        # log.info(f"{len(args.exclude_locus)} SNP(s) in --exclude-locus (logical 'or' for multiple files).")
     
     if args.bfile is not None:
         for suffix in [".bed", ".fam", ".bim"]:

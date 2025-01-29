@@ -10,7 +10,7 @@ from heig.wgs.relatedness import LOCOpreds
 from heig.wgs.vsettest import VariantSetTest
 from heig.wgs.mt import SparseGenotype
 from heig.wgs.wgs2 import RV, RVsumstats
-from heig.wgs.utils import init_hail, get_temp_path, clean
+from heig.wgs.utils import *
 
 
 """
@@ -263,6 +263,11 @@ def run(args, log):
         common_ids = ds.remove_idxs(common_ids, args.remove)
 
         # log.info(f"Processing sparse genetic data ...")
+        if args.extract_locus is not None:
+            args.extract_locus = read_extract_locus(args.extract_locus, args.grch37, log)
+        if args.exclude_locus is not None:
+            args.exclude_locus = read_exclude_locus(args.exclude_locus, args.grch37, log)
+        
         sparse_genotype.keep(common_ids)
         sparse_genotype.extract_exclude_locus(args.extract_locus, args.exclude_locus)
         sparse_genotype.extract_chr_interval(args.chr_interval)

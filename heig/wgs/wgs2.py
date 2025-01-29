@@ -283,16 +283,14 @@ class RVsumstats:
 
         Parameters:
         ------------
-        extract_locus: a pd.DataFrame of SNPs in `chr:pos` format
-        exclude_locus: a pd.DataFrame of SNPs in `chr:pos` format
+        extract_locus: a hail.Table of locus
+        exclude_locus: a hail.Table of locus
 
         """
         if extract_locus is not None:
-            extract_locus = parse_locus(extract_locus["locus"], self.geno_ref)
-            self.locus = self.locus.filter(extract_locus.contains(self.locus.locus))
+            self.locus = self.locus.filter(hl.is_defined(extract_locus[self.locus.locus]))
         if exclude_locus is not None:
-            exclude_locus = parse_locus(exclude_locus["locus"], self.geno_ref)
-            self.locus = self.locus.filter(~exclude_locus.contains(self.locus.locus))
+            self.locus = self.locus.filter(~hl.is_defined(exclude_locus[self.locus.locus]))
 
     def extract_chr_interval(self, chr_interval=None):
         """
@@ -480,6 +478,11 @@ def run(args, log):
         common_ids = ds.remove_idxs(common_ids, args.remove)
 
         # log.info(f"Processing sparse genetic data ...")
+        if args.extract_locus is not None:
+            args.extract_locus = read_extract_locus(args.extract_locus, args.grch37, log)
+        if args.exclude_locus is not None:
+            args.exclude_locus = read_exclude_locus(args.exclude_locus, args.grch37, log)
+
         sparse_genotype.keep(common_ids)
         sparse_genotype.extract_exclude_locus(args.extract_locus, args.exclude_locus)
         sparse_genotype.extract_chr_interval(args.chr_interval)

@@ -477,14 +477,12 @@ def read_extract(extract_files, locus=False):
         else:
             keep_snps_ = keep_snps_.merge(keep_snps)
 
-    if keep_snps_ is None:
-        raise ValueError("no variants in --extract(-locus)")
+    if keep_snps_ is None or len(keep_snps_) == 0:
+        raise ValueError("no variants are common in --extract")
     if not pd.api.types.is_object_dtype(keep_snps_[data_type]):
         raise TypeError(
-            "invalid variants in --extract(-locus). Did you input other data in the first column?"
+            "invalid variants in --extract. Did you input other data in the first column?"
         )
-    if len(keep_snps_) == 0:
-        raise ValueError("no variants are common in --extract(-locus)")
 
     return keep_snps_
 
@@ -503,13 +501,15 @@ def read_exclude(exclude_files, locus=False):
 
     Returns:
     ---------
-    exclude_snp_: pd.DataFrame of common SNPs
+    exclude_snp_: pd.DataFrame of SNPs
 
     """
     if locus:
         data_type = "locus"
     else:
         data_type = "SNP"
+
+    exclude_snps_ = None
     for i, exclude_file in enumerate(exclude_files):
         if os.path.getsize(exclude_file) == 0:
             continue
@@ -526,14 +526,15 @@ def read_exclude(exclude_files, locus=False):
             exclude_snps_ = exclude_snps.copy()
         else:
             exclude_snps_ = pd.concat([exclude_snps_, exclude_snps], axis=0)
+    
+    if exclude_snps_ is None or len(exclude_snps_) == 0:
+        raise ValueError("no variants in --exclude")
 
     exclude_snps_ = exclude_snps_.drop_duplicates()
     if not pd.api.types.is_object_dtype(exclude_snps_[data_type]):
         raise TypeError(
-            "invalid variants in --exclude(-locus). Did you input other data in the first column?"
+            "invalid variants in --exclude. Did you input other data in the first column?"
         )
-    if len(exclude_snps_) == 0:
-        raise ValueError("no variants in --exclude(-locus)")
 
     return exclude_snps_
 

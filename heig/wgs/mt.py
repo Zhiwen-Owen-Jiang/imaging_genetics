@@ -41,6 +41,11 @@ def check_input(args, log):
                 "very slow. Convert the bfile or vcf into mt first."
             )
         )
+    if (
+        (args.extract is not None or args.exclude is not None) and 
+        (args.extract_locus is not None or args.exclude_locus is not None)
+    ):
+        raise ValueError("--extract/--exclude cannot be used with --extract-locus/--exclude-locus")
 
 
 def prepare_vset(snps_mt, variant_type):
@@ -131,16 +136,14 @@ class SparseGenotype:
 
         Parameters:
         ------------
-        extract_locus: a pd.DataFrame of SNPs in `chr:pos` format
-        exclude_locus: a pd.DataFrame of SNPs in `chr:pos` format
+        extract_locus: a hail.Table of locus
+        exclude_locus: a hail.Table of locus
 
         """
         if extract_locus is not None:
-            extract_locus = parse_locus(extract_locus["locus"], self.geno_ref)
-            self.locus = self.locus.filter(extract_locus.contains(self.locus.locus))
+            self.locus = self.locus.filter(hl.is_defined(extract_locus[self.locus.locus]))
         if exclude_locus is not None:
-            exclude_locus = parse_locus(exclude_locus["locus"], self.geno_ref)
-            self.locus = self.locus.filter(~exclude_locus.contains(self.locus.locus))
+            self.locus = self.locus.filter(~hl.is_defined(exclude_locus[self.locus.locus]))
 
     def extract_chr_interval(self, chr_interval=None):
         """
@@ -229,6 +232,11 @@ def run(args, log):
     check_input(args, log)
     try:
         init_hail(args.spark_conf, args.grch37, args.out, log)
+        
+        if args.extract_locus is not None:
+            args.extract_locus = read_extract_locus(args.extract_locus, args.grch37, log)
+        if args.exclude_locus is not None:
+            args.exclude_locus = read_exclude_locus(args.exclude_locus, args.grch37, log)
 
         # read genotype data
         gprocessor = read_genotype_data(args, log)

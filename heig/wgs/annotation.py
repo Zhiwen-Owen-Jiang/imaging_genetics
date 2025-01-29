@@ -54,7 +54,7 @@ class Annotation:
         Parsing variants
 
         """
-        variant_column = self.annot.row.keys()[0]
+        variant_column = list(self.annot.row)[0]
         parsed_variant = hl.parse_variant(
             self.annot[variant_column], reference_genome=self.geno_ref
         )
@@ -78,16 +78,14 @@ class Annotation:
 
         Parameters:
         ------------
-        extract_locus: a pd.DataFrame of SNPs in `chr:pos` format
-        exclude_locus: a pd.DataFrame of SNPs in `chr:pos` format
+        extract_locus: a hail.Table of locus
+        exclude_locus: a hail.Table of locus
 
         """
         if extract_locus is not None:
-            extract_locus = parse_locus(extract_locus["locus"], self.geno_ref)
-            self.annot = self.annot.filter(extract_locus.contains(self.annot.locus))
+            self.annot = self.annot.filter(hl.is_defined(extract_locus[self.annot.locus]))
         if exclude_locus is not None:
-            exclude_locus = parse_locus(exclude_locus["locus"], self.geno_ref)
-            self.annot = self.annot.filter(~exclude_locus.contains(self.annot.locus))
+            self.annot = self.annot.filter(~hl.is_defined(exclude_locus[self.annot.locus]))
 
     def extract_by_interval(self, chr_interval=None):
         """
@@ -237,6 +235,11 @@ def run(args, log):
     check_input(args, log)
     try:
         init_hail(args.spark_conf, args.grch37, args.out, log)
+        
+        if args.extract_locus is not None:
+            args.extract_locus = read_extract_locus(args.extract_locus, args.grch37, log)
+        if args.exclude_locus is not None:
+            args.exclude_locus = read_exclude_locus(args.exclude_locus, args.grch37, log)
 
         # read annotation and preprocess
         if args.favor_annot is not None:

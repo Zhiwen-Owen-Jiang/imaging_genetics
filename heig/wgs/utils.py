@@ -21,7 +21,9 @@ __all__ = [
     "read_genotype_data",
     "format_output",
     "clean",
-    "IndexFile"
+    "IndexFile",
+    "read_extract_locus",
+    "read_exclude_locus"
 ]
 
 
@@ -521,6 +523,12 @@ class GProcessor:
         exclude_variants: a pd.DataFrame of SNPs
 
         """
+        if 'rsid' not in self.snps_mt.row:
+            raise AttributeError(
+                ('rsid does not exist in the genotype data, '
+                 'try to use --extract-locus/--exclude-locus')
+            )
+
         if extract_variants is not None:
             extract_variants = hl.literal(set(extract_variants["SNP"]))
             self.snps_mt = self.snps_mt.filter_rows(
@@ -539,21 +547,14 @@ class GProcessor:
 
         Parameters:
         ------------
-        extract_locus: a pd.DataFrame of SNPs in `chr:pos` format
-        exclude_locus: a pd.DataFrame of SNPs in `chr:pos` format
+        extract_locus: a hail.Table of locus
+        exclude_locus: a hail.Table of locus
 
         """
         if extract_locus is not None:
-            extract_locus = parse_locus(extract_locus["locus"], self.geno_ref)
-            self.snps_mt = self.snps_mt.filter_rows(
-                extract_locus.contains(self.snps_mt.locus)
-            )
-
+            self.snps_mt = self.snps_mt.filter_rows(hl.is_defined(extract_locus[self.snps_mt.locus]))
         if exclude_locus is not None:
-            exclude_locus = parse_locus(exclude_locus["locus"], self.geno_ref)
-            self.snps_mt = self.snps_mt.filter_rows(
-                ~exclude_locus.contains(self.snps_mt.locus)
-            )
+            self.snps_mt = self.snps_mt.filter_rows(~hl.is_defined(exclude_locus[self.snps_mt.locus]))
 
     def extract_chr_interval(self, chr_interval=None):
         """
@@ -706,22 +707,114 @@ def get_temp_path(outpath):
     return temp_path
 
 
-def parse_locus(variant_list, geno_ref):
+# def parse_locus(variant_list, geno_ref):
+#     """
+#     Parsing locus from a list of string
+
+#     """
+#     variant_list = list(variant_list)
+#     if variant_list[0].count(":") != 1:
+#         raise ValueError("variant must be in `chr:pos` format")
+
+#     parsed_variants = [
+#         hl.parse_locus(v, reference_genome=geno_ref) for v in variant_list
+#     ]
+
+#     variant_set = hl.literal(set(parsed_variants))
+
+#     return variant_set
+
+
+def parse_locus(extract_locus, temp_dir, geno_ref):
     """
-    Parsing locus from a list of string
+    Parsing locus from a pd.DataFrame of string
+    
+    """
+    extract_locus.to_csv(temp_dir + '_locus.txt', header=None, index=None)
+    extract_locus = hl.read_table(extract_locus, no_header=True)
+    extract_locus = extract_locus.annotate(
+        locus=hl.parse_locus(extract_locus['f0'], reference_genome=geno_ref)
+    )
+    extract_locus = extract_locus.key_by("locus")
+
+
+def read_extract_locus(extract_files, grch37, log):
+    """
+    Extracting variants from multiple files
+    All files are confirmed to exist
+    Empty files are skipped without error/warning
+    Error out if no common variants exist
+
+    Parameters:
+    ------------
+    extract_files: a list of tab/white-delimited files
+    grch37: 
+
+    Returns:
+    ---------
+    keep_snp_: a hail.Table of common SNPs
 
     """
-    variant_list = list(variant_list)
-    if variant_list[0].count(":") != 1:
-        raise ValueError("variant must be in `chr:pos` format")
+    geno_ref = "GRCh37" if grch37 else "GRCh38"
+    keep_snps_ = None
+    for i, extract_file in enumerate(extract_files):
+        if os.path.getsize(extract_file) == 0:
+            continue
+        ht = hl.import_table(extract_file, no_header=True, delimiter='\s+')
+        ht = ht.annotate(
+            locus=hl.parse_locus(ht['f0'], reference_genome=geno_ref)
+        )
+        ht = ht.key_by("locus")
+        if i == 0:
+            keep_snps_ = ht
+        else:
+            keep_snps_ = keep_snps_.filter(hl.is_defined(ht[keep_snps_.locus]))
 
-    parsed_variants = [
-        hl.parse_locus(v, reference_genome=geno_ref) for v in variant_list
-    ]
+    if keep_snps_ is None or keep_snps_.count() == 0:
+        raise ValueError("no variants are common in --extract-locus")
 
-    variant_set = hl.literal(set(parsed_variants))
+    log.info(f"{keep_snps_.count()} variant(s) in --extract-locus (logical 'and' for multiple files).")
 
-    return variant_set
+    return keep_snps_
+
+
+def read_exclude_locus(exclude_files, grch37, log):
+    """
+    Excluding SNPs from multiple files
+    All files are confirmed to exist
+    Empty files are skipped without error/warning
+    Error out if no SNPs exist
+
+    Parameters:
+    ------------
+    exclude_files: a list of tab/white-delimited files
+
+    Returns:
+    ---------
+    keep_snp_: pd.DataFrame of common SNPs
+
+    """
+    geno_ref = "GRCh37" if grch37 else "GRCh38"
+    exclude_snps_ = None
+    for i, exclude_file in enumerate(exclude_files):
+        if os.path.getsize(exclude_file) == 0:
+            continue
+        ht = hl.import_table(exclude_file, no_header=True, delimiter='\s+')
+        ht = ht.annotate(
+            locus=hl.parse_locus(ht['f0'], reference_genome=geno_ref)
+        )
+        ht = ht.key_by("locus")
+        if i == 0:
+            exclude_snps_ = ht
+        else:
+            exclude_snps_ = exclude_snps_.union(ht)
+
+    if exclude_snps_ is None or exclude_snps_.count() == 0:
+        raise ValueError("no variants in --extract-locus")
+    
+    log.info(f"{exclude_snps_.count()} variant(s) in --exclude-locus (logical 'or' for multiple files).")
+
+    return exclude_snps_
 
 
 def format_output(cate_pvalues, voxels, staar_only, sig_thresh):

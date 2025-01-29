@@ -248,6 +248,11 @@ def run(args, log):
     try:
         init_hail(args.spark_conf, args.grch37, args.out, log)
 
+        if args.extract_locus is not None:
+            args.extract_locus = read_extract_locus(args.extract_locus, args.grch37, log)
+        if args.exclude_locus is not None:
+            args.exclude_locus = read_exclude_locus(args.exclude_locus, args.grch37, log)
+
         # reading data and selecting voxels and LDRs
         log.info(f"Read rare variant summary statistics from {args.rv_sumstats}")
         rv_sumstats = RVsumstats(args.rv_sumstats)
