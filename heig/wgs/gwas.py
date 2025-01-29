@@ -127,22 +127,25 @@ class DoGWAS:
         self.temp_path = temp_path
         self.loco_preds = loco_preds
         self.logger = logging.getLogger(__name__)
+        self.n_variants = self.gprocessor.snps_mt.count_rows()
 
         covar_table = pandas_to_table(self.covar, f"{temp_path}_covar")
         self.gprocessor.annotate_cols(covar_table, "covar")
 
         if self.loco_preds is None:
             self.logger.info(
-                f"Doing GWAS for {self.n_ldrs} LDRs without relatedness ..."
+                (f"Doing GWAS for {self.n_variants} variants "
+                 f"and {self.n_ldrs} LDRs without relatedness ...")
             )
             ldrs_table = pandas_to_table(self.ldrs * rand_v, f"{temp_path}_ldr")
             self.gprocessor.annotate_cols(ldrs_table, "ldrs")
             self.gwas = self.do_gwas(self.gprocessor.snps_mt)
         else:
             self.logger.info(
-                f"Doing GWAS for {self.n_ldrs} LDRs considering relatedness ..."
+                (f"Doing GWAS for {self.n_variants} variants "
+                 f"and {self.n_ldrs} LDRs considering relatedness ...")
             )
-            unique_chrs = sorted(gprocessor.extract_unique_chrs())  # slow
+            unique_chrs = sorted(self.gprocessor.extract_unique_chrs())  # slow
             self.gwas = []
             for chr in unique_chrs:
                 chr_mt = self._extract_chr(chr)
@@ -334,6 +337,7 @@ def run(args, log):
 
         # gwas
         temp_path = get_temp_path(args.out)
+        gprocessor.cache()
         gwas = DoGWAS(gprocessor, ldrs.data, covar.data, temp_path, loco_preds)
 
         # save gwas results

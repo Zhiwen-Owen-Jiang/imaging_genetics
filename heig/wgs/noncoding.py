@@ -107,15 +107,16 @@ class UpDown(Noncoding):
 class UTR(Noncoding):
     def __init__(self, annot, variant_type, type):
         super().__init__(annot, variant_type, type)
-        self.annot = self.annot.annotate(utr=self.genecode_info.split(r'\(')[0])
-        self.gencode_category = self.annot.annot[
-            Annotation_name_catalog["GENCODE.Category"]
-        ]
+        # self.annot = self.annot.annotate(utr=self.genecode_info.split(r'(')[0])
+        # self.gencode_category = self.annot.annot[
+        #     Annotation_name_catalog["GENCODE.Category"]
+        # ]
         set1 = hl.literal({"UTR3", "UTR5", "UTR5;UTR3"})
         self.variant_idx1 = set1.contains(self.gencode_category)
 
     def extract_variants(self, gene):
-        variant_idx2 = self.annot.utr == gene
+        # variant_idx2 = self.annot.utr == gene
+        variant_idx2 = self.genecode_info.startswith(gene)
 
         return self.variant_idx1 & variant_idx2
 
@@ -171,7 +172,7 @@ class NcRNA(Noncoding):
         self.variant_idx1 = set1.contains(self.gencode_category)
 
     def extract_variants(self, gene):
-        variant_idx2 = self.annot.ncrna == gene
+        variant_idx2 = self.annot.ncrna.contains(gene)
 
         return self.variant_idx1 & variant_idx2
 
