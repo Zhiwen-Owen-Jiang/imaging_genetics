@@ -125,8 +125,8 @@ def process_args(args):
     try:
         args.voxel = np.array([int(voxel) - 1 for voxel in ds.parse_input(args.voxel)])
     except ValueError:
-        ds.check_existence(args.voxel)
-        args.voxel = ds.read_voxel(args.voxel)
+        ds.check_existence(args.voxel[0])
+        args.voxel = ds.read_voxel(args.voxel[0])
     if np.min(args.voxel) <= -1:
         raise ValueError("voxel index must be one-based")
 
@@ -147,5 +147,9 @@ class Test_process_args(unittest.TestCase):
         assert_array_equal(np.array([1, 2]), args.voxel)
 
         args = Args(voxel="2,3")
+        process_args(args)
+        assert_array_equal(np.array([1, 2]), args.voxel)
+
+        args = Args(voxel="abc")
         with self.assertRaises(FileNotFoundError):
             process_args(args)

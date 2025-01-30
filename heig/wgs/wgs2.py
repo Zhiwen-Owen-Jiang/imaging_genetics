@@ -264,7 +264,7 @@ class RVsumstats:
                 self.bases = self.bases[:, :n_ldrs]
                 self.half_ldr_score = self.half_ldr_score[:, :n_ldrs]
                 self.inner_ldr = self.inner_ldr[:n_ldrs, :n_ldrs]
-                self.logger.info(f"Keep the top {n_ldrs} LDRs.")
+                self.logger.info(f"Keeping the top {n_ldrs} LDRs.")
             else:
                 raise ValueError("--n-ldrs is greater than #LDRs")
 
@@ -275,7 +275,7 @@ class RVsumstats:
                 self.bases = self.bases[voxel_idxs]
                 self.logger.info(f"{len(voxel_idxs)} voxels included.")
             else:
-                raise ValueError("--voxel index (one-based) out of range")
+                raise ValueError("--voxels index (one-based) out of range")
 
     def extract_exclude_locus(self, extract_locus, exclude_locus):
         """
@@ -520,7 +520,7 @@ def run(args, log):
 
         log.info(
             (
-                f"Save summary statistics to\n"
+                f"Saved summary statistics to\n"
                 f"{args.out}_rv_sumstats.h5\n"
                 f"{args.out}_locus_info.ht"
             )

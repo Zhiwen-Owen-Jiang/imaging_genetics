@@ -1,13 +1,13 @@
 # Highly Efficient Imaging Genetics (HEIG)
-HEIG is a comprehensive toolbox for efficiently conducting joint analysis for large-scale imaging and genetic data, which includes Representation learning-based Voxel-level Genetic Analysis (RVGA). Compared to traditional voxel-level GWAS methods, RVGA reduces computational time and storage burden by over 200 times, significantly boosts statistical power in association analysis, and most importantly, defines the standard to share the voxel-level GWAS summary statistics to the community. 
+HEIG is a comprehensive toolbox for efficiently conducting joint analysis for large-scale imaging and genetic data, which includes Representation learning-based Voxel-level Genetic Analysis (RVGA) and Representation learning-based Voxel-level Rare Variant Analysis (RVRVA). Compared to traditional voxel-level GWAS methods, RVGA reduces computational time and storage burden by over 200 times, significantly boosts statistical power in association analysis, and most importantly, defines the standard to share the voxel-level GWAS summary statistics to the community. 
 
 The analyses incorporated in HEIG:
 - Voxelwise genome-wide association analysis (VGWAS), including effcient GWAS for high-dimensional non-imaging phenotypes
 - Voxelwise heritability analysis
 - Genetic correlation analysis for pairs of voxels
 - Cross-trait genetic correlation between voxels and non-imaging phenotypes
-- Correction for sample relatedness across voxels (coming soon!)
-- Voxelwise rare-variant analysis (coming soon!)
+- Correction for sample relatedness across voxels
+- Voxelwise rare variant analysis (coding and non-coding variants with various variant categories)
 
 ## Version
 - [v1.0.0](https://github.com/Zhiwen-Owen-Jiang/heig/releases/tag/v1.0.0): initial version of HEIG.

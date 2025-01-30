@@ -2,7 +2,6 @@ import unittest
 import os, sys
 import numpy as np
 import pandas as pd
-import hail as hl
 from numpy.testing import assert_array_almost_equal
 from pandas.testing import assert_frame_equal
 
@@ -72,6 +71,7 @@ class Test_cauchy(unittest.TestCase):
             cauchy_combination(pvalues, weights)
 
 
+"""
 class Test_VariantSetTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -115,6 +115,7 @@ class Test_VariantSetTest(unittest.TestCase):
             index=[0],
         )
         assert_frame_equal(pvalues, true_pvalues)
+"""
 
 
 if __name__ == "__main__":

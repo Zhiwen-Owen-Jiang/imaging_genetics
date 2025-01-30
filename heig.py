@@ -11,7 +11,7 @@ from heig.utils import GetLogger, sec_to_str
 # os.environ['NUMEXPR_MAX_THREADS'] = '8'
 # numexpr.set_num_threads(int(os.environ['NUMEXPR_MAX_THREADS']))
 
-VERSION = "1.2.1"
+VERSION = "1.3.0"
 MASTHEAD = (
     "******************************************************************************\n"
 )
@@ -1188,8 +1188,8 @@ def process_args(args, log):
                 [int(voxel) - 1 for voxel in ds.parse_input(args.voxels)]
             )
         except ValueError:
-            ds.check_existence(args.voxels)
-            args.voxels = ds.read_voxel(args.voxels)
+            ds.check_existence(args.voxels[0])
+            args.voxels = ds.read_voxel(args.voxels[0])
         if np.min(args.voxels) <= -1:
             raise ValueError("voxel index must be one-based")
     
