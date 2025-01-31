@@ -3,6 +3,7 @@ import logging
 import numpy as np
 import hail as hl
 import heig.input.dataset as ds
+from concurrent.futures import ThreadPoolExecutor
 from heig.wgs.relatedness import LOCOpreds
 from heig.wgs.null import NullModel
 from heig.wgs.utils import *
@@ -50,15 +51,14 @@ class RV:
         self.maf = maf
         self.is_rare = is_rare
 
-        # extract chr
-        chr = self.locus.aggregate(hl.agg.take(self.locus.locus.contig, 1)[0])
-        if locus.locus.dtype.reference_genome.name == "GRCh38":
-            chr = int(chr.replace("chr", ""))
-        else:
-            chr = int(chr)
-
         # adjust for relatedness
         if loco_preds is not None:
+            # extract chr
+            chr = self.locus.aggregate(hl.agg.take(self.locus.locus.contig, 1)[0])
+            if locus.locus.dtype.reference_genome.name == "GRCh38":
+                chr = int(chr.replace("chr", ""))
+            else:
+                chr = int(chr)
             self.resid_ldr = (
                 resid_ldr - loco_preds.data_reader(chr)
             ) * rand_v  # (I-M)\Xi, (n, r)
@@ -78,7 +78,7 @@ class RV:
         self.bases = bases.astype(np.float32)
         self.n_subs, self.n_covars = covar.shape
 
-    def sumstats(self, vset, bandwidth=5000):
+    def sumstats(self, vset, bandwidth=500000, threads=1):
         """
         Computing and writing summary statistics for rare variants
 
@@ -95,65 +95,68 @@ class RV:
         self.half_ldr_score = vset @ self.resid_ldr  # Z'(I-M)\Xi, (m, r)
 
         # Z'Z
-        self.banded_vset_ld = self._sparse_banded(
-            vset, bandwidth
-        )  # Z'Z, sparse matrix (m, m)
-        self.bandwidth = bandwidth
+        # self.banded_vset_ld = self._sparse_banded(
+        #     vset, bandwidth
+        # )  # Z'Z, sparse matrix (m, m)
+        # self.bandwidth = bandwidth
+
+        positions = np.array(self.locus.locus.position.collect())
+        self.ld = SparseBandedLD(vset, positions, bandwidth, threads) # Z'Z, sparse matrix (m, m)
 
         # Z'X(X'X)^{-1/2} = Z'UV', where X = UDV'
         self.vset_half_covar_proj = vset @ self.half_covar_proj  # Z'UV', (m, p)
 
-    @staticmethod
-    def _sparse_banded(vset, bandwidth):
-        """
-        Create a sparse banded LD matrix by blocks
+    # @staticmethod
+    # def _sparse_banded(vset, bandwidth):
+    #     """
+    #     Create a sparse banded LD matrix by blocks
 
-        1. Computing a LD rectangle of shape (bandwidth, 2bandwidth)
-        2. Extracting the upper band of bandwidth
-        3. Moving to the next rectangle
+    #     1. Computing a LD rectangle of shape (bandwidth, 2bandwidth)
+    #     2. Extracting the upper band of bandwidth
+    #     3. Moving to the next rectangle
 
-        Parameters:
-        ------------
-        vset (m, n): csr_matrix
-        bandwidth (int): bandwidth around the diagonal to retain.
+    #     Parameters:
+    #     ------------
+    #     vset (m, n): csr_matrix
+    #     bandwidth (int): bandwidth around the diagonal to retain.
 
-        Returns:
-        ---------
-        banded_matrix: Sparse banded matrix.
+    #     Returns:
+    #     ---------
+    #     banded_matrix: Sparse banded matrix.
 
-        """
-        diagonal_data = list()
-        banded_data = list()
-        banded_row = list()
-        banded_col = list()
-        n_variants = vset.shape[0]
+    #     """
+    #     diagonal_data = list()
+    #     banded_data = list()
+    #     banded_row = list()
+    #     banded_col = list()
+    #     n_variants = vset.shape[0]
 
-        for start in range(0, n_variants, bandwidth):
-            end1 = start + bandwidth
-            end2 = end1 + bandwidth
-            vset_block1 = vset[start:end1].astype(np.uint16)
-            vset_block2 = vset[start:end2].astype(np.uint16)
-            ld_rec = vset_block1 @ vset_block2.T
-            ld_rec_row, ld_rec_col = ld_rec.nonzero()
-            ld_rec_row += start
-            ld_rec_col += start
-            ld_rec_data = ld_rec.data
+    #     for start in range(0, n_variants, bandwidth):
+    #         end1 = start + bandwidth
+    #         end2 = end1 + bandwidth
+    #         vset_block1 = vset[start:end1].astype(np.uint16)
+    #         vset_block2 = vset[start:end2].astype(np.uint16)
+    #         ld_rec = vset_block1 @ vset_block2.T
+    #         ld_rec_row, ld_rec_col = ld_rec.nonzero()
+    #         ld_rec_row += start
+    #         ld_rec_col += start
+    #         ld_rec_data = ld_rec.data
 
-            diagonal_data.append(ld_rec_data[ld_rec_row == ld_rec_col])
-            mask = (np.abs(ld_rec_row - ld_rec_col) <= bandwidth) & (
-                ld_rec_col > ld_rec_row
-            )
-            banded_row.append(ld_rec_row[mask])
-            banded_col.append(ld_rec_col[mask])
-            banded_data.append(ld_rec_data[mask])
+    #         diagonal_data.append(ld_rec_data[ld_rec_row == ld_rec_col])
+    #         mask = (np.abs(ld_rec_row - ld_rec_col) <= bandwidth) & (
+    #             ld_rec_col > ld_rec_row
+    #         )
+    #         banded_row.append(ld_rec_row[mask])
+    #         banded_col.append(ld_rec_col[mask])
+    #         banded_data.append(ld_rec_data[mask])
 
-        diagonal_data = np.concatenate(diagonal_data)
-        banded_row = np.concatenate(banded_row)
-        banded_col = np.concatenate(banded_col)
-        banded_data = np.concatenate(banded_data)
-        shape = np.array([n_variants, n_variants])
+    #     diagonal_data = np.concatenate(diagonal_data)
+    #     banded_row = np.concatenate(banded_row)
+    #     banded_col = np.concatenate(banded_col)
+    #     banded_data = np.concatenate(banded_data)
+    #     shape = np.array([n_variants, n_variants])
 
-        return diagonal_data, banded_data, banded_row, banded_col, shape
+    #     return diagonal_data, banded_data, banded_row, banded_col, shape
 
     def save(self, output_dir):
         """
@@ -172,19 +175,145 @@ class RV:
                 "vset_half_covar_proj", data=self.vset_half_covar_proj, dtype="float32"
             )
             file.create_dataset(
-                "vset_ld_diag", data=self.banded_vset_ld[0], dtype="uint16"
+                "vset_ld_diag", data=self.ld.data[0], dtype="uint16"
             )
             file.create_dataset(
-                "vset_ld_data", data=self.banded_vset_ld[1], dtype="uint16"
+                "vset_ld_data", data=self.ld.data[1], dtype="uint16"
             )
-            file.create_dataset("vset_ld_row", data=self.banded_vset_ld[2], dtype="int32")
-            file.create_dataset("vset_ld_col", data=self.banded_vset_ld[3], dtype="int32")
-            file.create_dataset("vset_ld_shape", data=self.banded_vset_ld[4], dtype="int32")
+            file.create_dataset("vset_ld_row", data=self.ld.data[2], dtype="int32")
+            file.create_dataset("vset_ld_col", data=self.ld.data[3], dtype="int32")
+            file.create_dataset("vset_ld_shape", data=self.ld.data[4], dtype="int32")
+            file.create_dataset("block_size", data=self.ld.block_size, dtype="int32")
             file.attrs["n_subs"] = self.n_subs
             file.attrs["n_covars"] = self.n_covars
             file.attrs["n_variants"] = self.n_variants
-            file.attrs["bandwidth"] = self.bandwidth
+            file.attrs["bandwidth"] = self.ld.bandwidth
         self.locus.write(f"{output_dir}_locus_info.ht", overwrite=True)
+
+
+class SparseBandedLD:
+    def __init__(self, vset, positions, bandwidth, threads=1):
+        self.vset = vset
+        self.positions = positions
+        self.bandwidth = bandwidth
+        self.threads = threads
+        self.block_size = self._get_block_size()
+        self.blocks = self._get_blocks()
+        self.data = self._sparse_banded()
+
+    @staticmethod
+    def _find_loc(positions, target):
+        """
+        Find index for a specific position, considering potential duplicates in positions 
+        
+        """
+        l = 0
+        r = len(positions) - 1
+        while l <= r:
+            mid = (l + r) // 2
+            if positions[mid] > target:
+                r = mid - 1
+            else:
+                l = mid + 1
+        return l
+
+    def _get_block_size(self):
+        """
+        For each variant, get the number of variants in the block starting with the variant
+        
+        """
+        block_size = list()
+        for start_idx, start in enumerate(self.positions):
+            end_idx = self._find_loc(self.positions, start + self.bandwidth)
+            block_size.append(end_idx - start_idx)
+        block_size.append(0)
+        return block_size
+
+    def _get_blocks(self):
+        """
+        Get the shape of data (nrows, ncols) needed to calculate each block 
+        
+        """
+        blocks = list()
+        start = 0
+        for i in range(len(self.block_size) - 1):
+            if i == len(self.block_size) - 2 or self.block_size[i] <= self.block_size[i+1]:
+                # blocks.append((i - start + 1, self.block_size[start]))
+                blocks.append((start, i - start + 1, self.block_size[start]))
+                start = i + 1
+        return blocks
+    
+    def _sparse_banded(self):
+        """
+        Create a sparse banded LD matrix by blocks
+
+        """
+        diagonal_data = list()
+        banded_data = list()
+        banded_row = list()
+        banded_col = list()
+        n_variants = self.vset.shape[0]
+        # start = 0
+
+        with ThreadPoolExecutor(max_workers=self.threads) as executor:
+            results = executor.map(lambda block: self._process_block(block), self.blocks)
+            
+        for diagonal, row, col, banded in results:
+            diagonal_data.append(diagonal)
+            banded_row.append(row)
+            banded_col.append(col)
+            banded_data.append(banded)
+
+        # for block in self.blocks:
+        #     start = block[0]
+        #     end1 = start + block[1]
+        #     end2 = start + block[2]
+        #     vset_block1 = self.vset[start:end1].astype(np.uint16)
+        #     vset_block2 = self.vset[start:end2].astype(np.uint16)
+        #     ld_rec = vset_block1 @ vset_block2.T
+        #     ld_rec_row, ld_rec_col = ld_rec.nonzero()
+        #     ld_rec_row += start
+        #     ld_rec_col += start
+        #     ld_rec_data = ld_rec.data
+        #     # start = end1
+
+        #     diagonal_data.append(ld_rec_data[ld_rec_row == ld_rec_col])
+        #     mask = ld_rec_col > ld_rec_row
+            
+        #     banded_row.append(ld_rec_row[mask])
+        #     banded_col.append(ld_rec_col[mask])
+        #     banded_data.append(ld_rec_data[mask])
+
+        diagonal_data = np.concatenate(diagonal_data)
+        banded_row = np.concatenate(banded_row)
+        banded_col = np.concatenate(banded_col)
+        banded_data = np.concatenate(banded_data)
+        shape = np.array([n_variants, n_variants])
+        
+        if len(diagonal_data) != n_variants:
+            raise ValueError('0 is not allowed in the diagonal of LD matrix')
+
+        return diagonal_data, banded_data, banded_row, banded_col, shape
+    
+    def _process_block(self, block):
+        start = block[0]
+        end1 = start + block[1]
+        end2 = start + block[2]
+        vset_block1 = self.vset[start:end1].astype(np.uint16)
+        vset_block2 = self.vset[start:end2].astype(np.uint16)
+        ld_rec = vset_block1 @ vset_block2.T
+        ld_rec_row, ld_rec_col = ld_rec.nonzero()
+        ld_rec_row += start
+        ld_rec_col += start
+        ld_rec_data = ld_rec.data
+
+        diagonal_data = ld_rec_data[ld_rec_row == ld_rec_col]
+        mask = ld_rec_col > ld_rec_row
+        banded_row = ld_rec_row[mask]
+        banded_col = ld_rec_col[mask]
+        banded_data = ld_rec_data[mask]
+
+        return diagonal_data, banded_row, banded_col, banded_data
 
 
 class RVsumstats:
@@ -206,6 +335,7 @@ class RVsumstats:
             self.inner_ldr = file["inner_ldr"][:]  # (r, r)
             self.half_ldr_score = file["half_ldr_score"][:]
             self.vset_half_covar_proj = file["vset_half_covar_proj"][:]
+            self.block_size = file["block_size"][:]
             self.n_variants = file.attrs["n_variants"]
             self.n_subs = file.attrs["n_subs"]
             self.n_covars = file.attrs["n_covars"]
@@ -347,8 +477,8 @@ class RVsumstats:
         is_rare: a np.array of boolean indices indicating MAC < mac_threshold
 
         """
-        if max(numeric_idx) - min(numeric_idx) > self.bandwidth:
-            # raise ValueError("the variant set has exceeded the bandwidth of LD matrix")
+        # if max(numeric_idx) - min(numeric_idx) > self.bandwidth:
+        if numeric_idx[-1] - numeric_idx[0] >= self.block_size[numeric_idx[0]]:
             self.logger.info("WARNING: the variant set has exceeded the bandwidth of LD matrix.")
             return None, None, None, None
         half_ldr_score = np.array(self.half_ldr_score[numeric_idx])
@@ -430,8 +560,8 @@ def check_input(args, log):
         raise ValueError("--mac-thresh must be greater than 0")
 
     if args.bandwidth is None:
-        args.bandwidth = 5000
-        log.info("Set --bandwidth as default 5000")
+        args.bandwidth = 500000
+        log.info("Set --bandwidth as default 500000 (500 kb)")
     elif args.bandwidth <= 1:
         raise ValueError("--bandwidth must be greater than 1")
 
@@ -515,7 +645,7 @@ def run(args, log):
             is_rare,
             loco_preds,
         )
-        process_wgs.sumstats(vset, args.bandwidth)
+        process_wgs.sumstats(vset, args.bandwidth, args.threads)
         process_wgs.save(args.out)
 
         log.info(

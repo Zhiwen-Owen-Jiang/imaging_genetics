@@ -980,6 +980,7 @@ def check_accepted_args(module, args, log):
             "grch37",
             "loco_preds",
             "spark_conf",
+            "threads"
         },
         "rv_annot":{
             "rv_annot",
