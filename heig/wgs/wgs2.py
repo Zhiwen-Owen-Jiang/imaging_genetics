@@ -526,7 +526,7 @@ def extract_chr_interval(locus, gene_name, chr_interval, geno_ref, log):
     n_variants = locus.count()
 
     if n_variants <= 1:
-        log.info(f"\nSkip gene {gene_name} (< 2 variants).")
+        log.info(f"\nSkipping gene {gene_name} (< 2 variants).")
         return None
     else:
         log.info(
