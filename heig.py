@@ -353,7 +353,7 @@ common_parser.add_argument(
 common_parser.add_argument(
     "--voxels", "--voxel",
     help=(
-        "one-based index of voxel or a file containing voxels. "
+        "One-based index of voxel or a file containing voxels. "
         "Supported modules: --voxel-gwas, --rv-coding, --rv-noncoding, --rv."
     ),
 )
@@ -393,7 +393,7 @@ common_parser.add_argument(
     "--not-save-genotype-data",
     action="store_true",
     help=(
-        "Do not save preprocessed genotype data (Deprecated)."
+        "Not saving preprocessed genotype data (Deprecated)."
     ),
 )
 common_parser.add_argument(
@@ -441,9 +441,17 @@ common_parser.add_argument(
     ),
 )
 common_parser.add_argument(
+    "--rv-sumstats-part1",
     "--rv-sumstats",
     help=(
-        "Prefix of rare variant summary statistics. "
+        "Prefix of rare variants summary statistics (part1) specific to images. "
+        "Supported modules: --rv-coding, --rv-noncoding, --rv."
+    )
+)
+common_parser.add_argument(
+    "--rv-sumstats-part2",
+    help=(
+        "Prefix of rare variants summary statistics (part1) not specific to images. "
         "Supported modules: --rv-coding, --rv-noncoding, --rv."
     )
 )
@@ -492,7 +500,7 @@ common_parser.add_argument(
     "--staar-only",
     action="store_true",
     help=(
-        "Save STAAR-O results only, the omnibus test aggregating all "
+        "Saving STAAR-O results only, the omnibus test aggregating all "
         "methods and functional annotations. "
         "Supported modules: --rv-coding, --rv-noncoding, --rv."
     )
@@ -610,7 +618,7 @@ fpca_parser.add_argument(
     "--skip-smoothing",
     action='store_true',
     help=(
-        "Skip kernel smoothing. "
+        "Skipping kernel smoothing. "
     ),
 )
 
@@ -692,7 +700,7 @@ make_mt_parser.add_argument(
 )
 make_mt_parser.add_argument(
     "--save-sparse-genotype", action="store_true", 
-    help="Save sparse genotype for rare variant analysis."
+    help="Saving sparse genotype for rare variant analysis."
 )
 make_mt_parser.add_argument(
     "--vcf",
@@ -701,7 +709,7 @@ make_mt_parser.add_argument(
 make_mt_parser.add_argument(
     "--skip-qc",
     action="store_true",
-    help="Skip QC genotype data."
+    help="Skipping QC genotype data."
 )
 
 # arguments for annotation.py
@@ -748,6 +756,11 @@ rv_sumstats_parser.add_argument(
 rv_sumstats_parser.add_argument(
     "--sparse-genotype",
     help="Prefix of sparse genotype data."
+)
+rv_sumstats_parser.add_argument(
+    "--make-part2",
+    action="store_true",
+    help="Generating rare variants summary statistics (part2) not specific to images."
 )
 
 # arguments for slidingwindow.py
@@ -979,6 +992,7 @@ def check_accepted_args(module, args, log):
             "exclude_locus",
             "grch37",
             "loco_preds",
+            "make_part2",
             "spark_conf",
             "threads"
         },
@@ -994,7 +1008,8 @@ def check_accepted_args(module, args, log):
         "rv_coding":{
             "rv_coding",
             "out",
-            "rv_sumstats",
+            "rv_sumstats_part1",
+            "rv_sumstats_part2",
             "variant_category",
             "variant_sets",
             "extract_locus",
@@ -1011,7 +1026,8 @@ def check_accepted_args(module, args, log):
         "rv_noncoding":{
             "rv_noncoding",
             "out",
-            "rv_sumstats",
+            "rv_sumstats_part1",
+            "rv_sumstats_part2",
             "variant_category",
             "variant_sets",
             "extract_locus",
@@ -1028,7 +1044,8 @@ def check_accepted_args(module, args, log):
         "rv":{
             "rv",
             "out",
-            "rv_sumstats",
+            "rv_sumstats_part1",
+            "rv_sumstats_part2",
             "extract_locus",
             "exclude_locus",
             "chr_interval",
@@ -1134,8 +1151,9 @@ def process_args(args, log):
     ds.check_existence(args.spark_conf)
     ds.check_existence(args.loco_preds)
     ds.check_existence(args.geno_mt)
-    ds.check_existence(args.rv_sumstats, "_rv_sumstats.h5")
-    ds.check_existence(args.rv_sumstats, "_locus_info.ht")
+    ds.check_existence(args.rv_sumstats_part1, "_rv_sumstats.h5")
+    ds.check_existence(args.rv_sumstats_part2, "_data.h5")
+    ds.check_existence(args.rv_sumstats_part2, "_locus_info.ht")
     ds.check_existence(args.annot_ht)
     ds.check_existence(args.variant_sets)
 

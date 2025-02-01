@@ -271,8 +271,10 @@ def process_missense(m_pvalues, dm_pvalues):
 
 def check_input(args, log):
     # required arguments
-    if args.rv_sumstats is None:
-        raise ValueError("--rv-sumstats is required")
+    if args.rv_sumstats_part1 is None:
+        raise ValueError("--rv-sumstats-part1 is required")
+    if args.rv_sumstats_part2 is None:
+        raise ValueError("--rv-sumstats-part2 is required")
     if args.spark_conf is None:
         raise ValueError("--spark-conf is required")
     if args.annot_ht is None:
@@ -332,8 +334,9 @@ def run(args, log):
             args.exclude_locus = read_exclude_locus(args.exclude_locus, args.grch37, log)
 
         # reading data and selecting voxels and LDRs
-        log.info(f"Read rare variant summary statistics from {args.rv_sumstats}")
-        rv_sumstats = RVsumstats(args.rv_sumstats)
+        log.info((f"Read rare variant summary statistics from "
+                  f"{args.rv_sumstats_part1} and {args.rv_sumstats_part2}"))
+        rv_sumstats = RVsumstats(args.rv_sumstats_part1, args.rv_sumstats_part2)
         rv_sumstats.extract_exclude_locus(args.extract_locus, args.exclude_locus)
         rv_sumstats.extract_chr_interval(args.chr_interval)
         rv_sumstats.select_ldrs(args.n_ldrs)
