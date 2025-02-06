@@ -54,9 +54,11 @@ class RVcluster:
             null_model, 
             vset, 
             locus, 
-            maf, 
-            is_rare, 
+            maf,
+            mac,
             sig_thresh=2.5e-6, 
+            mac_thresh=10,
+            cmac_min=2,
             threads=1,
             loco_preds=None
         ):
@@ -68,8 +70,10 @@ class RVcluster:
         locus: hail.Table including locus, maf, is_rare, grch37, variant_type,
                 chr, start, and end
         maf: a np.array of MAF
-        is_rare: a np.array of boolean indices indicating MAC <= mac_threshold
+        mac: a np.array of MAC
         sig_thresh: significant threshold
+        mac_thresh: a MAC threshold to denote ultrarare variants for ACAT-V
+        cmac_min: the minimal cumulative MAC for a variant set
         threads: number of threads
         loco_preds: a LOCOpreds instance of loco predictions
             loco_preds.data_reader(j) returns loco preds for chrj with matched subjects
@@ -80,8 +84,10 @@ class RVcluster:
         self.vset = vset
         self.locus = locus
         self.maf = maf
-        self.is_rare = is_rare
+        self.mac = mac
         self.sig_thresh = sig_thresh
+        self.mac_thresh = mac_thresh
+        self.cmac_min = cmac_min
         self.threads = threads
         self.n_variants, self.n_subs = self.vset.shape
         self.n_covars = self.null_model.covar.shape[1]
@@ -177,12 +183,12 @@ class RVcluster:
         
         """
         vset_test = VariantSetTest(self.bases, self.var)
-        half_ldr_score, cov_mat, maf, is_rare = self._parse_data(
+        half_ldr_score, cov_mat, maf, mac = self._parse_data(
             numeric_idx
         )
-        if half_ldr_score is None or np.sum(maf * self.n_subs * 2) < 10:
+        if half_ldr_score is None or np.sum(mac) < self.cmac_min:
             return None
-
+        is_rare = mac < self.mac_thresh
         vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, None)
         pvalues = vset_test.do_inference()
         cluster_size = (pvalues["STAAR-O"] < self.sig_thresh).sum()
@@ -201,9 +207,9 @@ class RVcluster:
         vset_ld = self.vset_ld[numeric_idx][:, numeric_idx]
         cov_mat = np.array((vset_ld - vset_half_covar_proj @ vset_half_covar_proj.T))
         maf = self.maf[numeric_idx]
-        is_rare = self.is_rare[numeric_idx]
-
-        return half_ldr_score, cov_mat, maf, is_rare
+        mac = self.mac[numeric_idx]
+        
+        return half_ldr_score, cov_mat, maf, mac
         
     def _partition_genome(self):
         """
@@ -223,9 +229,9 @@ class RVcluster:
         n_variants = len(self.block_size) - 1
         left = 0
         while left < n_variants:
-            if self.block_size[left] > 10:
+            if self.block_size[left] > 2:
                 max_interval_len = min(30, self.block_size[left])
-                right = left + np.random.choice(list(range(10, max_interval_len)), 1)[0]
+                right = left + np.random.choice(list(range(2, max_interval_len)), 1)[0]
                 numeric_idx_list.append(list(range(left, min(right, n_variants))))
                 left = right + 10
             else:
@@ -264,6 +270,9 @@ def check_input(args, log):
     if args.sig_thresh is None:
         args.sig_thresh = 2.5e-6
         log.info("Set significance threshold as 2.5e-6")
+    if args.cmac_min is None:
+        args.cmac_min = 2
+        log.info(f"Set --cmac-min as default 2")
 
 
 def run(args, log):
@@ -336,7 +345,6 @@ def run(args, log):
             loco_preds = None
 
         vset, locus, maf, mac = sparse_genotype.parse_data()
-        is_rare = mac < args.mac_thresh
         log.info(f"Using {vset.shape[0]} variants in wild bootstrap ...")
 
         # wild bootstrap
@@ -346,8 +354,10 @@ def run(args, log):
             vset, 
             locus, 
             maf, 
-            is_rare, 
+            mac, 
             args.sig_thresh, 
+            args.mac_thresh,
+            args.cmac_min,
             args.threads, 
             loco_preds
         )

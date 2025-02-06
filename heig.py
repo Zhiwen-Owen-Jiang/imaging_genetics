@@ -544,6 +544,14 @@ common_parser.add_argument(
         "Supported modules: --cluster, --rv-cluster."
     )
 )
+common_parser.add_argument(
+    "--cmac-min",
+    type=int,
+    help=(
+        "The minimal of cumulative MAC in a variant set. "
+        "Supported modules: --rv-coding, --rv-noncoding, --rv, --rv-cluster."
+    )
+)
 
 # arguments for herigc.py
 herigc_parser.add_argument(
@@ -1038,6 +1046,7 @@ def check_accepted_args(module, args, log):
             "voxels",
             "annot_ht",
             "staar_only",
+            "cmac_min",
             "sig_thresh"
         },
         "rv_noncoding":{
@@ -1059,6 +1068,7 @@ def check_accepted_args(module, args, log):
             "voxels",
             "annot_ht",
             "staar_only",
+            "cmac_min",
             "sig_thresh"
         },
         "rv":{
@@ -1082,6 +1092,7 @@ def check_accepted_args(module, args, log):
             "window_length",
             "sliding_length",
             "staar_only",
+            "cmac_min",
             "sig_thresh"
         },
         "cluster":{
@@ -1133,6 +1144,7 @@ def check_accepted_args(module, args, log):
             "chr_interval",
             "mac_thresh",
             "loco_preds",
+            "cmac_min",
             "threads"
         }
     }
@@ -1237,8 +1249,11 @@ def process_args(args, log):
         if np.min(args.voxels) <= -1:
             raise ValueError("voxel index must be one-based")
     
-    if args.sig_thresh is not None and (args.sig_thresh <= 0 or args.sig_thresh >= 1):
-        raise ValueError("--sig-thresh should be greater than 0 and less than 1")
+    if args.sig_thresh is not None:
+        if args.sig_thresh <= 0 or args.sig_thresh >= 1:
+            raise ValueError("--sig-thresh should be greater than 0 and less than 1")
+        else:
+            log.info(f"Saving results with a p-value less than {args.sig_thresh}")
 
     if args.maf_min is not None:
         if args.maf_min >= 0.5 or args.maf_min < 0:
@@ -1264,6 +1279,9 @@ def process_args(args, log):
     
     if args.variant_sets is not None:
         args.variant_sets = ds.read_variant_sets(args.variant_sets)
+
+    if args.cmac_min is not None and args.cmac_min <= 1:
+        raise ValueError("--cmac-min must be greater than 1")
         
 
 def main(args, log):

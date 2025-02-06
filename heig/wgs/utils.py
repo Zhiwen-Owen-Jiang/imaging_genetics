@@ -840,7 +840,8 @@ def format_output(cate_pvalues, voxels, staar_only, sig_thresh):
             {
                 "INDEX": voxels + 1, 
                 "MASK": mask, 
-                "N_VARIANTS": cate_results["n_variants"]
+                "N_VARIANTS": cate_results["n_variants"],
+                "CMAC": cate_results["cMAC"]
             }
         )
         if staar_only:

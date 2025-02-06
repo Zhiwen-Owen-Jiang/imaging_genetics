@@ -310,8 +310,6 @@ def check_input(args, log):
         raise ValueError("--ldr-cov is required")
 
     # optional arguments
-    if args.sig_thresh is not None and (args.sig_thresh <= 0 or args.sig_thresh >= 1):
-        raise ValueError("--sig-thresh must be greater than 0 and less than 1")
     if (
         args.chr_interval is None
         and args.voxels is None

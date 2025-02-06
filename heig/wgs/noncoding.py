@@ -185,7 +185,15 @@ def read_promG(geno_ref):
 
 
 def noncoding_vset_analysis(
-    rv_sumstats, annot, variant_sets, variant_type, vset_test, variant_category, mac_thresh, log
+    rv_sumstats, 
+    annot, 
+    variant_sets, 
+    variant_type, 
+    vset_test, 
+    variant_category, 
+    mac_thresh, 
+    cmac_min, 
+    log
 ):
     """
     Single noncoding variant set analysis
@@ -201,6 +209,7 @@ def noncoding_vset_analysis(
         one of ('all', 'upstream', 'downstream', 'promoter_cage', 'promoter_dhs',
         'enhancer_cage', 'enhancer_dhs', 'ncrna')
     mac_thresh: a MAC threshold to denote ultrarare variants for ACAT-V
+    cmac_min: the minimal cumulative MAC for a variant set
     log: a logger
 
     Returns:
@@ -250,19 +259,25 @@ def noncoding_vset_analysis(
             if len(numeric_idx) <= 1:
                 log.info(f"Skipping {OFFICIAL_NAME[category]} (< 2 variants).")
                 continue
-            half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(numeric_idx, mac_thresh)
+            half_ldr_score, cov_mat, maf, mac = rv_sumstats.parse_data(numeric_idx)
             if half_ldr_score is None:
                 continue
-            if np.sum(maf * rv_sumstats.n_subs * 2) < 10:
-                log.info(f"Skipping {OFFICIAL_NAME[category]} (< 10 total MAC).")
+            cmac = np.sum(mac)
+            if cmac < cmac_min:
+                log.info(f"Skipping {OFFICIAL_NAME[category]} (< {cmac_min} total MAC).")
                 continue
+            is_rare = mac < mac_thresh
             vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)
             log.info(
-                f"Doing analysis for {OFFICIAL_NAME[category]} ({vset_test.n_variants} variants) ..."
+                (
+                    f"Doing analysis for {OFFICIAL_NAME[category]} "
+                    f"({vset_test.n_variants} variants, {cmac} alleles) ..."
+                )
             )
             pvalues = vset_test.do_inference(category_class.annot_name)
             cate_pvalues[category] = {
                 "n_variants": vset_test.n_variants,
+                "cMAC": cmac,
                 "pvalues": pvalues,
             }
 
@@ -285,14 +300,16 @@ def check_input(args, log):
 
     if args.staar_only:
         log.info("Saving STAAR-O results only.")
-    if args.sig_thresh is not None:
-        log.info(f"Saving results with a p-value less than {args.sig_thresh}")
     
     if args.mac_thresh is None:
         args.mac_thresh = 10
         log.info(f"Set --mac-thresh as default 10")
     elif args.mac_thresh < 0:
         raise ValueError("--mac-thresh must be greater than 0")
+    
+    if args.cmac_min is None:
+        args.cmac_min = 2
+        log.info(f"Set --cmac-min as default 2")
 
     if args.variant_category is None:
         variant_category = ["all"]
@@ -358,6 +375,7 @@ def run(args, log):
             vset_test,
             variant_category,
             args.mac_thresh,
+            args.cmac_min,
             log,
         )
         

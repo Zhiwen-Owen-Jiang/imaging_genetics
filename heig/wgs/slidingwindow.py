@@ -122,6 +122,7 @@ def vset_analysis(
         window_length, 
         sliding_length,
         mac_thresh,
+        cmac_min,
         log
     ):
     """
@@ -138,6 +139,7 @@ def vset_analysis(
     window_length: window length
     sliding_length: silding length
     mac_thresh: a MAC threshold to denote ultrarare variants for ACAT-V
+    cmac_min: the minimal cumulative MAC for a variant set
     log: a logger
 
     Returns:
@@ -161,21 +163,27 @@ def vset_analysis(
 
             # individual analysis
             numeric_idx, phred_cate = general_annot.parse_annot()
-            half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(
-                numeric_idx, mac_thresh
+            half_ldr_score, cov_mat, maf, mac = rv_sumstats.parse_data(
+                numeric_idx
             )
             if half_ldr_score is None:
                 continue
-            if np.sum(maf * rv_sumstats.n_subs * 2) < 10:
-                log.info(f"Skipping {gene[0]} (< 10 cumulative MAC).")
+            cmac = np.sum(mac)
+            if np.sum(cmac) < cmac_min:
+                log.info(f"Skipping {gene[0]} (< {cmac_min} cumulative MAC).")
                 continue
+            is_rare = mac < mac_thresh
             vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)
             log.info(
-                f"Doing analysis for {gene[0]} ({vset_test.n_variants} variants) ..."
+                (
+                    f"Doing analysis for {gene[0]} "
+                    f"({vset_test.n_variants} variants, {cmac} alleles) ..."
+                )
             )
             pvalues = vset_test.do_inference(general_annot.annot_cols)
             all_pvalues[gene[0]] = {
                 "n_variants": vset_test.n_variants,
+                "cMAC": cmac,
                 "pvalues": pvalues,
             }
             
@@ -195,21 +203,27 @@ def vset_analysis(
                 log.info(f"Skipping window from {chr_interval[0]} to {chr_interval[1]} (< 2 variants).")
                 continue
             window_i += 1
-            half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(
-                numeric_idx, mac_thresh
+            half_ldr_score, cov_mat, maf, mac = rv_sumstats.parse_data(
+                numeric_idx
             )
             if half_ldr_score is None:
                 continue
-            if np.sum(maf * rv_sumstats.n_subs * 2) < 10:
+            cmac = np.sum(mac)
+            if np.sum(cmac) < 10:
                 log.info(f"Skipping window (< 10 cumulative MAC).")
                 continue
+            is_rare = mac < mac_thresh
             vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)
             log.info(
-                f"Doing analysis for window{window_i} ({vset_test.n_variants} variants) ..."
+                (
+                    f"Doing analysis for window{window_i} "
+                    f"({vset_test.n_variants} variants, {cmac} alleles) ..."
+                )
             )
             pvalues = vset_test.do_inference(sliding_window.annot_cols)
             all_pvalues[f"window{window_i}"] = {
                 "n_variants": vset_test.n_variants,
+                "cMAC": cmac,
                 "pvalues": pvalues,
             }
             
@@ -236,20 +250,23 @@ def check_input(args, log):
         raise ValueError("--window-length must be greater than 1")
     if args.sliding_length is not None and args.sliding_length < 1:
         raise ValueError("--sliding-length must be greater than 0")
+
     if args.window_length is not None and args.sliding_length is None:
         args.sliding_length = args.window_length // 2
         log.info(f"Set sliding length as {args.sliding_length}.")
     
     if args.staar_only:
         log.info("Saving STAAR-O results only.")
-    if args.sig_thresh is not None:
-        log.info(f"Saving results with a p-value less than {args.sig_thresh}")
 
     if args.mac_thresh is None:
         args.mac_thresh = 10
         log.info(f"Set --mac-thresh as default 10")
     elif args.mac_thresh < 0:
         raise ValueError("--mac-thresh must be greater than 0")
+    
+    if args.cmac_min is None:
+        args.cmac_min = 2
+        log.info(f"Set --cmac-min as default 2")
 
 
 def run(args, log):
@@ -291,6 +308,7 @@ def run(args, log):
             args.window_length,
             args.sliding_length,
             args.mac_thresh,
+            args.cmac_min,
             log
         )
 

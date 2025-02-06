@@ -403,7 +403,7 @@ class RVsumstats:
         self.locus = self.locus.cache()
         return self.locus
 
-    def parse_data(self, numeric_idx, mac_thresh=10):
+    def parse_data(self, numeric_idx):
         """
         Parsing data for analysis
 
@@ -411,14 +411,13 @@ class RVsumstats:
         ------------
         numeric_idx: a list of numeric indices,
         which are collected from `idx` in self.locus after filtering by annotations.
-        mac_thresh: a MAC threshold to denote ultrarare variants for ACAT-V
 
         Returns:
         ---------
         half_ldr_score: Z'(I-M)\Xi
         cov_mat: Z'(I-M)Z
         maf: a np.array of MAF
-        is_rare: a np.array of boolean indices indicating MAC < mac_threshold
+        mac: a np.array of MAC
 
         """
         # if max(numeric_idx) - min(numeric_idx) > self.bandwidth:
@@ -431,9 +430,9 @@ class RVsumstats:
         cov_mat = np.array((vset_ld - vset_half_covar_proj @ vset_half_covar_proj.T))
         maf = self.maf[numeric_idx]
         mac = self.mac[numeric_idx]
-        is_rare = mac < mac_thresh
+        # is_rare = mac < mac_thresh
 
-        return half_ldr_score, cov_mat, maf, is_rare
+        return half_ldr_score, cov_mat, maf, mac
 
 
 def get_interval(locus):
