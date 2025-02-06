@@ -373,15 +373,23 @@ class RVsumstats:
             )
             self.locus = self.locus.filter(interval.contains(self.locus.locus))
 
-    # def extract_maf(self, maf_min=None, maf_max=None):
-    #     """
-    #     Extracting variants by MAF
+    def extract_maf(self, maf_min=None, maf_max=None):
+        """
+        Extracting variants by MAF
 
-    #     """
-    #     if maf_min is not None:
-    #         self.locus = self.locus.filter(self.locus.maf > maf_min)
-    #     if maf_max is not None:
-    #         self.locus = self.locus.filter(self.locus.maf <= maf_max)
+        """
+        if maf_min is not None:
+            variant_idx = np.arange(len(self.maf))
+            keep_variant_idx = set(variant_idx[self.maf > maf_min])
+            self.locus = self.locus.filter(
+                hl.literal(keep_variant_idx).contains(self.locus.idx)
+            )
+        if maf_max is not None:
+            variant_idx = np.arange(len(self.maf))
+            keep_variant_idx = set(variant_idx[self.maf <= maf_max])
+            self.locus = self.locus.filter(
+                hl.literal(keep_variant_idx).contains(self.locus.idx)
+            )
 
     def annotate(self, annot):
         """
@@ -491,8 +499,8 @@ def check_input(args, log):
             log.info(f"Set --maf-max as default 0.01")
 
     if args.bandwidth is None:
-        args.bandwidth = 500000
-        log.info("Set --bandwidth as default 500000 (500 kb)")
+        args.bandwidth = 3000000
+        log.info("Set --bandwidth as default 3000000 (3 MB)")
     elif args.bandwidth <= 1:
         raise ValueError("--bandwidth must be greater than 1")
 
