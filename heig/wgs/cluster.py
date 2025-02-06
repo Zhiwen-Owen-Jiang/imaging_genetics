@@ -340,7 +340,7 @@ def run(args, log):
 
         if args.voxels is not None:
             if np.max(args.voxels) + 1 <= bases.shape[0] and np.min(args.voxels) >= 0:
-                log.info(f"{len(args.voxels)} voxels included.")
+                log.info(f"{len(args.voxels)} voxel(s) included.")
             else:
                 raise ValueError("--voxels index (one-based) out of range")
         else:

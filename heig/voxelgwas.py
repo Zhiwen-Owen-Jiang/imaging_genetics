@@ -393,7 +393,7 @@ def run(args, log):
         outpath = args.out
         if args.voxels is not None:
             if np.max(args.voxels) + 1 <= bases.shape[0] and np.min(args.voxels) >= 0:
-                log.info(f"{len(args.voxels)} voxels included.")
+                log.info(f"{len(args.voxels)} voxel(s) included.")
             else:
                 raise ValueError("--voxels index (one-based) out of range")
         else:
@@ -445,7 +445,7 @@ def run(args, log):
 
         for voxel_idxs in tqdm(
             voxel_reader(np.sum(snp_idxs), args.voxels),
-            desc=f"Doing GWAS for {len(args.voxels)} voxels in batch",
+            desc=f"Doing GWAS for {len(args.voxels)} voxel(s) in batch",
         ):
             voxel_beta = vgwas.recover_beta(voxel_idxs, args.threads)
             voxel_se = vgwas.recover_se(voxel_idxs, voxel_beta)

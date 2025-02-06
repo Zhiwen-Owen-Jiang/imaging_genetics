@@ -51,7 +51,7 @@ class NullModel:
             if np.max(voxel_idxs) < self.n_voxels:
                 self.voxel_idxs = voxel_idxs
                 self.bases = self.bases[voxel_idxs]
-                self.logger.info(f"{len(voxel_idxs)} voxels included.")
+                self.logger.info(f"{len(voxel_idxs)} voxel(s) included.")
             else:
                 raise ValueError("--voxels index (one-based) out of range")
 

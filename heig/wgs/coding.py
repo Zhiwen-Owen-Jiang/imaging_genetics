@@ -13,7 +13,7 @@ OFFICIAL_NAME = {
     "disruptive_missense": "disruptive missense variants",
     "plof_ds": "pLoF variants with deleterious score",
     "ptv": "protein truncating variants (PTV)",
-    "ptv_ds": "PTV with eleterious score",
+    "ptv_ds": "PTV with deleterious score",
 }
 
 
