@@ -121,6 +121,7 @@ def vset_analysis(
         annot_cols, 
         window_length, 
         sliding_length,
+        mac_thresh,
         log
     ):
     """
@@ -136,6 +137,7 @@ def vset_analysis(
     annot_cols: a list of columns of annotations to use
     window_length: window length
     sliding_length: silding length
+    mac_thresh: a MAC threshold to denote ultrarare variants for ACAT-V
     log: a logger
 
     Returns:
@@ -160,7 +162,7 @@ def vset_analysis(
             # individual analysis
             numeric_idx, phred_cate = general_annot.parse_annot()
             half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(
-                numeric_idx
+                numeric_idx, mac_thresh
             )
             if half_ldr_score is None:
                 continue
@@ -194,7 +196,7 @@ def vset_analysis(
                 continue
             window_i += 1
             half_ldr_score, cov_mat, maf, is_rare = rv_sumstats.parse_data(
-                numeric_idx
+                numeric_idx, mac_thresh
             )
             if half_ldr_score is None:
                 continue
@@ -243,6 +245,12 @@ def check_input(args, log):
     if args.sig_thresh is not None:
         log.info(f"Saving results with a p-value less than {args.sig_thresh}")
 
+    if args.mac_thresh is None:
+        args.mac_thresh = 10
+        log.info(f"Set --mac-thresh as default 10")
+    elif args.mac_thresh < 0:
+        raise ValueError("--mac-thresh must be greater than 0")
+
 
 def run(args, log):
     # checking if input is valid
@@ -281,6 +289,7 @@ def run(args, log):
             args.annot_cols, 
             args.window_length,
             args.sliding_length,
+            args.mac_thresh,
             log
         )
 

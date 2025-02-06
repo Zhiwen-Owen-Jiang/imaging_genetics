@@ -505,6 +505,17 @@ common_parser.add_argument(
         "Supported modules: --rv-coding, --rv-noncoding, --rv."
     )
 )
+common_parser.add_argument(
+    "--mac-thresh",
+    type=int,
+    help=(
+        "A minor allele count threshold. "
+        "Variants with a MAC less than the threshold "
+        "will be marked as a super rare variants in ACAT-V analysis. "
+        "Default: 10. "
+        "Supported modules: --rv-coding, --rv-noncoding, --rv, --rv-cluster."
+    ),
+)
 
 # arguments for herigc.py
 herigc_parser.add_argument(
@@ -744,16 +755,6 @@ rv_sumstats_parser.add_argument(
     help="Bandwidth of banded LD matrix. Default: 5000."
 )
 rv_sumstats_parser.add_argument(
-    "--mac-thresh",
-    type=int,
-    help=(
-        "A minor allele count threshold. "
-        "Variants with a MAC less than the threshold "
-        "will be marked as a super rare variants in ACAT-V analysis. "
-        "Default: 10."
-    ),
-)
-rv_sumstats_parser.add_argument(
     "--sparse-genotype",
     help="Prefix of sparse genotype data."
 )
@@ -982,7 +983,6 @@ def check_accepted_args(module, args, log):
             "maf_min",
             "hwe",
             "call_rate",
-            "mac_thresh",
             "chr_interval",
             "bandwidth",
             "n_ldrs",
@@ -1015,6 +1015,7 @@ def check_accepted_args(module, args, log):
             "extract_locus",
             "exclude_locus",
             "chr_interval",
+            "mac_thresh",
             "spark_conf",
             "grch37",
             "n_ldrs",
@@ -1033,6 +1034,7 @@ def check_accepted_args(module, args, log):
             "extract_locus",
             "exclude_locus",
             "chr_interval",
+            "mac_thresh",
             "spark_conf",
             "grch37",
             "n_ldrs",
@@ -1049,6 +1051,7 @@ def check_accepted_args(module, args, log):
             "extract_locus",
             "exclude_locus",
             "chr_interval",
+            "mac_thresh",
             "spark_conf",
             "variant_sets",
             "grch37",
@@ -1107,6 +1110,7 @@ def check_accepted_args(module, args, log):
             "maf_max",
             "mac_thresh",
             "chr_interval",
+            "mac_thresh",
             "loco_preds",
             "threads"
         }
@@ -1197,9 +1201,9 @@ def process_args(args, log):
         # args.exclude_locus = ds.read_exclude(args.exclude_locus, locus=True)
         # log.info(f"{len(args.exclude_locus)} SNP(s) in --exclude-locus (logical 'or' for multiple files).")
     
-    if args.bfile is not None:
-        for suffix in [".bed", ".fam", ".bim"]:
-            ds.check_existence(args.bfile, suffix)
+    # if args.bfile is not None:
+    #     for suffix in [".bed", ".fam", ".bim"]:
+    #         ds.check_existence(args.bfile, suffix)
 
     if args.voxels is not None:
         try:
@@ -1207,8 +1211,8 @@ def process_args(args, log):
                 [int(voxel) - 1 for voxel in ds.parse_input(args.voxels)]
             )
         except ValueError:
-            ds.check_existence(args.voxels[0])
-            args.voxels = ds.read_voxel(args.voxels[0])
+            ds.check_existence(args.voxels)
+            args.voxels = ds.read_voxel(args.voxels)
         if np.min(args.voxels) <= -1:
             raise ValueError("voxel index must be one-based")
     

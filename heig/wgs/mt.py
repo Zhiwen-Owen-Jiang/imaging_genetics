@@ -108,7 +108,7 @@ class SparseGenotype:
 
     """
 
-    def __init__(self, prefix, mac_thresh):
+    def __init__(self, prefix):
         """ "
         vset (m, n): csr_matrix
         locus: a hail.Table of locus info
@@ -121,7 +121,7 @@ class SparseGenotype:
             f"{prefix}_id.txt", sep="\t", header=None, dtype={0: object, 1: object}
         )
         self.ids = self.ids.rename({0: "FID", 1: "IID"}, axis=1)
-        self.mac_thresh = mac_thresh
+        # self.mac_thresh = mac_thresh
 
         self.locus = self.locus.add_index("idx")
         self.geno_ref = self.locus.reference_genome.collect()[0]
@@ -222,10 +222,10 @@ class SparseGenotype:
         common_variant_idxs = np.array(common_variant_idxs)
         vset = self.vset[common_variant_idxs]
         maf = self.maf[common_variant_idxs]
-        is_rare = self.mac[common_variant_idxs] < self.mac_thresh
-        # mac = self.mac[common_variant_idxs]
+        # is_rare = self.mac[common_variant_idxs] < self.mac_thresh
+        mac = self.mac[common_variant_idxs]
 
-        return vset, locus, maf, is_rare
+        return vset, locus, maf, mac
 
 
 def run(args, log):

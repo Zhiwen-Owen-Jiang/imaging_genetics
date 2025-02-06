@@ -335,7 +335,8 @@ def run(args, log):
         else:
             loco_preds = None
 
-        vset, locus, maf, is_rare = sparse_genotype.parse_data()
+        vset, locus, maf, mac = sparse_genotype.parse_data()
+        is_rare = mac < args.mac_thresh
         log.info(f"Using {vset.shape[0]} variants in wild bootstrap ...")
 
         # wild bootstrap

@@ -67,16 +67,16 @@ def get_rv_sumstats_part1(bases, resid_ldr, locus, vset, out_dir, loco_preds=Non
         file.attrs["n_variants"] = n_variants
 
 
-def get_rv_sumstats_part2(locus, maf, is_rare, covar, vset, bandwidth, threads, out_dir):
+def get_rv_sumstats_part2(locus, maf, mac, covar, vset, bandwidth, threads, out_dir):
     """
     Generating rare variants summary statistics (part2) not specific to images
 
     Parameters:
     ------------
     locus: a hail.Table including locus, grch37, variant_type
-    maf: (N, r) np.array, functional bases
-    is_rare: (n, r) np.array, LDR residuals
-    covar: (n, p) np.array, the same as those used to do projection
+    maf: (m, ) np.array, minor allele frequency
+    mac: (N, r) np.array, minor allele count
+    covar: (n, p) np.array, covariates
     vset: (m, n) csr_matrix of genotype
     bandwidth: bandwidth of the banded LD matrix
     threads: number of threads
@@ -98,7 +98,8 @@ def get_rv_sumstats_part2(locus, maf, is_rare, covar, vset, bandwidth, threads, 
 
     with h5py.File(f"{out_dir}_part2_data.h5", "w") as file:
         file.create_dataset("maf", data=maf, dtype="float32")
-        file.create_dataset("is_rare", data=is_rare)
+        file.create_dataset("mac", data=mac, dtype="float32")
+        # file.create_dataset("is_rare", data=is_rare)
         file.create_dataset(
             "vset_half_covar_proj", data=vset_half_covar_proj, dtype="float32"
         )
@@ -247,7 +248,7 @@ class SparseBandedLD:
 
 class RVsumstats:
     """
-    Reading and processing WGS summary statistics for analysis
+    Reading and processing rare variant summary statistics for analysis
 
     """
 
@@ -264,7 +265,7 @@ class RVsumstats:
             
         with h5py.File(f"{part2_prefix}_data.h5", "r") as file:
             self.maf = file["maf"][:]
-            self.is_rare = file["is_rare"][:]
+            self.mac = file["mac"][:]
             self.vset_half_covar_proj = file["vset_half_covar_proj"][:]
             self.block_size = file["block_size"][:]
             self.bandwidth = file.attrs["bandwidth"]
@@ -277,6 +278,9 @@ class RVsumstats:
             vset_ld_row = file["vset_ld_row"][:]
             vset_ld_col = file["vset_ld_col"][:]
             vset_ld_shape = file["vset_ld_shape"][:]
+            
+        if self.half_ldr_score.shape[0] != len(self.maf):
+            raise ValueError('part1 and part2 data has different number of variants')
 
         self.vset_ld = self._reconstruct_vset_ld(
             vset_ld_diag, vset_ld_data, vset_ld_row, vset_ld_col, vset_ld_shape
@@ -334,7 +338,7 @@ class RVsumstats:
             if np.max(voxel_idxs) < self.bases.shape[0]:
                 self.voxel_idxs = voxel_idxs
                 self.bases = self.bases[voxel_idxs]
-                self.logger.info(f"{len(voxel_idxs)} voxels included.")
+                self.logger.info(f"{len(voxel_idxs)} voxel(s) included.")
             else:
                 raise ValueError("--voxels index (one-based) out of range")
 
@@ -391,7 +395,7 @@ class RVsumstats:
         self.locus = self.locus.cache()
         return self.locus
 
-    def parse_data(self, numeric_idx):
+    def parse_data(self, numeric_idx, mac_thresh=10):
         """
         Parsing data for analysis
 
@@ -399,6 +403,7 @@ class RVsumstats:
         ------------
         numeric_idx: a list of numeric indices,
         which are collected from `idx` in self.locus after filtering by annotations.
+        mac_thresh: a MAC threshold to denote ultrarare variants for ACAT-V
 
         Returns:
         ---------
@@ -417,7 +422,8 @@ class RVsumstats:
         vset_ld = self.vset_ld[numeric_idx][:, numeric_idx]
         cov_mat = np.array((vset_ld - vset_half_covar_proj @ vset_half_covar_proj.T))
         maf = self.maf[numeric_idx]
-        is_rare = self.is_rare[numeric_idx]
+        mac = self.mac[numeric_idx]
+        is_rare = mac < mac_thresh
 
         return half_ldr_score, cov_mat, maf, is_rare
 
@@ -483,12 +489,6 @@ def check_input(args, log):
         if args.maf_min is not None and args.maf_min < 0.01 or args.maf_min is None:
             args.maf_max = 0.01
             log.info(f"Set --maf-max as default 0.01")
-
-    if args.mac_thresh is None:
-        args.mac_thresh = 10
-        log.info(f"Set --mac-thresh as default 10")
-    elif args.mac_thresh < 0:
-        raise ValueError("--mac-thresh must be greater than 0")
 
     if args.bandwidth is None:
         args.bandwidth = 500000
@@ -565,7 +565,7 @@ def run(args, log):
         else:
             loco_preds = None
 
-        vset, locus, maf, is_rare = sparse_genotype.parse_data()
+        vset, locus, maf, mac = sparse_genotype.parse_data()
         log.info(f"{vset.shape[0]} variants after processing.")
         log.info("Computing summary statistics (part1) specific to images ...")
         get_rv_sumstats_part1(
@@ -581,7 +581,7 @@ def run(args, log):
         if args.make_part2:
             log.info(f"\nComputing summary statitics (part2) not specific to images ...")
             get_rv_sumstats_part2(
-                locus, maf, is_rare, null_model.covar, vset, args.bandwidth, args.threads, args.out
+                locus, maf, mac, null_model.covar, vset, args.bandwidth, args.threads, args.out
             )
             log.info(
                 (
