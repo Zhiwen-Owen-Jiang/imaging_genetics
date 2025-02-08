@@ -201,7 +201,7 @@ def coding_vset_analysis(
                 )
                 if half_ldr_score is None:
                     continue
-                cmac = np.sum(mac)
+                cmac = int(np.sum(mac))
                 if cmac < cmac_min:
                     log.info(f"Skipping {OFFICIAL_NAME[cate]} (< {cmac_min} cumulative MAC).")
                     continue
@@ -245,6 +245,7 @@ def process_missense(m_pvalues, dm_pvalues):
 
     dm_pvalues = dm_pvalues["pvalues"]
     n_m_variants = m_pvalues["n_variants"]
+    m_cmac = m_pvalues["cMAC"]
     m_pvalues = m_pvalues["pvalues"]
 
     m_pvalues["SKAT(1,25)-Disruptive"] = dm_pvalues["SKAT(1,25)"]
@@ -280,7 +281,7 @@ def process_missense(m_pvalues, dm_pvalues):
     all_columns = reduce(np.logical_or, all_columns)
     all_columns = np.concatenate([all_columns, np.ones(6, dtype=bool)])
     m_pvalues["STAAR-O"] = cauchy_combination(m_pvalues.loc[:, all_columns].values.T)
-    m_pvalues = {"n_variants": n_m_variants, "pvalues": m_pvalues}
+    m_pvalues = {"n_variants": n_m_variants, "cMAC": m_cmac, "pvalues": m_pvalues}
 
     return m_pvalues
 

@@ -98,7 +98,7 @@ def get_rv_sumstats_part2(locus, maf, mac, covar, vset, bandwidth, threads, out_
 
     with h5py.File(f"{out_dir}_part2_data.h5", "w") as file:
         file.create_dataset("maf", data=maf, dtype="float32")
-        file.create_dataset("mac", data=mac, dtype="float32")
+        file.create_dataset("mac", data=mac, dtype="uint16")
         # file.create_dataset("is_rare", data=is_rare)
         file.create_dataset(
             "vset_half_covar_proj", data=vset_half_covar_proj, dtype="float32"
@@ -516,7 +516,7 @@ def run(args, log):
         null_model.select_ldrs(args.n_ldrs)
 
         # reading sparse genotype data
-        sparse_genotype = SparseGenotype(args.sparse_genotype, args.mac_thresh)
+        sparse_genotype = SparseGenotype(args.sparse_genotype)
         log.info(f"Read sparse genotype data from {args.sparse_genotype}")
         log.info(f"{sparse_genotype.vset.shape[1]} subjects and {sparse_genotype.vset.shape[0]} variants.")
 

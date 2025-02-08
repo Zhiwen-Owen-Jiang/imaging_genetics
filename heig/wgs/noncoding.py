@@ -262,9 +262,9 @@ def noncoding_vset_analysis(
             half_ldr_score, cov_mat, maf, mac = rv_sumstats.parse_data(numeric_idx)
             if half_ldr_score is None:
                 continue
-            cmac = np.sum(mac)
+            cmac = int(np.sum(mac))
             if cmac < cmac_min:
-                log.info(f"Skipping {OFFICIAL_NAME[category]} (< {cmac_min} total MAC).")
+                log.info(f"Skipping {OFFICIAL_NAME[category]} (< {cmac_min} cumulative MAC).")
                 continue
             is_rare = mac < mac_thresh
             vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)

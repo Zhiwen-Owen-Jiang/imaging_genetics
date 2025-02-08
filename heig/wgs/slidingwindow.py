@@ -208,9 +208,9 @@ def vset_analysis(
             )
             if half_ldr_score is None:
                 continue
-            cmac = np.sum(mac)
+            cmac = int(np.sum(mac))
             if np.sum(cmac) < 10:
-                log.info(f"Skipping window (< 10 cumulative MAC).")
+                log.info(f"Skipping window (< {cmac_min} cumulative MAC).")
                 continue
             is_rare = mac < mac_thresh
             vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)

@@ -42,9 +42,9 @@ def image_recovery_quality(images, ldrs, bases):
 
     Parameters:
     ------------
-    images: a np.array of normalized raw images (n, N)
+    images: a np.array of normalized raw images (N, r)
     ldrs: a np.array of constructed LDRs (n, r)
-    bases: a np.array of corresponding bases (r, N)
+    bases: a np.array of corresponding bases (N, r)
 
     Returns:
     ---------
