@@ -363,6 +363,7 @@ def run(args, log):
         rv_sumstats.calculate_var()
 
         # reading annotation
+        log.info(f"Read functional annotations from {args.annot_ht}")
         annot = hl.read_table(args.annot_ht)
 
         # single gene analysis

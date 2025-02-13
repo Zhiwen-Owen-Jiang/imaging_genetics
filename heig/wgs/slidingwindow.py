@@ -293,6 +293,7 @@ def run(args, log):
 
         # reading annotation
         if args.annot_ht is not None:
+            log.info(f"Read functional annotations from {args.annot_ht}")
             annot = hl.read_table(args.annot_ht)
         else:
             annot = None

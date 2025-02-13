@@ -345,7 +345,7 @@ def check_input(args, log):
             raise ValueError(
                 (
                     f"starting with {start_pos} "
-                    f"while ending with position is {end_pos} "
+                    f"while ending with {end_pos} "
                     "is not allowed"
                 )
             )
