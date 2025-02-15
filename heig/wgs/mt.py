@@ -216,7 +216,7 @@ class SparseGenotype:
         if annot is not None:
             self.locus = self.locus.annotate(annot=annot[self.locus.key])
             self.locus = self.locus.filter(hl.is_defined(self.locus.annot))
-        # self.locus = self.locus.cache()
+        self.locus = self.locus.cache()
     
     def parse_data(self):
         """

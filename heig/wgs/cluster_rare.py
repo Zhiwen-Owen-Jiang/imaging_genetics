@@ -66,7 +66,8 @@ class RVcluster:
             mac_thresh=10,
             cmac_min=2,
             threads=1,
-            loco_preds=None
+            loco_preds=None,
+            voxels=None
         ):
         """
         Parameters:
@@ -85,6 +86,7 @@ class RVcluster:
         threads: number of threads
         loco_preds: a LOCOpreds instance of loco predictions
             loco_preds.data_reader(j) returns loco preds for chrj with matched subjects
+        voxels: a np.array of voxel idxs (0-based), may be None
 
         """
         # self.null_model = null_model
@@ -118,10 +120,20 @@ class RVcluster:
         else:
             self.resid_ldr = null_model.resid_ldr
 
+        if voxels is None:
+            self.voxels = np.arange(self.bases.shape[0])
+        else:
+            self.voxels = voxels
+
         # self.vset_ld, self.block_size = self._get_sparse_ld_matrix()
         self.vset_ld = self._get_band_ld_matrix()
         
     def _get_band_ld_matrix(self):
+        """
+        Creating a banded sparse LD matrix with the bandwidth being
+        the length of the largest gene
+        
+        """
         bandwidth = max([len(x) for x in self.numeric_idx_list])
         diagonal_data = list()
         banded_data = list()
@@ -194,7 +206,7 @@ class RVcluster:
         self.half_ldr_score = self.vset @ resid_ldr_rand 
         # self.numeric_idx_list = self._partition_genome()
 
-    def _variant_set_test(self):
+    def _variant_set_test(self, sample_id):
         """
         A wrapper function of variant set test for multiple sets
 
@@ -216,22 +228,22 @@ class RVcluster:
         #     cluster_size = (pvalues["STAAR-O"] < self.sig_thresh).sum() 
         #     cluster_size_list.append(cluster_size)
 
-        cluster_size_list = []
+        sig_pvalues_list = []
     
         with ThreadPoolExecutor(max_workers=self.threads) as executor:
             futures = [
-                executor.submit(self._variant_set_test_, numeric_idx)
-                for numeric_idx in self.numeric_idx_list
+                executor.submit(self._variant_set_test_, sample_id, gene_id, numeric_idx)
+                for gene_id, numeric_idx in enumerate(self.numeric_idx_list)
             ]
             
             for future in futures:
                 result = future.result()
                 if result is not None:
-                    cluster_size_list.append(result)
+                    sig_pvalues_list.append(result)
         
-        return cluster_size_list
+        return sig_pvalues_list
 
-    def _variant_set_test_(self, numeric_idx):
+    def _variant_set_test_(self, sample_id, gene_id, numeric_idx):
         """
         Testing a single variant set
         
@@ -249,9 +261,16 @@ class RVcluster:
         is_rare = mac < self.mac_thresh
         vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, annot)
         pvalues = vset_test.do_inference(self.annot_name)
-        cluster_size = (pvalues["STAAR-O"] < self.sig_thresh).sum()
+        # cluster_size = (pvalues["STAAR-O"] < self.sig_thresh).sum()
+        pvalues.insert(0, "INDEX", self.voxels+1)
+        sig_pvalues = pvalues.loc[pvalues["STAAR-O"] < self.sig_thresh, ["INDEX", "STAAR-O"]]
+        if len(sig_pvalues) > 0:
+            sig_pvalues.insert(0, "GENE_ID", gene_id+1)
+            sig_pvalues.insert(0, "SAMPLE_ID", sample_id+1)
+        else:
+            sig_pvalues = None
 
-        return cluster_size
+        return sig_pvalues
     
     def _parse_data(self, numeric_idx):
         """
@@ -301,20 +320,43 @@ class RVcluster:
             
         return numeric_idx_list
 
-    def cluster_analysis(self):
+    def cluster_analysis(self, sample_id):
         """
         The main function for computing cluster size for a bootstrap sample
 
+        Parameters:
+        ------------
+        sample_id: int, bootstrap sample id (0-based)
+
         """
         self._compute_sumstats()
-        cluster_size_list = self._variant_set_test()
+        sig_pvalues_list = self._variant_set_test(sample_id)
 
-        return cluster_size_list
+        return sig_pvalues_list
 
 
 def creating_mask(locus, variant_sets, variant_category, vset, maf, mac):
     """
-    Creating masks for a variant category
+    Creating masks for a variant category and split into genes
+
+    Parameters:
+    ------------
+    locus: a hail.Table of locus info
+    variant_sets: a pd.DataFrame of genes 
+    variant_category: variant category
+    vset: (m, n) csr_matrix of genotype
+    maf: a np.array of MAF
+    mac: a np.array of MAC
+
+    Returns:
+    ---------
+    chr: chromosome of the genotype
+    gene_numeric_idxs: a list of list of variant idxs for each gene
+    phred_cate: a np.array of functional annotations
+    annot_name: annotation names
+    vset: genotype of the extracted variants 
+    maf: MAF of the extracted variants
+    mac: MAC of the extracted variants
     
     """
     locus = locus.add_index("idx")
@@ -482,7 +524,8 @@ def run(args, log):
             args.mac_thresh,
             args.cmac_min,
             args.threads, 
-            loco_preds
+            loco_preds,
+            args.voxels,
         )
 
         for i in tqdm(
@@ -490,14 +533,19 @@ def run(args, log):
         ):
             log.info(f"Doing bootstrap sample {i+1} ...")
             start_time = time.time()
-            cluster_size_list = cluster.cluster_analysis()
+            sig_pvalues_list = cluster.cluster_analysis(i)
             with open(args.out + ".txt", "a") as file:
-                file.write("\n".join(str(x) for x in cluster_size_list) + "\n")
+                for sig_pvalues in sig_pvalues_list:
+                    sig_pvalues = sig_pvalues.to_csv(
+                        sep="\t", header=False, na_rep="NA", index=None, float_format="%.5e"
+                    )
+                # file.write("\n".join(str(x) for x in sig_pvalues_df) + "\n")
+                    file.write(sig_pvalues)
             elapsed_time = int((time.time() - start_time))
             log.info(f"done ({elapsed_time}s)")
 
         # save results
-        log.info(f"\nSaved null distribution of cluster size to {args.out}.txt")
+        log.info(f"\nSaved significant associations to {args.out}.txt")
 
     finally:
         if "loco_preds" in locals() and args.loco_preds is not None:
