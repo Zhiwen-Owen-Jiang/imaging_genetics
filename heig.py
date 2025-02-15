@@ -443,7 +443,7 @@ common_parser.add_argument(
     help=(
         "Directory to processed functional annotations "
         "for rare variant analysis in hail.Table format. "
-        "Supported modules: --rv-coding, --rv-noncoding, --rv."
+        "Supported modules: --rv-coding, --rv-noncoding, --rv, --rv-cluster."
     ),
 )
 common_parser.add_argument(
@@ -478,7 +478,7 @@ common_parser.add_argument(
         "'enhancer_cage', 'enhancer_dhs') for noncoding variants, "
         "where 'all' means all categories; "
         "multiple categories should be separated by comma. "
-        "Supported modules: --rv-coding, --rv-noncoding."
+        "Supported modules: --rv-coding, --rv-noncoding, --rv-cluster."
     ),
 )
 common_parser.add_argument(
@@ -488,7 +488,7 @@ common_parser.add_argument(
         "The file should be tab or space delimited without header. "
         "Each row contains only one variant set in format "
         "<gene name> <chr:start,chr:end>. "
-        "Supported modules: --rv-coding, --rv-noncoding."
+        "Supported modules: --rv-coding, --rv-noncoding, --rv-cluster."
     )
 )
 common_parser.add_argument(
@@ -1144,6 +1144,9 @@ def check_accepted_args(module, args, log):
             "chr_interval",
             "mac_thresh",
             "loco_preds",
+            "annot_ht",
+            "variant_sets",
+            "variant_category",
             "cmac_min",
             "threads"
         }

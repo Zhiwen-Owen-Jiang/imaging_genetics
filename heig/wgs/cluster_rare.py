@@ -11,6 +11,8 @@ from heig.wgs.relatedness import LOCOpreds
 from heig.wgs.vsettest import VariantSetTest
 from heig.wgs.mt import SparseGenotype
 from heig.wgs.wgs2 import SparseBandedLD
+from heig.wgs.coding import Coding
+from heig.utils import find_loc
 from heig.wgs.utils import *
 
 
@@ -34,6 +36,7 @@ output:
 
 TODO:
 1. choose other test: SKAT/burden
+2. as of (v1.3.0), cluster analysis only supports FAVOR annot and snv
     
 """
 
@@ -52,8 +55,11 @@ class RVcluster:
     def __init__(
             self, 
             null_model, 
-            vset, 
-            locus, 
+            vset,
+            chr, 
+            gene_numeric_idxs,
+            phred_cate,
+            annot_name,
             maf,
             mac,
             sig_thresh=2.5e-6, 
@@ -67,8 +73,10 @@ class RVcluster:
         ------------
         null_model: a NullModel instance
         vset: (m, n) csr_matrix of genotype
-        locus: hail.Table including locus, maf, is_rare, grch37, variant_type,
-                chr, start, and end
+        chr: chromosome
+        gene_numeric_idxs: a list of variant idxs for genes
+        phred_cate: functional annotations
+        annot_name: names of annotations
         maf: a np.array of MAF
         mac: a np.array of MAC
         sig_thresh: significant threshold
@@ -79,10 +87,12 @@ class RVcluster:
             loco_preds.data_reader(j) returns loco preds for chrj with matched subjects
 
         """
-        self.null_model = null_model
-        self.bases = self.null_model.bases.astype(np.float32)
+        # self.null_model = null_model
+        self.bases = null_model.bases.astype(np.float32)
         self.vset = vset
-        self.locus = locus
+        self.numeric_idx_list = gene_numeric_idxs
+        self.phred_cate = phred_cate
+        self.annot_name = annot_name
         self.maf = maf
         self.mac = mac
         self.sig_thresh = sig_thresh
@@ -90,29 +100,73 @@ class RVcluster:
         self.cmac_min = cmac_min
         self.threads = threads
         self.n_variants, self.n_subs = self.vset.shape
-        self.n_covars = self.null_model.covar.shape[1]
+        self.n_covars = null_model.covar.shape[1]
         self.logger = logging.getLogger(__name__)
         
-        covar_U, _, covar_Vt = np.linalg.svd(self.null_model.covar, full_matrices=False)
+        covar_U, _, covar_Vt = np.linalg.svd(null_model.covar, full_matrices=False)
         half_covar_proj = np.dot(covar_U, covar_Vt).astype(np.float32)
         self.vset_half_covar_proj = self.vset @ half_covar_proj
 
         if loco_preds is not None:
             # extract chr
-            chr = self.locus.aggregate(hl.agg.take(self.locus.locus.contig, 1)[0])
-            if self.locus.locus.dtype.reference_genome.name == "GRCh38":
-                chr = int(chr.replace("chr", ""))
-            else:
-                chr = int(chr)
-            self.resid_ldr = self.null_model.resid_ldr - loco_preds.data_reader(chr)
+            # chr = self.mask.annot.aggregate(hl.agg.take(self.mask.annot.locus.contig, 1)[0])
+            # if self.mask.annot.locus.dtype.reference_genome.name == "GRCh38":
+            #     chr = int(chr.replace("chr", ""))
+            # else:
+            #     chr = int(chr)
+            self.resid_ldr = null_model.resid_ldr - loco_preds.data_reader(chr)
         else:
-            self.resid_ldr = self.null_model.resid_ldr
+            self.resid_ldr = null_model.resid_ldr
 
-        self.vset_ld, self.block_size = self._get_sparse_ld_matrix()
+        # self.vset_ld, self.block_size = self._get_sparse_ld_matrix()
+        self.vset_ld = self._get_band_ld_matrix()
+        
+    def _get_band_ld_matrix(self):
+        bandwidth = max([len(x) for x in self.numeric_idx_list])
+        diagonal_data = list()
+        banded_data = list()
+        banded_row = list()
+        banded_col = list()
+
+        for start in range(0, self.n_variants, bandwidth):
+            end1 = start + bandwidth
+            end2 = end1 + bandwidth
+            vset_block1 = self.vset[start:end1].astype(np.uint16)
+            vset_block2 = self.vset[start:end2].astype(np.uint16)
+            ld_rec = vset_block1 @ vset_block2.T
+            ld_rec_row, ld_rec_col = ld_rec.nonzero()
+            ld_rec_row += start
+            ld_rec_col += start
+            ld_rec_data = ld_rec.data
+
+            diagonal_data.append(ld_rec_data[ld_rec_row == ld_rec_col])
+            mask = (np.abs(ld_rec_row - ld_rec_col) <= bandwidth) & (
+                ld_rec_col > ld_rec_row
+            )
+            banded_row.append(ld_rec_row[mask])
+            banded_col.append(ld_rec_col[mask])
+            banded_data.append(ld_rec_data[mask])
+
+        diagonal_data = np.concatenate(diagonal_data)
+        banded_row = np.concatenate(banded_row)
+        banded_col = np.concatenate(banded_col)
+        banded_data = np.concatenate(banded_data)
+        shape = np.array([self.n_variants, self.n_variants])
+
+        lower_row = banded_col
+        lower_col = banded_row
+        diag_row_col = np.arange(shape[0])
+
+        full_row = np.concatenate([banded_row, lower_row, diag_row_col])
+        full_col = np.concatenate([banded_col, lower_col, diag_row_col])
+        full_data = np.concatenate([banded_data, banded_data, diagonal_data])
+
+        vset_ld = csr_matrix((full_data, (full_row, full_col)), shape=shape)
+        return vset_ld
 
     def _get_sparse_ld_matrix(self):
         positions = np.array(self.locus.locus.position.collect())
-        ld = SparseBandedLD(self.vset, positions, 2000, self.threads)
+        ld = SparseBandedLD(self.vset, positions, 3000000, self.threads)
         diag, data, row, col, shape = ld.data
         
         lower_row = col
@@ -138,7 +192,7 @@ class RVcluster:
         self.var = np.sum(np.dot(self.bases, inner_ldr) * self.bases, axis=1)
         self.var /= self.n_subs - self.n_covars  # (N, )
         self.half_ldr_score = self.vset @ resid_ldr_rand 
-        self.numeric_idx_list = self._partition_genome()
+        # self.numeric_idx_list = self._partition_genome()
 
     def _variant_set_test(self):
         """
@@ -188,9 +242,13 @@ class RVcluster:
         )
         if half_ldr_score is None or np.sum(mac) < self.cmac_min:
             return None
+        if self.phred_cate is not None:
+            annot = self.phred_cate[numeric_idx]
+        else:
+            annot = None
         is_rare = mac < self.mac_thresh
-        vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, None)
-        pvalues = vset_test.do_inference()
+        vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, annot)
+        pvalues = vset_test.do_inference(self.annot_name)
         cluster_size = (pvalues["STAAR-O"] < self.sig_thresh).sum()
 
         return cluster_size
@@ -200,8 +258,8 @@ class RVcluster:
         Extracting data for a variant set to test
         
         """
-        if numeric_idx[-1] - numeric_idx[0] >= self.block_size[numeric_idx[0]]:
-            return None, None, None, None
+        # if numeric_idx[-1] - numeric_idx[0] >= self.block_size[numeric_idx[0]]:
+        #     return None, None, None, None
         half_ldr_score = np.array(self.half_ldr_score[numeric_idx])
         vset_half_covar_proj = np.array(self.vset_half_covar_proj[numeric_idx])
         vset_ld = self.vset_ld[numeric_idx][:, numeric_idx]
@@ -213,32 +271,34 @@ class RVcluster:
         
     def _partition_genome(self):
         """
-        randomly partition genotype data into intervals with length 10-30
+        randomly partition genotype data into intervals with length 2-50
         
         """
         # numeric_idx_list = list()
+        # n_variants = len(self.block_size) - 1
         # left = 0
-        # right = 0
-        # while right < n_variants:
-        #     right += np.random.choice(list(range(10, 30)), 1)[0]
-        #     numeric_idx_list.append(list(range(left, min(right, n_variants))))
-        #     left = right + 10
-        #     right += 10
+        # while left < n_variants:
+        #     if self.block_size[left] > 2:
+        #         max_interval_len = min(50, self.block_size[left])
+        #         right = left + np.random.choice(list(range(2, max_interval_len)), 1)[0]
+        #         numeric_idx_list.append(list(range(left, min(right, n_variants))))
+        #         left = right + 2
+        #     else:
+        #         left += 10
+        # mean_length = int(np.mean([len(numeric_idx) for numeric_idx in numeric_idx_list]))
+        # self.logger.info(f"{len(numeric_idx_list)} variant sets (mean size {mean_length}) to analyze.")
+
+        # return numeric_idx_list
 
         numeric_idx_list = list()
-        n_variants = len(self.block_size) - 1
         left = 0
-        while left < n_variants:
-            if self.block_size[left] > 2:
-                max_interval_len = min(30, self.block_size[left])
-                right = left + np.random.choice(list(range(2, max_interval_len)), 1)[0]
-                numeric_idx_list.append(list(range(left, min(right, n_variants))))
-                left = right + 10
-            else:
-                left += 1
-        mean_length = int(np.mean([len(numeric_idx) for numeric_idx in numeric_idx_list]))
-        self.logger.info(f"{len(numeric_idx_list)} variant sets (mean size {mean_length}) to analyze.")
-
+        right = 0
+        while right < self.n_variants:
+            right += np.random.choice(list(range(2, 10)), 1)[0]
+            numeric_idx_list.append(list(range(left, min(right, self.n_variants))))
+            left = right + 2
+            right += 2
+            
         return numeric_idx_list
 
     def cluster_analysis(self):
@@ -252,13 +312,64 @@ class RVcluster:
         return cluster_size_list
 
 
+def creating_mask(locus, variant_sets, variant_category, vset, maf, mac):
+    """
+    Creating masks for a variant category
+    
+    """
+    locus = locus.add_index("idx")
+    variant_type = locus.variant_type.collect()[0]
+    geno_ref = locus.reference_genome.collect()[0]
+    mask = Coding(locus, variant_type)
+    mask_idx = mask.category_dict[variant_category]
+    numeric_idx, phred_cate = mask.parse_annot(mask_idx)
+    
+    chr = locus.aggregate(hl.agg.take(locus.locus.contig, 1)[0])
+    if locus.locus.dtype.reference_genome.name == "GRCh38":
+        chr = int(chr.replace("chr", ""))
+    else:
+        chr = int(chr)
+
+    vset = vset[numeric_idx]
+    maf = maf[numeric_idx]
+    mac = mac[numeric_idx]
+
+    gene_numeric_idxs = list()
+    positions = np.array(locus.locus.position.collect())[numeric_idx]
+    for _, gene in variant_sets.iterrows():
+        _, start, end = parse_interval(gene[1], geno_ref)
+        start_idx = find_loc(positions, start)
+        end_idx = find_loc(positions, end) + 1
+        if start_idx == -1 or positions[start_idx] != start:
+            start_idx += 1
+        if end_idx > start_idx + 1: # n_variants >= 2
+            gene_numeric_idxs.append(list(range(start_idx, end_idx)))
+
+    return chr, gene_numeric_idxs, phred_cate, mask.annot_name, vset, maf, mac
+
+
 def check_input(args, log):
     if args.sparse_genotype is None:
         raise ValueError("--sparse-genotype is required")
     if args.spark_conf is None:
         raise ValueError("--spark-conf is required")
+    if args.annot_ht is None:
+        raise ValueError("--annot-ht (FAVOR annotation) is required")
     if args.null_model is None:
         raise ValueError("--null-model is required")
+    if args.variant_category is None:
+        raise ValueError("--variant-category is required")
+    args.variant_category = args.variant_category.lower()
+    if args.variant_category not in {
+        "plof",
+        "plof_ds",
+        "missense",
+        "disruptive_missense",
+        "synonymous",
+        "ptv",
+        "ptv_ds",
+        }:
+        raise ValueError(f"invalid variant category: {args.variant_category}")
     if args.n_bootstrap is None:
         args.n_bootstrap = 50
         log.info("Set #bootstrap as 50")
@@ -288,11 +399,11 @@ def run(args, log):
         null_model.select_voxels(args.voxels)
 
         # reading sparse genotype data
-        sparse_genotype = SparseGenotype(args.sparse_genotype, args.mac_thresh)
+        sparse_genotype = SparseGenotype(args.sparse_genotype)
         log.info(f"Read sparse genotype data from {args.sparse_genotype}")
         log.info(f"{sparse_genotype.vset.shape[1]} subjects and {sparse_genotype.vset.shape[0]} variants.")
 
-        # read loco preds
+        # reading loco preds
         if args.loco_preds is not None:
             log.info(f"Read LOCO predictions from {args.loco_preds}")
             loco_preds = LOCOpreds(args.loco_preds)
@@ -317,17 +428,6 @@ def run(args, log):
             )
         common_ids = ds.remove_idxs(common_ids, args.remove)
 
-        # log.info(f"Processing sparse genetic data ...")
-        if args.extract_locus is not None:
-            args.extract_locus = read_extract_locus(args.extract_locus, args.grch37, log)
-        if args.exclude_locus is not None:
-            args.exclude_locus = read_exclude_locus(args.exclude_locus, args.grch37, log)
-        
-        sparse_genotype.keep(common_ids)
-        sparse_genotype.extract_exclude_locus(args.extract_locus, args.exclude_locus)
-        sparse_genotype.extract_chr_interval(args.chr_interval)
-        sparse_genotype.extract_maf(args.maf_min, args.maf_max)
-
         # extract and align subjects with the genotype data
         null_model.keep(common_ids)
         null_model.remove_dependent_columns()
@@ -344,15 +444,38 @@ def run(args, log):
         else:
             loco_preds = None
 
+        # log.info(f"Processing sparse genetic data ...")
+        if args.extract_locus is not None:
+            args.extract_locus = read_extract_locus(args.extract_locus, args.grch37, log)
+        if args.exclude_locus is not None:
+            args.exclude_locus = read_exclude_locus(args.exclude_locus, args.grch37, log)
+        
+        sparse_genotype.keep(common_ids)
+        sparse_genotype.extract_exclude_locus(args.extract_locus, args.exclude_locus)
+        sparse_genotype.extract_chr_interval(args.chr_interval)
+        sparse_genotype.extract_maf(args.maf_min, args.maf_max)
+
+        # reading annotation
+        log.info(f"Read functional annotations from {args.annot_ht}")
+        annot = hl.read_table(args.annot_ht)
+        sparse_genotype.annotate(annot)
         vset, locus, maf, mac = sparse_genotype.parse_data()
-        log.info(f"Using {vset.shape[0]} variants in wild bootstrap ...")
+
+        # creating mask
+        (
+            chr, gene_numeric_idxs, phred_cate, annot_name, vset, maf, mac
+        ) = creating_mask(locus, args.variant_sets, args.variant_category, vset, maf, mac)
+        log.info((f"Using {len(gene_numeric_idxs)} genes of "
+                  f"{vset.shape[0]} {args.variant_category} variants in wild bootstrap ..."))
 
         # wild bootstrap
-        # temp_path = get_temp_path(args.out)
         cluster = RVcluster(
             null_model, 
             vset, 
-            locus, 
+            chr, 
+            gene_numeric_idxs, 
+            phred_cate,
+            annot_name,
             maf, 
             mac, 
             args.sig_thresh, 
@@ -370,18 +493,13 @@ def run(args, log):
             cluster_size_list = cluster.cluster_analysis()
             with open(args.out + ".txt", "a") as file:
                 file.write("\n".join(str(x) for x in cluster_size_list) + "\n")
-            elapsed_time = int((time.time() - start_time) * 1000)
-            log.info(f"done ({elapsed_time}ms)")
+            elapsed_time = int((time.time() - start_time))
+            log.info(f"done ({elapsed_time}s)")
 
         # save results
         log.info(f"\nSaved null distribution of cluster size to {args.out}.txt")
 
     finally:
-        # if "temp_path" in locals():
-        #     if os.path.exists(f"{temp_path}_bootstrap_rv_sumstats.h5"):
-        #         os.remove(f"{temp_path}_bootstrap_rv_sumstats.h5")
-        #     if os.path.exists(f"{temp_path}_bootstrap_locus_info.ht"):
-        #         shutil.rmtree(f"{temp_path}_bootstrap_locus_info.ht")
         if "loco_preds" in locals() and args.loco_preds is not None:
             loco_preds.close()
 
