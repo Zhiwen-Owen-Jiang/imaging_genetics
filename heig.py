@@ -81,6 +81,9 @@ cluster_parser = parser.add_argument_group(
 rv_cluster_parser = parser.add_argument_group(
     title="Arguments specific to cluster inference for rare variant associations"
 )
+tfce_parser = parser.add_argument_group(
+    title="Arguments specific to threshold-free cluster enhancement (TFCE)"
+)
 
 
 # module arguments
@@ -151,6 +154,11 @@ rv_cluster_parser.add_argument(
     "--rv-cluster",
     action="store_true",
     help="Generating null distribution of cluster size for rare variant associations.",
+)
+tfce_parser.add_argument(
+    "--tfce",
+    action="store_true",
+    help="Evaluating significant rare variant associations by TFCE.",
 )
 
 
@@ -552,6 +560,16 @@ common_parser.add_argument(
         "Supported modules: --rv-coding, --rv-noncoding, --rv, --rv-cluster."
     )
 )
+common_parser.add_argument(
+    "--coord-dir",
+    help=(
+        "Directory to mask or complementary image for coordinates. "
+        "It should be a NIFTI file (nii.gz) for NIFTI images; "
+        "a GIFTI file (gii) for CIFTI2 surface data; "
+        "a FreeSurfer surface mesh file (.pial) for FreeSurfer morphometry data. "
+        "Supported modules: --image, --tfce."
+    ),
+)
 
 # arguments for herigc.py
 herigc_parser.add_argument(
@@ -624,15 +642,6 @@ image_parser.add_argument(
         "HEIG will collect ID for each image. "
         "Multiple suffixes can be specified and separated by comma "
         "and the number of directories must match the number of suffices."
-    ),
-)
-image_parser.add_argument(
-    "--coord-dir",
-    help=(
-        "Directory to mask or complementary image for coordinates. "
-        "It should be a NIFTI file (nii.gz) for NIFTI images; "
-        "a GIFTI file (gii) for CIFTI2 surface data; "
-        "a FreeSurfer surface mesh file (.pial) for FreeSurfer morphometry data."
     ),
 )
 image_parser.add_argument(
@@ -802,6 +811,24 @@ rv_parser.add_argument(
     "--sliding-length",
     type=int,
     help="Sliding length. E.g., 10000 means 10kb. Default: --window-length // 2."
+)
+
+# arguments for tfce.py
+tfce_parser.add_argument(
+    "--results-idx",
+    help=(
+        "Results index file returned by --rv-coding. Can be one file or multiple files. "
+        "E.g., results_index_chr{1:22}.txt"
+    )
+)
+tfce_parser.add_argument(
+    "--null-assoc",
+    help="Null associations returned by --rv-cluster."
+)
+tfce_parser.add_argument(
+    "--tfce-thresh",
+    type=float,
+    help="TFCE threshold to exclude associations."
 )
 
 
@@ -1149,6 +1176,16 @@ def check_accepted_args(module, args, log):
             "variant_category",
             "cmac_min",
             "threads"
+        },
+        "tfce":{
+            "tfce",
+            "out",
+            "coord_dir",
+            "results_idx",
+            "null_assoc",
+            "tfce_thresh",
+            "sig_thresh",
+            "variant_category"
         }
     }
 
@@ -1310,6 +1347,7 @@ def main(args, log):
         + args.rv
         + args.cluster
         + args.rv_cluster
+        + args.tfce
         != 1
     ):
         raise ValueError(
@@ -1317,7 +1355,8 @@ def main(args, log):
                 "must raise one and only one of following module flags: "
                 "--read-image, --fpca, --make-ldr, --heri-gc, --ld-matrix, --sumstats, "
                 "--voxel-gwas, --gwas, --relatedness, --make-mt, --rv-null, --make-rv-sumstats, "
-                "--rv-annot, --rv-coding, --rv-noncoding, --rv, --cluster, --rv-cluster"
+                "--rv-annot, --rv-coding, --rv-noncoding, --rv, --cluster, --rv-cluster, "
+                "--tfce"
             )
         )
 
@@ -1375,6 +1414,9 @@ def main(args, log):
     elif args.rv_cluster:
         check_accepted_args('rv_cluster', args, log)
         import heig.wgs.cluster_rare as module
+    elif args.tfce:
+        check_accepted_args('tfce', args, log)
+        import heig.wgs.tfce as module
 
     process_args(args, log)
     module.run(args, log)
