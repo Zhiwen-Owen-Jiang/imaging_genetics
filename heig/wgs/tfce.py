@@ -26,18 +26,21 @@ class TFCE:
         self.E = E
         self.dh = dh
 
-    def _tfce(self, stat_map):
+    def _tfce(self, stat_map, threads):
         """
         Compute Threshold-Free Cluster Enhancement (TFCE) on a statistical map.
 
         Parameters:
-        - stat_map (np.ndarray): Input statistical map (2D or 3D).
-        - h (float): Height exponent.
-        - E (float): Extent exponent.
-        - dh (float): Step size for integration.
+        ------------
+        stat_map (np.ndarray): Input statistical map (2D or 3D).
+        h (float): Height exponent.
+        E (float): Extent exponent.
+        dh (float): Step size for integration.
 
         Returns:
-        - tfce_map (np.ndarray): Enhanced TFCE statistical map.
+        ------------
+        tfce_map (np.ndarray): Enhanced TFCE statistical map.
+        
         """
         tfce_map = np.zeros_like(stat_map)
         tfce_map[stat_map == 0.001] = 0.001
@@ -52,12 +55,14 @@ class TFCE:
             labeled_clusters, num_clusters = label(binarized_map)
 
             for cluster_id in range(1, num_clusters + 1):
-                cluster_size = np.sum(labeled_clusters == cluster_id)
-                tfce_map[labeled_clusters == cluster_id] += (cluster_size ** self.E) * (threshold ** self.h) * self.dh
+                cluster_mask = labeled_clusters == cluster_id
+                cluster_size = np.sum(cluster_mask)
+                increment = (cluster_size ** self.E) * (threshold ** self.h) * self.dh
+                tfce_map[cluster_mask] += increment
 
         return tfce_map
     
-    def tfce(self, index, results):
+    def tfce(self, index, results, threads):
         """
         Generating a cropped TFCE map
 
@@ -65,6 +70,7 @@ class TFCE:
         ------------
         index: a np.array of zero-based idxs
         results: a np.array of -log10 pvalues
+        threads: number of threads
         
         """
         all_res = np.ones(len(self.coord[0])) * 0.001
@@ -73,7 +79,7 @@ class TFCE:
         stat_map[self.roi_mask] = all_res
 
         stat_map_crop = stat_map[self.slices]
-        tfce_map = self._tfce(stat_map_crop)
+        tfce_map = self._tfce(stat_map_crop, threads)
 
         return tfce_map
 
@@ -84,11 +90,14 @@ def crop_image_with_margin(image, margin=1):
     while keeping a margin of at least 'margin' voxels.
 
     Parameters:
-    - image (np.ndarray): Input 2D or 3D image.
-    - margin (int): Number of voxels to leave as a margin.
+    ------------
+    image (np.ndarray): Input 2D or 3D image.
+    margin (int): Number of voxels to leave as a margin.
 
     Returns:
-    - slices (np.ndarray): voxel idxs of cropped image.
+    ------------
+    slices (np.ndarray): voxel idxs of cropped image.
+
     """
     # Find nonzero voxel coordinates
     nonzero_coords = np.where(image != 0)
@@ -115,7 +124,11 @@ def nifti_coord_mask(coord_img_file):
     return coord, roi_mask, slices
 
 
-def summarize_results(tfce, results_idx, variant_category, sig_thresh, tfce_thresh):
+def summarize_results(tfce, results_idx, variant_category, sig_thresh, tfce_thresh, threads):
+    """
+    Computing TFCE for significant associations
+    
+    """
     gene = list()
     chr = list()
     start = list()
@@ -136,13 +149,13 @@ def summarize_results(tfce, results_idx, variant_category, sig_thresh, tfce_thre
         )
         results = results[
             (results["MASK"] == variant_category) & (results["STAAR-O"] < sig_thresh)
-        ]
+        ].copy()
 
         if len(results) == 0:
             continue
         results["INDEX"] -= 1
         log_pvalues = -np.log10(results["STAAR-O"])
-        tfce_res = tfce.tfce(results["INDEX"], log_pvalues)
+        tfce_res = tfce.tfce(results["INDEX"], log_pvalues, threads)
         labeled_clusters, num_clusters = label(tfce_res > tfce_thresh)
         
         if num_clusters == 0:
@@ -186,15 +199,19 @@ def summarize_results(tfce, results_idx, variant_category, sig_thresh, tfce_thre
     return results_summary
 
 
-def summarize_null_results(tfce, null_assoc, sig_thresh):
-    null_assoc = null_assoc[null_assoc["STAAR-O"] < sig_thresh]
+def summarize_null_results(tfce, null_assoc, sig_thresh, threads):
+    """
+    Computing max TFCE for null clusters
+    
+    """
+    null_assoc = null_assoc[null_assoc["STAAR-O"] < sig_thresh].copy()
     null_assoc["LOG10P"] = -np.log10(null_assoc["STAAR-O"])
     null_assoc["INDEX"] -= 1
     null_assoc_group = null_assoc.groupby(["SAMPLE_ID", "GENE_ID"])
     null_assoc_tfce = list()
 
     for _, null_assoc_ in null_assoc_group:
-        tfce_res = tfce.tfce(null_assoc_["INDEX"], null_assoc_["LOG10P"])
+        tfce_res = tfce.tfce(null_assoc_["INDEX"], null_assoc_["LOG10P"], threads)
         null_assoc_tfce.append(np.max(tfce_res))
 
     return np.array(null_assoc_tfce)
@@ -241,7 +258,7 @@ def check_input(args, log):
 def run(args, log):
     check_input(args, log)
 
-    log.info(f"Read MASK image from {args.coord_dir}")
+    log.info(f"Read mask image from {args.coord_dir}")
     coord, roi_mask, slices = nifti_coord_mask(args.coord_dir)
     tfce = TFCE(coord, roi_mask, slices)
 
@@ -256,7 +273,8 @@ def run(args, log):
                 results_idx, 
                 args.variant_category, 
                 args.sig_thresh, 
-                args.tfce_thresh
+                args.tfce_thresh,
+                args.threads
             )
             results_summary_list.append(results_summary)
         results_summary = pd.concat(results_summary_list, axis=0)
@@ -271,7 +289,8 @@ def run(args, log):
         null_assoc_results = summarize_null_results(
             tfce,
             null_assoc,
-            args.sig_thresh
+            args.sig_thresh,
+            args.threads
         )
 
         np.savetxt(f"{args.out}.txt", null_assoc_results)
