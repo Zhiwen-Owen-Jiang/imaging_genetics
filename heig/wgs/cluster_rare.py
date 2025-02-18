@@ -384,7 +384,7 @@ def creating_mask(locus, variant_sets, variant_category, vset, maf, mac):
         end_idx = find_loc(positions, end) + 1
         if start_idx == -1 or positions[start_idx] != start:
             start_idx += 1
-        if end_idx > start_idx + 1: # n_variants >= 2
+        if end_idx > start_idx + 1 and end_idx - start_idx < 1000: # 2 <= n_variants <= 1000
             gene_numeric_idxs.append(list(range(start_idx, end_idx)))
 
     return chr, gene_numeric_idxs, phred_cate, mask.annot_name, vset, maf, mac
@@ -508,7 +508,8 @@ def run(args, log):
             chr, gene_numeric_idxs, phred_cate, annot_name, vset, maf, mac
         ) = creating_mask(locus, args.variant_sets, args.variant_category, vset, maf, mac)
         log.info((f"Using {len(gene_numeric_idxs)} genes of "
-                  f"{vset.shape[0]} {args.variant_category} variants in wild bootstrap ..."))
+                  f"{vset.shape[0]} {args.variant_category} variants in wild bootstrap. "
+                  "Genes with >1000 variants were excluded."))
 
         # wild bootstrap
         cluster = RVcluster(
