@@ -2,6 +2,7 @@ import nibabel as nib
 import numpy as np
 import pandas as pd
 from scipy.ndimage import label
+from concurrent.futures import ThreadPoolExecutor
 import heig.input.dataset as ds
 
 
@@ -26,7 +27,7 @@ class TFCE:
         self.E = E
         self.dh = dh
 
-    def _tfce(self, stat_map, threads):
+    def _tfce(self, stat_map):
         """
         Compute Threshold-Free Cluster Enhancement (TFCE) on a statistical map.
 
@@ -62,7 +63,7 @@ class TFCE:
 
         return tfce_map
     
-    def tfce(self, index, results, threads):
+    def tfce(self, index, results):
         """
         Generating a cropped TFCE map
 
@@ -70,7 +71,6 @@ class TFCE:
         ------------
         index: a np.array of zero-based idxs
         results: a np.array of -log10 pvalues
-        threads: number of threads
         
         """
         all_res = np.ones(len(self.coord[0])) * 0.001
@@ -79,7 +79,7 @@ class TFCE:
         stat_map[self.roi_mask] = all_res
 
         stat_map_crop = stat_map[self.slices]
-        tfce_map = self._tfce(stat_map_crop, threads)
+        tfce_map = self._tfce(stat_map_crop)
 
         return tfce_map
 
@@ -124,7 +124,7 @@ def nifti_coord_mask(coord_img_file):
     return coord, roi_mask, slices
 
 
-def summarize_results(tfce, results_idx, variant_category, sig_thresh, tfce_thresh, threads):
+def summarize_results(tfce, results_idx, variant_category, sig_thresh, tfce_thresh):
     """
     Computing TFCE for significant associations
     
@@ -155,7 +155,7 @@ def summarize_results(tfce, results_idx, variant_category, sig_thresh, tfce_thre
             continue
         results["INDEX"] -= 1
         log_pvalues = -np.log10(results["STAAR-O"])
-        tfce_res = tfce.tfce(results["INDEX"], log_pvalues, threads)
+        tfce_res = tfce.tfce(results["INDEX"], log_pvalues)
         labeled_clusters, num_clusters = label(tfce_res > tfce_thresh)
         
         if num_clusters == 0:
@@ -210,9 +210,20 @@ def summarize_null_results(tfce, null_assoc, sig_thresh, threads):
     null_assoc_group = null_assoc.groupby(["SAMPLE_ID", "GENE_ID"])
     null_assoc_tfce = list()
 
-    for _, null_assoc_ in null_assoc_group:
-        tfce_res = tfce.tfce(null_assoc_["INDEX"], null_assoc_["LOG10P"], threads)
-        null_assoc_tfce.append(np.max(tfce_res))
+    # for _, null_assoc_ in null_assoc_group:
+    #     tfce_res = tfce.tfce(null_assoc_["INDEX"], null_assoc_["LOG10P"])
+    #     null_assoc_tfce.append(np.max(tfce_res))
+        
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        futures = [
+            executor.submit(tfce.tfce, null_assoc_["INDEX"], null_assoc_["LOG10P"])
+            for _, null_assoc_ in null_assoc_group
+        ]
+        
+        for future in futures:
+            result = future.result()
+            if result is not None:
+                null_assoc_tfce.append(np.max(result))
 
     return np.array(null_assoc_tfce)
         
@@ -226,6 +237,7 @@ def check_input(args, log):
     if args.results_idx is None and args.null_assoc is None:
         raise ValueError("--result-idx or --null-assoc is required")
     if args.results_idx is not None:
+        args.null_assoc = None
         args.results_idx = ds.parse_input(args.results_idx)
         for file in args.results_idx:
             ds.check_existence(file)
@@ -250,6 +262,8 @@ def check_input(args, log):
             raise ValueError("--tfce-thresh is required")
     if args.null_assoc is not None:
         ds.check_existence(args.null_assoc)
+        if args.total_points is None:
+           raise ValueError("--total-points is required") 
     if args.sig_thresh is None:
         args.sig_thresh = 2.5e-6
         log.info("Set significance threshold as 2.5e-6")
@@ -274,18 +288,20 @@ def run(args, log):
                 args.variant_category, 
                 args.sig_thresh, 
                 args.tfce_thresh,
-                args.threads
             )
             results_summary_list.append(results_summary)
         results_summary = pd.concat(results_summary_list, axis=0)
         results_summary.to_csv(f"{args.out}.txt", sep="\t", index=None)
-        log.info(f"\nSaved result summary to {args.out}.txt")
+        log.info(f"\nSaved TFCE of significant associations to {args.out}.txt")
 
     else:
         log.info(f"Read null associations from {args.null_assoc}")
         null_assoc = pd.read_csv(args.null_assoc, sep='\t', header=None, 
                                  names=["SAMPLE_ID", "GENE_ID", "INDEX", "STAAR-O"])
+        if args.total_points <= len(null_assoc.groupby(["SAMPLE_ID", "GENE_ID"])):
+            raise ValueError('--total-points must be greater than #significant points')
 
+        log.info("Computing TFCE ...")
         null_assoc_results = summarize_null_results(
             tfce,
             null_assoc,
@@ -293,5 +309,6 @@ def run(args, log):
             args.threads
         )
 
-        np.savetxt(f"{args.out}.txt", null_assoc_results)
+        null_assoc_results = np.append(null_assoc_results, np.zeros(args.total_points - len(null_assoc_results)))
+        np.savetxt(f"{args.out}.txt", null_assoc_results, fmt="%.5e")
         log.info(f"\nSaved TFCE of null associations to {args.out}.txt")

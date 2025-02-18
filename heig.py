@@ -830,6 +830,11 @@ tfce_parser.add_argument(
     type=float,
     help="TFCE threshold to exclude associations."
 )
+tfce_parser.add_argument(
+    "--total-points",
+    type=int,
+    help="Total number of data points in wild bootstrap."
+)
 
 
 def check_accepted_args(module, args, log):
@@ -1185,7 +1190,9 @@ def check_accepted_args(module, args, log):
             "null_assoc",
             "tfce_thresh",
             "sig_thresh",
-            "variant_category"
+            "variant_category",
+            "total_points",
+            "threads"
         }
     }
 
