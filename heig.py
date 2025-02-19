@@ -361,7 +361,7 @@ common_parser.add_argument(
 common_parser.add_argument(
     "--chr-interval", "--range",
     help=(
-        "A segment of chromosome, e.g. `3:1000000,3:2000000`, "
+        "A segment of chromosome, e.g. `3:1000000-2000000`, "
         "from chromosome 3 bp 1000000 to chromosome 3 bp 2000000. "
         "Cross-chromosome is not allowed. And the end position must "
         "be greater than the start position. "

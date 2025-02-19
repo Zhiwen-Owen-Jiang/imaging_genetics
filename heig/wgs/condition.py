@@ -71,6 +71,10 @@ input:
 
 
 def parse_gene(locus, gene, gene_interval, variant_category, vset, maf, mac, log):
+    """
+    Extracting genotype for the gene
+    
+    """
     locus = locus.add_index("idx")
     variant_type = locus.variant_type.collect()[0]
     geno_ref = locus.reference_genome.collect()[0]
@@ -79,7 +83,7 @@ def parse_gene(locus, gene, gene_interval, variant_category, vset, maf, mac, log
         locus, gene, gene_interval, geno_ref, log
     )
     if variant_set_locus is None:
-        raise ValueError('no variants in the gene')
+        raise ValueError('less than two variants in the gene')
     coding = Coding(variant_set_locus, variant_type)
     chr, start, end = get_interval(variant_set_locus)
     mask_idx = coding.category_dict[variant_category]
@@ -95,6 +99,10 @@ def parse_gene(locus, gene, gene_interval, variant_category, vset, maf, mac, log
 
 
 def adjust_cond(resid_ldr, covar, bases, vset, chr, loco_preds):
+    """
+    Adjusting for conditioned variants
+    
+    """
     # adjust for relatedness
     if loco_preds is not None:
         chr = int(chr.replace("chr", ""))
@@ -163,8 +171,8 @@ def check_input(args, log):
         args.maf_min = 0
         log.info(f"Set --maf-min as default 0")
 
-    # if args.chr_interval_cond is not None:
-    #     args.chr_interval_cond = args.chr_interval_cond.split(',')
+    if args.chr_interval_cond is not None:
+        args.chr_interval_cond = args.chr_interval_cond.split(',')
 
 
 def run(args, log):
@@ -217,9 +225,9 @@ def run(args, log):
 
         gprocessor.keep_remove_idvs(common_ids)
         gprocessor.extract_exclude_locus(args.extract_locus_cond, args.exclude_locus_cond)
-        # for chr_interval_cond in args.chr_interval_cond:
-        #     gprocessor.extract_chr_interval(chr_interval_cond)
-        gprocessor.extract_chr_interval(args.chr_interval_cond)
+        for chr_interval_cond in args.chr_interval_cond:
+            gprocessor.extract_chr_interval(chr_interval_cond)
+        # gprocessor.extract_chr_interval(args.chr_interval_cond)
         gprocessor.do_processing('gwas')
 
         # extract common subjects and align data
@@ -256,6 +264,7 @@ def run(args, log):
         log.info("Pruning conditional variants ...")
         gprocessor.ld_prune()
         genotype = gprocessor.get_bm().to_numpy()
+        genotype = genotype[np.sum(genotype, axis=1) > 0]
         log.info(f"{genotype.shape[0]} variants included in conditional analysis.")
         covar = np.concatenate([null_model.covar, genotype.T], axis=1)
 

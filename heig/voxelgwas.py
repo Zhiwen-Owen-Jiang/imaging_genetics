@@ -326,20 +326,12 @@ def check_input(args, log):
     # process some arguments
     if args.chr_interval is not None:
         try:
-            start, end = args.chr_interval.split(",")
+            start, end = args.chr_interval.split("-")
             start_chr, start_pos = [int(x) for x in start.split(":")]
-            end_chr, end_pos = [int(x) for x in end.split(":")]
+            end_pos = int(end)
         except:
             raise ValueError(
-                "--chr-interval (--range) should be in this format: <CHR>:<POS1>,<CHR>:<POS2>"
-            )
-        if start_chr != end_chr:
-            raise ValueError(
-                (
-                    f"starting with chromosome {start_chr} "
-                    f"while ending with chromosome {end_chr} "
-                    "is not allowed"
-                )
+                "--chr-interval (--range) should be in this format: <CHR>:<POS1>-<POS2>"
             )
         if start_pos > end_pos:
             raise ValueError(
@@ -350,7 +342,7 @@ def check_input(args, log):
                 )
             )
     else:
-        start_chr, start_pos, end_chr, end_pos = None, None, None, None
+        start_chr, start_pos, end_pos = None, None, None
 
     return start_chr, start_pos, end_pos
 
