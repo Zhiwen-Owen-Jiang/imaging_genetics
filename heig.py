@@ -81,6 +81,9 @@ cluster_parser = parser.add_argument_group(
 rv_cluster_parser = parser.add_argument_group(
     title="Arguments specific to cluster inference for rare variant associations"
 )
+rv_cond_parser = parser.add_argument_group(
+    title="Arguments specific to conditional analysis for rare variant associations"
+)
 tfce_parser = parser.add_argument_group(
     title="Arguments specific to threshold-free cluster enhancement (TFCE)"
 )
@@ -154,6 +157,11 @@ rv_cluster_parser.add_argument(
     "--rv-cluster",
     action="store_true",
     help="Generating null distribution of cluster size for rare variant associations.",
+)
+rv_cond_parser.add_argument(
+    "--rv-cond",
+    action="store_true",
+    help="Doing conditional analysis for rare variant associations.",
 )
 tfce_parser.add_argument(
     "--tfce",
@@ -813,6 +821,40 @@ rv_parser.add_argument(
     help="Sliding length. E.g., 10000 means 10kb. Default: --window-length // 2."
 )
 
+# arguments for condition.py
+rv_cond_parser.add_argument(
+    "--extract-locus-cond",
+    help=(
+        "Variant file(s). Multiple files are separated by comma. "
+        "Only common Variants appearing in all files will be extracted (logical and). "
+        "Each file should be tab or space delimited, "
+        "with the first column being CHR:POS. "
+        "Other columns will be ignored. "
+        "Each row contains only one variant."
+    ),
+)
+rv_cond_parser.add_argument(
+    "--exclude-locus-cond",
+    help=(
+        "Variant file(s). Multiple files are separated by comma. "
+        "Variants appearing in any files will be excluded (logical or). "
+        "Each file should be tab or space delimited, "
+        "with the first column being CHR:POS. "
+        "Other columns will be ignored. "
+        "Each row contains only one variant."
+    ),
+)
+rv_cond_parser.add_argument(
+    "--chr-interval-cond",
+    help=(
+        "Segment(s) of chromosome, e.g. `3:1000000-2000000,3:3000000-4000000`, "
+        "from chromosome 3 bp 1000000 to chromosome 3 bp 2000000, "
+        "and bp 3000000 to bp 4000000. "
+        "Cross-chromosome is not allowed. And the end position must "
+        "be greater than the start position."
+    ),
+)
+
 # arguments for tfce.py
 tfce_parser.add_argument(
     "--results-idx",
@@ -1174,13 +1216,39 @@ def check_accepted_args(module, args, log):
             "maf_max",
             "mac_thresh",
             "chr_interval",
-            "mac_thresh",
             "loco_preds",
             "annot_ht",
             "variant_sets",
             "variant_category",
             "cmac_min",
             "threads"
+        },
+        "rv_cond":{
+            "rv_cond",
+            "out",
+            "null_model",
+            "spark_conf",
+            "grch37",
+            "sparse_genotype",
+            "sig_thresh",
+            "voxels",
+            "n_ldrs",
+            "keep",
+            "remove",
+            "extract_locus",
+            "exclude_locus",
+            "extract_locus_cond",
+            "exclude_locus_cond",
+            "maf_min",
+            "maf_max",
+            "mac_thresh",
+            "chr_interval",
+            "chr_interval_cond",
+            "loco_preds",
+            "annot_ht",
+            "variant_sets",
+            "variant_category",
+            "geno_mt"
         },
         "tfce":{
             "tfce",
@@ -1354,6 +1422,7 @@ def main(args, log):
         + args.rv
         + args.cluster
         + args.rv_cluster
+        + args.rv_cond
         + args.tfce
         != 1
     ):
@@ -1363,7 +1432,7 @@ def main(args, log):
                 "--read-image, --fpca, --make-ldr, --heri-gc, --ld-matrix, --sumstats, "
                 "--voxel-gwas, --gwas, --relatedness, --make-mt, --rv-null, --make-rv-sumstats, "
                 "--rv-annot, --rv-coding, --rv-noncoding, --rv, --cluster, --rv-cluster, "
-                "--tfce"
+                "--rv-cond, --tfce"
             )
         )
 
@@ -1421,6 +1490,9 @@ def main(args, log):
     elif args.rv_cluster:
         check_accepted_args('rv_cluster', args, log)
         import heig.wgs.cluster_rare as module
+    elif args.rv_cond:
+        check_accepted_args('rv_cond', args, log)
+        import heig.wgs.condition as module
     elif args.tfce:
         check_accepted_args('tfce', args, log)
         import heig.wgs.tfce as module

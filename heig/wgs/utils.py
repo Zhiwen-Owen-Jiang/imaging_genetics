@@ -7,6 +7,7 @@ import hail as hl
 import numpy as np
 import pandas as pd
 from functools import reduce
+from hail.linalg import BlockMatrix
 
 
 __all__ = [
@@ -622,6 +623,19 @@ class GProcessor:
             chr = int(chr)
 
         return chr, min_pos, max_pos
+    
+    def ld_prune(self, r2=0.3, bp_window_size=500000):
+        """
+        LD pruning
+        
+        """
+        self.snps_mt = self.snps_mt.filter_rows(hl.len(self.snps_mt.alleles) == 2)
+        pruned_variant_table = hl.ld_prune(self.snps_mt.GT, r2=r2, bp_window_size=bp_window_size)
+        self.snps_mt = self.snps_mt.filter_rows(hl.is_defined(pruned_variant_table[self.snps_mt.row_key]))
+        
+    def get_bm(self):
+        bm = BlockMatrix.from_entry_expr(self.snps_mt.GT.n_alt_alleles(), mean_impute=True)
+        return bm
 
     def cache(self):
         self.snps_mt = self.snps_mt.cache()
