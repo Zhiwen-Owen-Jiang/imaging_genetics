@@ -84,6 +84,9 @@ rv_cluster_parser = parser.add_argument_group(
 rv_cond_parser = parser.add_argument_group(
     title="Arguments specific to conditional analysis for rare variant associations"
 )
+rv_single_parser = parser.add_argument_group(
+    title="Arguments specific to single rare variant analysis"
+)
 tfce_parser = parser.add_argument_group(
     title="Arguments specific to threshold-free cluster enhancement (TFCE)"
 )
@@ -162,6 +165,11 @@ rv_cond_parser.add_argument(
     "--rv-cond",
     action="store_true",
     help="Doing conditional analysis for rare variant associations.",
+)
+rv_single_parser.add_argument(
+    "--rv-single",
+    action="store_true",
+    help="Doing single rare variant analysis.",
 )
 tfce_parser.add_argument(
     "--tfce",
@@ -1250,6 +1258,22 @@ def check_accepted_args(module, args, log):
             "variant_category",
             "geno_mt"
         },
+        "rv_single":{
+            "rv_single",
+            "out",
+            "rv_sumstats_part1",
+            "rv_sumstats_part2",
+            "extract_locus",
+            "exclude_locus",
+            "chr_interval",
+            "maf_max",
+            "maf_min",
+            "spark_conf",
+            "grch37",
+            "n_ldrs",
+            "voxels",
+            "sig_thresh"
+        },
         "tfce":{
             "tfce",
             "out",
@@ -1423,6 +1447,7 @@ def main(args, log):
         + args.cluster
         + args.rv_cluster
         + args.rv_cond
+        + args.rv_single
         + args.tfce
         != 1
     ):
@@ -1432,7 +1457,7 @@ def main(args, log):
                 "--read-image, --fpca, --make-ldr, --heri-gc, --ld-matrix, --sumstats, "
                 "--voxel-gwas, --gwas, --relatedness, --make-mt, --rv-null, --make-rv-sumstats, "
                 "--rv-annot, --rv-coding, --rv-noncoding, --rv, --cluster, --rv-cluster, "
-                "--rv-cond, --tfce"
+                "--rv-cond, --rv-single, --tfce"
             )
         )
 
@@ -1493,6 +1518,9 @@ def main(args, log):
     elif args.rv_cond:
         check_accepted_args('rv_cond', args, log)
         import heig.wgs.condition as module
+    elif args.rv_single:
+        check_accepted_args('rv_single', args, log)
+        import heig.wgs.single_variant as module
     elif args.tfce:
         check_accepted_args('tfce', args, log)
         import heig.wgs.tfce as module
