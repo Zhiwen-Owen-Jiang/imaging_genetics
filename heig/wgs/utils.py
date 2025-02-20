@@ -129,6 +129,7 @@ class GProcessor:
             "methods": [
                 "_extract_variant_type",
                 "_extract_maf",
+                "_extract_mac",
                 "_extract_call_rate",
                 "_filter_hwe",
                 # "_extract_chr_interval"
@@ -136,6 +137,7 @@ class GProcessor:
             "conditions": {
                 "_extract_variant_type": ["variant_type"],
                 "_extract_maf": ["maf_min", "maf_max"],
+                "_extract_mac": ["mac_min", "mac_max"],
                 "_extract_call_rate": ["call_rate"],
                 "_filter_hwe": ["hwe"],
                 # "_extract_chr_interval": ["chr", "start", "end"]
@@ -154,6 +156,7 @@ class GProcessor:
                 # "_flip_snps",
                 "_extract_variant_type",
                 "_extract_maf",
+                "_extract_mac",
                 "_extract_call_rate",
                 "_filter_hwe",
                 # "_annotate_rare_variants",
@@ -164,6 +167,7 @@ class GProcessor:
             "conditions": {
                 "_extract_variant_type": ["variant_type"],
                 "_extract_maf": ["maf_min", "maf_max"],
+                "_extract_mac": ["mac_min", "mac_max"],
                 "_extract_call_rate": ["call_rate"],
                 "_filter_hwe": ["hwe"],
                 # "_extract_chr_interval": ["chr", "start", "end"]
@@ -176,6 +180,8 @@ class GProcessor:
         "geno_ref": "Reference genome",
         "maf_min": "Minimum MAF (>)",
         "maf_max": "Maximum MAF (<=)",
+        "mac_min": "Minimum MAC (>)",
+        "mac_max": "Maximum MAC (<=)",
         # "mac_thresh": "MAC threshold to annotate very rare variants (<=)",
         "call_rate": "Call rate (>=)",
         "hwe": "HWE p-value (>=)",
@@ -189,6 +195,8 @@ class GProcessor:
         hwe=None,
         maf_min=None,
         maf_max=None,
+        mac_min=None,
+        mac_max=None,
         call_rate=None,
     ):
         """
@@ -201,6 +209,8 @@ class GProcessor:
         grch37: if the reference genome is GRCh37
         maf_max: a float number between 0 and 0.5
         maf_min: a float number between 0 and 0.5, must be smaller than maf_max
+        mac_max: an int number > 0
+        mac_min: a int number smaller than mac_max
         call_rate: a float number between 0 and 1, 1 - genotype missingness
         hwe: a float number between 0 and 1, variants with a HWE pvalue less than
             this will be removed
@@ -211,6 +221,8 @@ class GProcessor:
         self.geno_ref = "GRCh37" if grch37 else "GRCh38"
         self.maf_min = maf_min
         self.maf_max = maf_max
+        self.mac_min = mac_min
+        self.mac_max = np.min(mac_max, snps_mt.count_rows()) if mac_max is not None else None
         # self.mac_thresh = mac_thresh
         self.call_rate = call_rate
         self.hwe = hwe
@@ -243,11 +255,9 @@ class GProcessor:
             )  # Index of the minor allele
         )
         self.snps_mt = self.snps_mt.annotate_rows(
-            maf=self.snps_mt.info.AF[self.snps_mt.minor_allele_index]
+            maf=self.snps_mt.info.AF[self.snps_mt.minor_allele_index],
+            mac=self.snps_mt.info.AC[self.snps_mt.minor_allele_index]
         )
-        # self.snps_mt = self.snps_mt.annotate_rows(
-        #     mac=self.snps_mt.info.AC[self.snps_mt.minor_allele_index]
-        # )
 
         config = self.MODE.get(mode, {})
         defaults = config.get("defaults", {})
@@ -445,6 +455,17 @@ class GProcessor:
         if self.maf_min > self.maf_max:
             raise ValueError("maf_min is greater than maf_max")
         return (self.snps_mt.maf > self.maf_min) & (self.snps_mt.maf <= self.maf_max)
+    
+    def _extract_mac(self):
+        """
+        Extracting variants with a mac_min < MAC <= mac_max
+        
+        """
+        if self.mac_min is None:
+            self.mac_min = 0
+        if self.mac_min > self.mac_max:
+            raise ValueError("mac_min is greater than mac_max")
+        return (self.snps_mt.mac > self.mac_min) & (self.snps_mt.mac <= self.mac_max)
 
     def _extract_call_rate(self):
         """
@@ -663,6 +684,8 @@ def read_genotype_data(args, log):
         variant_type=args.variant_type,
         maf_min=args.maf_min,
         maf_max=args.maf_max,
+        mac_min=args.mac_min,
+        mac_max=args.mac_max,
         call_rate=args.call_rate,
     )
 

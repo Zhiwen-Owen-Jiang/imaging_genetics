@@ -302,7 +302,7 @@ common_parser.add_argument(
     "--maf-min",
     type=float,
     help=(
-        "Minimum minor allele frequency for screening SNPs. "
+        "Minimum minor allele frequency for screening variants. "
         "Supported modules: --ld-matrix, --sumstats, --gwas, --cluster, --make-mt, "
         "--relatedness, --make-rv-sumstats, --rv-coding, --rv-noncoding, "
         "--rv, --rv-cluster."
@@ -312,10 +312,30 @@ common_parser.add_argument(
     "--maf-max",
     type=float,
     help=(
-        "Maximum minor allele frequency for screening SNPs. "
+        "Maximum minor allele frequency for screening variants. "
         "Supported modules: --sumstats, --gwas, --cluster, --make-mt, "
         "--relatedness, --make-rv-sumstats, --rv-coding, --rv-noncoding, "
         "--rv, --rv-cluster."
+    ),
+)
+common_parser.add_argument(
+    "--mac-min",
+    type=int,
+    help=(
+        "Minimum minor allele count for screening variants. "
+        "Supported modules: --ld-matrix, --sumstats, --gwas, --cluster, --make-mt, "
+        "--relatedness, --make-rv-sumstats, --rv-coding, --rv-noncoding, "
+        "--rv, --rv-cluster, --rv-single."
+    ),
+)
+common_parser.add_argument(
+    "--mac-max",
+    type=int,
+    help=(
+        "Maximum minor allele count for screening variants. "
+        "Supported modules: --sumstats, --gwas, --cluster, --make-mt, "
+        "--relatedness, --make-rv-sumstats, --rv-coding, --rv-noncoding, "
+        "--rv, --rv-cluster, --rv-single."
     ),
 )
 common_parser.add_argument(
@@ -1003,6 +1023,8 @@ def check_accepted_args(module, args, log):
             "exclude", 
             "maf_min",
             "maf_max",
+            "mac_max",
+            "mac_min",
             "variant_type",
             "hwe",
             "call_rate",
@@ -1030,6 +1052,8 @@ def check_accepted_args(module, args, log):
             "partition",
             "maf_min",
             "maf_max",
+            "mac_max",
+            "mac_min",
             "variant_type",
             "hwe",
             "call_rate",
@@ -1054,6 +1078,8 @@ def check_accepted_args(module, args, log):
             "geno_mt",
             "maf_min",
             "maf_max",
+            "mac_max",
+            "mac_min",
             "variant_type",
             "hwe",
             "call_rate",
@@ -1085,6 +1111,8 @@ def check_accepted_args(module, args, log):
             "variant_type",
             "maf_max",
             "maf_min",
+            "mac_max",
+            "mac_min",
             "hwe",
             "call_rate",
             "chr_interval",
@@ -1121,6 +1149,8 @@ def check_accepted_args(module, args, log):
             "chr_interval",
             "maf_max",
             "maf_min",
+            "mac_max",
+            "mac_min",
             "mac_thresh",
             "spark_conf",
             "grch37",
@@ -1143,6 +1173,8 @@ def check_accepted_args(module, args, log):
             "chr_interval",
             "maf_max",
             "maf_min",
+            "mac_max",
+            "mac_min",
             "mac_thresh",
             "spark_conf",
             "grch37",
@@ -1163,6 +1195,8 @@ def check_accepted_args(module, args, log):
             "chr_interval",
             "maf_max",
             "maf_min",
+            "mac_max",
+            "mac_min",
             "mac_thresh",
             "spark_conf",
             "variant_sets",
@@ -1198,6 +1232,8 @@ def check_accepted_args(module, args, log):
             "exclude",
             "maf_min",
             "maf_max",
+            "mac_max",
+            "mac_min",
             "hwe",
             "call_rate",
             "variant_type",
@@ -1222,6 +1258,8 @@ def check_accepted_args(module, args, log):
             "exclude_locus",
             "maf_min",
             "maf_max",
+            "mac_max",
+            "mac_min",
             "mac_thresh",
             "chr_interval",
             "loco_preds",
@@ -1249,6 +1287,8 @@ def check_accepted_args(module, args, log):
             "exclude_locus_cond",
             "maf_min",
             "maf_max",
+            "mac_max",
+            "mac_min",
             "mac_thresh",
             "chr_interval",
             "chr_interval_cond",
@@ -1268,11 +1308,14 @@ def check_accepted_args(module, args, log):
             "chr_interval",
             "maf_max",
             "maf_min",
+            "mac_max",
+            "mac_min",
             "spark_conf",
             "grch37",
             "n_ldrs",
             "voxels",
-            "sig_thresh"
+            "sig_thresh",
+            "threads"
         },
         "tfce":{
             "tfce",
@@ -1403,6 +1446,13 @@ def process_args(args, log):
         if args.maf_max > 0.5 or args.maf_max <= 0:
             raise ValueError("--maf-max must be > 0 and <= 0.5")
         if args.maf_min is None:
+            args.maf_min = 0
+    if args.mac_min is not None and args.mac_min < 0:
+        raise ValueError("--mac-min must be >= 0")
+    if args.mac_max is not None:
+        if args.mac_max <= 0:
+            raise ValueError("--mac-max must be > 0")
+        if args.mac_min is None:
             args.maf_min = 0
     if args.hwe is not None and args.hwe <= 0:
         raise ValueError("--hwe must be greater than 0")

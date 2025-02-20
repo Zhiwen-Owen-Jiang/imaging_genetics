@@ -390,6 +390,24 @@ class RVsumstats:
             self.locus = self.locus.filter(
                 hl.literal(keep_variant_idx).contains(self.locus.idx)
             )
+            
+    def extract_mac(self, mac_min=None, mac_max=None):
+        """
+        Extracting variants by MAC
+
+        """
+        if mac_min is not None:
+            variant_idx = np.arange(len(self.mac))
+            keep_variant_idx = set(variant_idx[self.mac > mac_min])
+            self.locus = self.locus.filter(
+                hl.literal(keep_variant_idx).contains(self.locus.idx)
+            )
+        if mac_max is not None:
+            variant_idx = np.arange(len(self.mac))
+            keep_variant_idx = set(variant_idx[self.mac <= mac_max])
+            self.locus = self.locus.filter(
+                hl.literal(keep_variant_idx).contains(self.locus.idx)
+            )
 
     def annotate(self, annot):
         """
@@ -555,6 +573,7 @@ def run(args, log):
         sparse_genotype.extract_exclude_locus(args.extract_locus, args.exclude_locus)
         sparse_genotype.extract_chr_interval(args.chr_interval)
         sparse_genotype.extract_maf(args.maf_min, args.maf_max)
+        sparse_genotype.extract_mac(args.mac_min, args.mac_max)
 
         # extract and align subjects with the genotype data
         null_model.keep(common_ids)

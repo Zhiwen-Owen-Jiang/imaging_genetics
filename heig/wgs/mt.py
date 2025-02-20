@@ -177,6 +177,22 @@ class SparseGenotype:
         ]
         if len(self.variant_idxs) == 0:
             raise ValueError("no variant in genotype data")
+        
+    def extract_mac(self, mac_min=None, mac_max=None):
+        """
+        Extracting variants by MAC
+        this method will only be invoked after keep()
+        
+        """
+        if mac_min is None:
+            mac_min = 0
+        if mac_max is None:
+            mac_max = self.vset.shape[1]
+        self.variant_idxs = self.variant_idxs[
+            (self.mac > mac_min) & (self.mac <= mac_max)
+        ]
+        if len(self.variant_idxs) == 0:
+            raise ValueError("no variant in genotype data")
 
     def keep(self, keep_idvs):
         """

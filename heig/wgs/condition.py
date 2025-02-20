@@ -243,6 +243,7 @@ def run(args, log):
         sparse_genotype.extract_exclude_locus(args.extract_locus, args.exclude_locus)
         sparse_genotype.extract_chr_interval(args.chr_interval)
         sparse_genotype.extract_maf(args.maf_min, args.maf_max)
+        sparse_genotype.extract_mac(args.mac_min, args.mac_max)
 
         # extract and align subjects with the genotype data
         null_model.keep(common_ids)

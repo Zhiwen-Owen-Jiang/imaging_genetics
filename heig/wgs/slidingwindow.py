@@ -287,6 +287,7 @@ def run(args, log):
         rv_sumstats.extract_exclude_locus(args.extract_locus, args.exclude_locus)
         rv_sumstats.extract_chr_interval(args.chr_interval)
         rv_sumstats.extract_maf(args.maf_min, args.maf_max)
+        rv_sumstats.extract_mac(args.mac_min, args.mac_max)
         rv_sumstats.select_ldrs(args.n_ldrs)
         rv_sumstats.select_voxels(args.voxels)
         rv_sumstats.calculate_var()
