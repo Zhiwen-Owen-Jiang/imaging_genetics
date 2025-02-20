@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from scipy.stats import chi2
+from concurrent.futures import ThreadPoolExecutor
 from heig.wgs.wgs2 import RVsumstats
 from heig.wgs.utils import *
 
@@ -20,7 +21,7 @@ class SingleVariant:
         self.mac = mac
         self.voxel_idxs = voxel_idxs
 
-    def assoc(self, sig_thresh):
+    def assoc(self, sig_thresh, threads):
         variant_var = self.var / self.cov_mat_diag
         variant_beta = self.half_score / self.cov_mat_diag
         variant_chisq = variant_beta ** 2 / variant_var
@@ -28,22 +29,59 @@ class SingleVariant:
         sig_voxels = sig_map.any(axis=0)
         sig_variants_df = list()
 
-        for i, voxel_idx in enumerate(self.voxel_idxs):
-            if sig_voxels[i]:
-                sig_variants = self.locus[sig_map[:, i]].copy()
-                sig_variants["MAF"] = self.maf[sig_map[:, i]]
-                sig_variants["MAC"] = self.mac[sig_map[:, i]]
-                sig_variants["BETA"] = variant_beta[sig_map[:, i], i]
-                sig_variants["SE"] = np.sqrt(variant_var[sig_map[:, i], i])
-                sig_variants["Z"] = sig_variants["BETA"] / sig_variants["SE"]
-                sig_variants["P"] = chi2.sf(variant_chisq[sig_map[:, i], i], 1)
-                sig_variants.insert(0, "INDEX", [voxel_idx + 1] * np.sum(sig_map[:, i]))
-                sig_variants_df.append(sig_variants)
+        # for i, voxel_idx in enumerate(self.voxel_idxs):
+        #     if sig_voxels[i]:
+        #         sig_variants = self.locus[sig_map[:, i]].copy()
+        #         sig_variants["MAF"] = self.maf[sig_map[:, i]]
+        #         sig_variants["MAC"] = self.mac[sig_map[:, i]]
+        #         sig_variants["BETA"] = variant_beta[sig_map[:, i], i]
+        #         sig_variants["SE"] = np.sqrt(variant_var[sig_map[:, i], i])
+        #         sig_variants["Z"] = sig_variants["BETA"] / sig_variants["SE"]
+        #         sig_variants["P"] = chi2.sf(variant_chisq[sig_map[:, i], i], 1)
+        #         sig_variants.insert(0, "INDEX", [voxel_idx + 1] * np.sum(sig_map[:, i]))
+        #         sig_variants_df.append(sig_variants)
         
+        # sig_variants_df = pd.concat(sig_variants_df, axis=0)
+
+        with ThreadPoolExecutor(max_workers=threads) as executor:
+            futures = [
+                executor.submit(
+                    self._assoc_voxel, 
+                    i, 
+                    voxel_idx, 
+                    sig_voxels, 
+                    sig_map, 
+                    variant_beta, 
+                    variant_var, 
+                    variant_chisq
+                )
+                for i, voxel_idx in enumerate(self.voxel_idxs)
+            ]
+
+            for future in futures:
+                result = future.result()
+                if result is not None:
+                    sig_variants_df.append(result)
+                    
         sig_variants_df = pd.concat(sig_variants_df, axis=0)
         
         return sig_variants_df
     
+    def _assoc_voxel(self, i, voxel_idx, sig_voxels, sig_map, variant_beta, variant_var, variant_chisq):
+        if sig_voxels[i]:
+            sig_variants = self.locus[sig_map[:, i]].copy()
+            sig_variants["MAF"] = self.maf[sig_map[:, i]]
+            sig_variants["MAC"] = self.mac[sig_map[:, i]]
+            sig_variants["BETA"] = variant_beta[sig_map[:, i], i]
+            sig_variants["SE"] = np.sqrt(variant_var[sig_map[:, i], i])
+            sig_variants["Z"] = sig_variants["BETA"] / sig_variants["SE"]
+            sig_variants["P"] = chi2.sf(variant_chisq[sig_map[:, i], i], 1)
+            sig_variants.insert(0, "INDEX", [voxel_idx + 1] * np.sum(sig_map[:, i]))
+        else:
+            sig_variants = None
+
+        return sig_variants
+
 
 def parse_sumstats_data(rv_sumstats):
     numeric_idx = rv_sumstats.locus.idx.collect()
@@ -73,9 +111,14 @@ def check_input(args, log):
     if args.sig_thresh is None:
         args.sig_thresh = 5e-8
         log.info("Set significance threshold as 5e-8")
+    if args.mac_min is None:
+        args.mac_min = 5
+        log.info(f"Set --mac-min as default 5")
 
 
 def run(args, log):
+    check_input(args, log)
+
     try:
         init_hail(args.spark_conf, args.grch37, args.out, log)
 
@@ -96,9 +139,10 @@ def run(args, log):
         rv_sumstats.select_voxels(args.voxels)
         rv_sumstats.calculate_var()
 
-        half_score, cov_mat_diag, maf, mac, var, locus_df = parse_sumstats_data(rv_sumstats)
+        half_score, cov_mat_diag, var, maf, mac, locus_df = parse_sumstats_data(rv_sumstats)
         single_variant = SingleVariant(locus_df, half_score, cov_mat_diag, var, maf, mac, rv_sumstats.voxel_idxs)
-        sig_variants_df = single_variant.assoc(args.sig_thresh)
+        thresh_chisq = chi2.ppf(1 - args.sig_thresh, 1)
+        sig_variants_df = single_variant.assoc(thresh_chisq, args.threads)
         sig_variants_df.to_csv(f"{args.out}.txt", sep='\t', index=None, float_format="%.5e")
         log.info(f"\nSaved rare variant association results to {args.out}.txt")
 
