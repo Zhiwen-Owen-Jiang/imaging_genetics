@@ -487,7 +487,7 @@ common_parser.add_argument(
     help=(
         "Directory to processed functional annotations "
         "for rare variant analysis in hail.Table format. "
-        "Supported modules: --rv-coding, --rv-noncoding, --rv, --rv-cluster."
+        "Supported modules: --rv-coding, --rv-noncoding, --rv, --rv-cluster, --rv-single."
     ),
 )
 common_parser.add_argument(
@@ -522,7 +522,7 @@ common_parser.add_argument(
         "'enhancer_cage', 'enhancer_dhs') for noncoding variants, "
         "where 'all' means all categories; "
         "multiple categories should be separated by comma. "
-        "Supported modules: --rv-coding, --rv-noncoding, --rv-cluster."
+        "Supported modules: --rv-coding, --rv-noncoding, --rv-cluster, --rv-single."
     ),
 )
 common_parser.add_argument(
@@ -1310,6 +1310,8 @@ def check_accepted_args(module, args, log):
             "maf_min",
             "mac_max",
             "mac_min",
+            "variant_category",
+            "annot_ht",
             "spark_conf",
             "grch37",
             "n_ldrs",

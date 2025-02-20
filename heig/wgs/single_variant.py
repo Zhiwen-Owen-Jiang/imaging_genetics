@@ -1,13 +1,18 @@
 import numpy as np
 import pandas as pd
+import hail as hl
 from scipy.stats import chi2
 from concurrent.futures import ThreadPoolExecutor
 from heig.wgs.wgs2 import RVsumstats
+from heig.wgs.coding import Coding
 from heig.wgs.utils import *
 
 
 """
 Computing variant-level associations
+
+TODO:
+1. support noncoding and w/o annotation
 
 """
 
@@ -62,8 +67,11 @@ class SingleVariant:
                 result = future.result()
                 if result is not None:
                     sig_variants_df.append(result)
-                    
-        sig_variants_df = pd.concat(sig_variants_df, axis=0)
+        
+        if len(sig_variants_df) > 0:
+            sig_variants_df = pd.concat(sig_variants_df, axis=0)
+        else:
+            sig_variants_df = None
         
         return sig_variants_df
     
@@ -83,22 +91,64 @@ class SingleVariant:
         return sig_variants
 
 
-def parse_sumstats_data(rv_sumstats):
-    numeric_idx = rv_sumstats.locus.idx.collect()
-    vset_half_covar_proj = np.array(rv_sumstats.vset_half_covar_proj[numeric_idx])
-    vset_ld = rv_sumstats.vset_ld[numeric_idx][:, numeric_idx]
-    half_ldr_score = np.array(rv_sumstats.half_ldr_score[numeric_idx])
-
-    half_score = np.dot(half_ldr_score, rv_sumstats.bases.T)
-    cov_mat_diag = np.array((vset_ld.diagonal() - np.sum(vset_half_covar_proj ** 2, axis=1))).reshape(-1, 1)
-    maf = rv_sumstats.maf[numeric_idx]
-    mac = rv_sumstats.mac[numeric_idx]
-
-    locus = rv_sumstats.locus.collect()
-    locus_df = [(x.locus.contig, x.locus.position, x.alleles[0], x.alleles[1]) for x in locus]
-    locus_df = pd.DataFrame.from_records(locus_df, columns=['CHR', 'POS', 'A2', 'A1']) # first is ref
+# def parse_sumstats_data(locus, variant_category, rv_sumstats):
+#     """
+#     Parsing sumstats for a variant category
     
-    return half_score, cov_mat_diag, rv_sumstats.var, maf, mac, locus_df
+#     """
+#     # locus = locus.add_index("idx")
+#     variant_type = locus.variant_type.collect()[0]
+#     mask = Coding(locus, variant_type)
+#     mask_idx = mask.category_dict[variant_category]
+#     numeric_idx, _ = mask.parse_annot(mask_idx)
+
+#     # numeric_idx = rv_sumstats.locus.idx.collect()
+#     vset_half_covar_proj = np.array(rv_sumstats.vset_half_covar_proj[numeric_idx])
+#     vset_ld = rv_sumstats.vset_ld[numeric_idx][:, numeric_idx]
+#     half_ldr_score = np.array(rv_sumstats.half_ldr_score[numeric_idx])
+
+#     half_score = np.dot(half_ldr_score, rv_sumstats.bases.T)
+#     cov_mat_diag = np.array((vset_ld.diagonal() - np.sum(vset_half_covar_proj ** 2, axis=1))).reshape(-1, 1)
+#     maf = rv_sumstats.maf[numeric_idx]
+#     mac = rv_sumstats.mac[numeric_idx]
+
+#     locus_df = mask.annot.key_by().select('locus', 'alleles', 'idx').collect()
+#     locus_df = [(x.locus.contig, x.locus.position, x.alleles[1], x.alleles[0], x.idx) for x in locus_df]
+#     locus_df = pd.DataFrame.from_records(locus_df, columns=['CHR', 'POS', 'A1', 'A2', 'idx']) # first is ref
+#     locus_df = locus_df.set_index('idx')
+#     locus_df = locus_df.loc[numeric_idx]
+    
+#     return half_score, cov_mat_diag, rv_sumstats.var, maf, mac, locus_df
+
+
+class DataParser:
+    def __init__(self, locus, rv_sumstats):
+        variant_type = locus.variant_type.collect()[0]
+        self.mask = Coding(locus, variant_type)
+        self.rv_sumstats = rv_sumstats
+        self.locus_df = self._get_locus_df()
+
+    def _get_locus_df(self):
+        locus_df = self.mask.annot.key_by().select('locus', 'alleles', 'idx').collect()
+        locus_df = [(x.locus.contig, x.locus.position, x.alleles[1], x.alleles[0], x.idx) for x in locus_df]
+        locus_df = pd.DataFrame.from_records(locus_df, columns=['CHR', 'POS', 'A1', 'A2', 'idx']) # first is ref
+        locus_df = locus_df.set_index('idx')
+        return locus_df
+
+    def parse(self, variant_category):
+        mask_idx = self.mask.category_dict[variant_category]
+        numeric_idx, _ = self.mask.parse_annot(mask_idx)
+        vset_half_covar_proj = np.array(self.rv_sumstats.vset_half_covar_proj[numeric_idx])
+        vset_ld = self.rv_sumstats.vset_ld[numeric_idx][:, numeric_idx]
+        half_ldr_score = np.array(self.rv_sumstats.half_ldr_score[numeric_idx])
+
+        half_score = np.dot(half_ldr_score, self.rv_sumstats.bases.T)
+        cov_mat_diag = np.array((vset_ld.diagonal() - np.sum(vset_half_covar_proj ** 2, axis=1))).reshape(-1, 1)
+        maf = self.rv_sumstats.maf[numeric_idx]
+        mac = self.rv_sumstats.mac[numeric_idx]
+        locus_df = self.locus_df.loc[numeric_idx]
+    
+        return half_score, cov_mat_diag, maf, mac, locus_df
 
 
 def check_input(args, log):
@@ -114,10 +164,44 @@ def check_input(args, log):
     if args.mac_min is None:
         args.mac_min = 5
         log.info(f"Set --mac-min as default 5")
+    if args.annot_ht is None:
+        raise ValueError("--annot-ht (FAVOR annotation) is required")
+    if args.variant_category is None:
+        variant_category = ["all"]
+        log.info(f"Set --variant-category as default 'all'.")
+    else:
+        variant_category = list()
+        args.variant_category = [x.lower() for x in args.variant_category.split(",")]
+        for category in args.variant_category:
+            if category == "all":
+                variant_category = ["all"]
+                break
+            elif category not in {
+                "all",
+                "plof",
+                "plof_ds",
+                "missense",
+                "disruptive_missense",
+                "synonymous",
+                "ptv",
+                "ptv_ds",
+            }:
+                log.info(f"Ingored invalid variant category {category}.")
+            else:
+                variant_category.append(category)
+        if len(variant_category) == 0:
+            raise ValueError("no valid variant category provided")
+        if (
+            "missense" in variant_category
+            and "disruptive_missense" not in variant_category
+        ):
+            variant_category.append("disruptive_missense")
+        
+    return variant_category
 
 
 def run(args, log):
-    check_input(args, log)
+    variant_category = check_input(args, log)
 
     try:
         init_hail(args.spark_conf, args.grch37, args.out, log)
@@ -139,12 +223,25 @@ def run(args, log):
         rv_sumstats.select_voxels(args.voxels)
         rv_sumstats.calculate_var()
 
-        half_score, cov_mat_diag, var, maf, mac, locus_df = parse_sumstats_data(rv_sumstats)
-        single_variant = SingleVariant(locus_df, half_score, cov_mat_diag, var, maf, mac, rv_sumstats.voxel_idxs)
-        thresh_chisq = chi2.ppf(1 - args.sig_thresh, 1)
-        sig_variants_df = single_variant.assoc(thresh_chisq, args.threads)
-        sig_variants_df.to_csv(f"{args.out}.txt", sep='\t', index=None, float_format="%.5e")
-        log.info(f"\nSaved rare variant association results to {args.out}.txt")
+        # reading annotation
+        log.info(f"Read functional annotations from {args.annot_ht}")
+        annot = hl.read_table(args.annot_ht)
+        locus = rv_sumstats.annotate(annot)
+        data_parser = DataParser(locus, rv_sumstats)
+
+        for category in variant_category:
+            log.info(f"\nDoing analysis for {category} ...")
+            # half_score, cov_mat_diag, var, maf, mac, locus_df = parse_sumstats_data(locus, category, rv_sumstats)
+            # single_variant = SingleVariant(locus_df, half_score, cov_mat_diag, var, maf, mac, rv_sumstats.voxel_idxs)
+            half_score, cov_mat_diag, maf, mac, locus_df = data_parser.parse(category)
+            single_variant = SingleVariant(locus_df, half_score, cov_mat_diag, rv_sumstats.var, maf, mac, rv_sumstats.voxel_idxs)
+            thresh_chisq = chi2.ppf(1 - args.sig_thresh, 1)
+            sig_variants_df = single_variant.assoc(thresh_chisq, args.threads)
+            if sig_variants_df is not None:
+                sig_variants_df.to_csv(f"{args.out}_{category}.txt", sep='\t', index=None, float_format="%.5e")
+                log.info(f"Saved rare variant association results to {args.out}_{category}.txt")
+            else:
+                log.info(f"No significant rare variant associations for {category}.")
 
     finally:
         clean(args.out)
