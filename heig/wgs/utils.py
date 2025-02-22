@@ -378,7 +378,7 @@ class GProcessor:
 
         """
         self.logger.info(f"Saved preprocessed genotype data to {temp_dir}")
-        self.snps_mt.write(temp_dir)  # slow but fair
+        self.snps_mt.write(temp_dir, overwrite=True)  # slow but fair
         self.snps_mt = hl.read_matrix_table(temp_dir)
 
     def check_valid(self):
@@ -799,10 +799,11 @@ def read_extract_locus(extract_files, grch37, log):
         else:
             keep_snps_ = keep_snps_.filter(hl.is_defined(ht[keep_snps_.locus]))
 
+    keep_snps_ = keep_snps_.drop('f0')
     if keep_snps_ is None or keep_snps_.count() == 0:
-        raise ValueError("no variants are common in --extract-locus")
+        raise ValueError("no variants are common in --extract-locus(-cond)")
 
-    log.info(f"{keep_snps_.count()} variant(s) in --extract-locus (logical 'and' for multiple files).")
+    log.info(f"{keep_snps_.count()} variant(s) in --extract-locus(-cond) (logical 'and' for multiple files).")
 
     return keep_snps_
 
@@ -838,10 +839,11 @@ def read_exclude_locus(exclude_files, grch37, log):
         else:
             exclude_snps_ = exclude_snps_.union(ht)
 
+    exclude_snps_ = exclude_snps_.drop('f0')
     if exclude_snps_ is None or exclude_snps_.count() == 0:
-        raise ValueError("no variants in --extract-locus")
+        raise ValueError("no variants in --extract-locus(-cond)")
     
-    log.info(f"{exclude_snps_.count()} variant(s) in --exclude-locus (logical 'or' for multiple files).")
+    log.info(f"{exclude_snps_.count()} variant(s) in --exclude-locus(-cond) (logical 'or' for multiple files).")
 
     return exclude_snps_
 

@@ -128,6 +128,8 @@ class SparseGenotype:
         self.ids["idx"] = list(range(self.ids.shape[0]))
         self.ids = self.ids.set_index(["FID", "IID"])
         self.variant_idxs = np.arange(self.vset.shape[0])
+        self.maf_idx = np.full(self.vset.shape[0], True)
+        self.mac_idx = np.full(self.vset.shape[0], True)
         self.maf, self.mac = self._update_maf()
 
     def extract_exclude_locus(self, extract_locus, exclude_locus):
@@ -172,10 +174,11 @@ class SparseGenotype:
             maf_min = 0
         if maf_max is None:
             maf_max = 0.5
-        self.variant_idxs = self.variant_idxs[
-            (self.maf > maf_min) & (self.maf <= maf_max)
-        ]
-        if len(self.variant_idxs) == 0:
+        # self.variant_idxs = self.variant_idxs[
+        #     (self.maf > maf_min) & (self.maf <= maf_max)
+        # ]
+        self.maf_idx = (self.maf > maf_min) & (self.maf <= maf_max)
+        if np.sum(self.maf_idx) == 0:
             raise ValueError("no variant in genotype data")
         
     def extract_mac(self, mac_min=None, mac_max=None):
@@ -188,10 +191,11 @@ class SparseGenotype:
             mac_min = 0
         if mac_max is None:
             mac_max = self.vset.shape[1]
-        self.variant_idxs = self.variant_idxs[
-            (self.mac > mac_min) & (self.mac <= mac_max)
-        ]
-        if len(self.variant_idxs) == 0:
+        # self.variant_idxs = self.variant_idxs[
+        #     (self.mac > mac_min) & (self.mac <= mac_max)
+        # ]
+        self.mac_idx = (self.mac > mac_min) & (self.mac <= mac_max)
+        if np.sum(self.mac_idx) == 0:
             raise ValueError("no variant in genotype data")
 
     def keep(self, keep_idvs):
@@ -239,6 +243,7 @@ class SparseGenotype:
         Parsing genotype data as a result of filtering
 
         """
+        self.variant_idxs = self.variant_idxs[self.maf_idx & self.mac_idx]
         locus_idxs = set(self.locus.idx.collect())
         common_variant_idxs_set = locus_idxs.intersection(self.variant_idxs)
         locus = self.locus.filter(

@@ -1,3 +1,5 @@
+import os
+import shutil
 import numpy as np
 import pandas as pd
 import hail as hl
@@ -173,6 +175,8 @@ def check_input(args, log):
 
     if args.chr_interval_cond is not None:
         args.chr_interval_cond = args.chr_interval_cond.split(',')
+    else:
+        args.chr_interval_cond = []
 
 
 def run(args, log):
@@ -261,12 +265,16 @@ def run(args, log):
         else:
             loco_preds = None
             
+        temp_dir = get_temp_path(args.out)
+        gprocessor.save_interim_data(temp_dir)
+        gprocessor.check_valid()
+
         # LD pruning and get the genotype matrix
         log.info("Pruning conditional variants ...")
         gprocessor.ld_prune()
         genotype = gprocessor.get_bm().to_numpy()
         genotype = genotype[np.sum(genotype, axis=1) > 0]
-        log.info(f"{genotype.shape[0]} variants included in conditional analysis.")
+        log.info(f"{genotype.shape[0]} variant(s) included in conditional analysis.")
         covar = np.concatenate([null_model.covar, genotype.T], axis=1)
 
         # reading annotation
@@ -311,7 +319,7 @@ def run(args, log):
             args.sig_thresh
         )
         if cate_output is not None:
-            out_path = f"{args.out}_{gene_name}_cond.txt"
+            out_path = f"{args.out}.txt"
             cate_output.to_csv(
                 out_path,
                 sep="\t",
@@ -321,10 +329,12 @@ def run(args, log):
                 float_format="%.5e",
             )
             log.info(
-                f"Saved results for {gene_name} to {args.out}_{gene_name}_cond.txt"
+                f"Saved results for {gene_name} to {args.out}.txt"
             )
         else:
             log.info(f"No significant results for {gene_name}.")
 
     finally:
         clean(args.out)
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)

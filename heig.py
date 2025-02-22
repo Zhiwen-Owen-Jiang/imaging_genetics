@@ -1418,6 +1418,12 @@ def process_args(args, log):
         # args.exclude_locus = ds.read_exclude(args.exclude_locus, locus=True)
         # log.info(f"{len(args.exclude_locus)} SNP(s) in --exclude-locus (logical 'or' for multiple files).")
     
+    if args.extract_locus_cond is not None:
+        args.extract_locus_cond = split_files(args.extract_locus_cond)
+
+    if args.exclude_locus_cond is not None:
+        args.exclude_locus_cond = split_files(args.exclude_locus_cond)
+    
     # if args.bfile is not None:
     #     for suffix in [".bed", ".fam", ".bim"]:
     #         ds.check_existence(args.bfile, suffix)

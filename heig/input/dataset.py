@@ -685,10 +685,10 @@ def read_variant_sets(file):
     variant_sets = pd.read_csv(file, sep="\s+", header=None)
     try:
         chr_interval = variant_sets.iloc[0, 1]
-        start, end = chr_interval.split(",")
+        start, end = chr_interval.split("-")
         start_chr, start_pos = [int(x) for x in start.split(":")]
-        end_chr, end_pos = [int(x) for x in end.split(":")]
+        end_pos = int(end)
     except:
-        raise ValueError("variant sets should be in format `chr:start,chr:end`")
+        raise ValueError("variant sets should be in format `chr:start-end`")
 
     return variant_sets
