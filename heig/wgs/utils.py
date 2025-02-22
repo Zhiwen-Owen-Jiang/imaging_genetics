@@ -650,6 +650,19 @@ class GProcessor:
         LD pruning
         
         """
+        self.snps_mt = hl.variant_qc(self.snps_mt, name="info")
+        self.snps_mt = self.snps_mt.annotate_rows(
+            minor_allele_index=hl.argmin(
+                self.snps_mt.info.AF
+            )  # Index of the minor allele
+        )
+        self.snps_mt = self.snps_mt.annotate_rows(
+            maf=self.snps_mt.info.AF[self.snps_mt.minor_allele_index],
+            mac=self.snps_mt.info.AC[self.snps_mt.minor_allele_index]
+        )
+        self.snps_mt = self.snps_mt.filter_rows(self.snps_mt.maf > 0)
+        if self.snps_mt.count_rows() == 0:
+            raise ValueError('no variant with a MAF > 0')
         self.snps_mt = self.snps_mt.filter_rows(hl.len(self.snps_mt.alleles) == 2)
         pruned_variant_table = hl.ld_prune(self.snps_mt.GT, r2=r2, bp_window_size=bp_window_size)
         self.snps_mt = self.snps_mt.filter_rows(hl.is_defined(pruned_variant_table[self.snps_mt.row_key]))

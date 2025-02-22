@@ -127,6 +127,7 @@ def adjust_cond(resid_ldr, covar, bases, vset, chr, loco_preds):
     covar_U, _, covar_Vt = np.linalg.svd(covar, full_matrices=False)
     half_covar_proj = np.dot(covar_U, covar_Vt).astype(np.float32)
     vset_half_covar_proj = vset @ half_covar_proj # Z'UV'
+    vset = vset.astype(np.uint16)
     vset_ld = vset @ vset.T # Z'Z
     cov_mat = np.array(vset_ld - vset_half_covar_proj @ vset_half_covar_proj.T)
 
@@ -169,9 +170,9 @@ def check_input(args, log):
     elif args.mac_thresh < 0:
         raise ValueError("--mac-thresh must be greater than 0")
     
-    if args.maf_min is None:
-        args.maf_min = 0
-        log.info(f"Set --maf-min as default 0")
+    # if args.maf_min is None:
+    #     args.maf_min = 0
+    #     log.info(f"Set --maf-min as default 0")
 
     if args.chr_interval_cond is not None:
         args.chr_interval_cond = args.chr_interval_cond.split(',')
@@ -192,7 +193,8 @@ def run(args, log):
         # reading sparse genotype data
         sparse_genotype = SparseGenotype(args.sparse_genotype)
         log.info(f"Read sparse genotype data from {args.sparse_genotype}")
-        log.info(f"{sparse_genotype.vset.shape[1]} subjects and {sparse_genotype.vset.shape[0]} variants.")
+        log.info((f"{sparse_genotype.vset.shape[1]} subjects and "
+                  f"{sparse_genotype.vset.shape[0]} variants."))
 
         # read loco preds
         if args.loco_preds is not None:
@@ -223,16 +225,20 @@ def run(args, log):
         gprocessor = read_genotype_data(args, log)
 
         if args.extract_locus_cond is not None:
-            args.extract_locus_cond = read_extract_locus(args.extract_locus_cond, args.grch37, log)
+            args.extract_locus_cond = read_extract_locus(
+                args.extract_locus_cond, args.grch37, log
+            )
         if args.exclude_locus_cond is not None:
-            args.exclude_locus_cond = read_exclude_locus(args.exclude_locus_cond, args.grch37, log)
+            args.exclude_locus_cond = read_exclude_locus(
+                args.exclude_locus_cond, args.grch37, log
+            )
 
         gprocessor.keep_remove_idvs(common_ids)
         gprocessor.extract_exclude_locus(args.extract_locus_cond, args.exclude_locus_cond)
         for chr_interval_cond in args.chr_interval_cond:
             gprocessor.extract_chr_interval(chr_interval_cond)
         # gprocessor.extract_chr_interval(args.chr_interval_cond)
-        gprocessor.do_processing('gwas')
+        # gprocessor.do_processing('gwas')
 
         # extract common subjects and align data
         snp_mt_ids = np.array(gprocessor.subject_id(), dtype=str)
@@ -255,8 +261,8 @@ def run(args, log):
         log.info(f"{len(common_ids)} common subjects in the data.")
         log.info(
             (
-                f"{null_model.covar.shape[1]} fixed effects in the covariates (including the intercept) "
-                "after removing redundant effects.\n"
+                f"{null_model.covar.shape[1]} fixed effects in the covariates "
+                "(including the intercept) after removing redundant effects.\n"
             )
         )
 
@@ -264,7 +270,8 @@ def run(args, log):
             loco_preds.keep(common_ids)
         else:
             loco_preds = None
-            
+        
+        # save temporary file
         temp_dir = get_temp_path(args.out)
         gprocessor.save_interim_data(temp_dir)
         gprocessor.check_valid()
@@ -273,7 +280,7 @@ def run(args, log):
         log.info("Pruning conditional variants ...")
         gprocessor.ld_prune()
         genotype = gprocessor.get_bm().to_numpy()
-        genotype = genotype[np.sum(genotype, axis=1) > 0]
+        # genotype = genotype[np.sum(genotype, axis=1) > 0]
         log.info(f"{genotype.shape[0]} variant(s) included in conditional analysis.")
         covar = np.concatenate([null_model.covar, genotype.T], axis=1)
 
