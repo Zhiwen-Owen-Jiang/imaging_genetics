@@ -279,6 +279,7 @@ def run(args, log):
         # LD pruning and get the genotype matrix
         log.info("Pruning conditional variants ...")
         gprocessor.ld_prune()
+        cond_locus = gprocessor.get_locus()
         genotype = gprocessor.get_bm().to_numpy()
         # genotype = genotype[np.sum(genotype, axis=1) > 0]
         log.info(f"{genotype.shape[0]} variant(s) included in conditional analysis.")
@@ -303,6 +304,10 @@ def run(args, log):
         half_ldr_score, cov_mat, var = adjust_cond(
             null_model.resid_ldr, covar, null_model.bases, vset, chr, loco_preds
         )
+        
+        # index file
+        index_file = IndexFile(f"{args.out}_result_index.txt")
+        log.info(f"Saved result index file to {args.out}_result_index.txt")
 
         # analysis
         vset_test = VariantSetTest(null_model.bases, var)
@@ -327,6 +332,13 @@ def run(args, log):
         )
         if cate_output is not None:
             out_path = f"{args.out}.txt"
+            index_file.write_index(
+                gene_name,
+                chr,
+                start,
+                end,
+                out_path
+            )
             cate_output.to_csv(
                 out_path,
                 sep="\t",
@@ -335,9 +347,9 @@ def run(args, log):
                 index=None,
                 float_format="%.5e",
             )
-            log.info(
-                f"Saved results for {gene_name} to {args.out}.txt"
-            )
+            cond_locus.to_csv(f"{args.out}_cond_variants.txt", header=None, index=None)
+            log.info(f"Saved results for {gene_name} to {args.out}.txt")
+            log.info(f"Saved conditioned variants to {args.out}_cond_variants.txt")
         else:
             log.info(f"No significant results for {gene_name}.")
 

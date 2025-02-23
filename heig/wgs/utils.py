@@ -670,6 +670,12 @@ class GProcessor:
     def get_bm(self):
         bm = BlockMatrix.from_entry_expr(self.snps_mt.GT.n_alt_alleles(), mean_impute=True)
         return bm
+    
+    def get_locus(self):
+        locus_info = self.snps_mt.row.select('locus').collect()
+        locus_df = [f"{x.locus.contig}:{x.locus.position}" for x in locus_info]
+        locus_df = pd.DataFrame({0: locus_df})
+        return locus_df
 
     def cache(self):
         self.snps_mt = self.snps_mt.cache()
