@@ -1007,5 +1007,5 @@ def run(args, log):
         )
     sumstats.process(args.threads)
 
-    log.info(f"\nSave the processed summary statistics to {args.out}.sumstats")
-    log.info(f"Save the summary statistics information to {args.out}.snpinfo")
+    log.info(f"\nSaved the processed summary statistics to {args.out}.sumstats")
+    log.info(f"Saved the summary statistics information to {args.out}.snpinfo")
