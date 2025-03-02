@@ -61,9 +61,9 @@ class RVcluster:
             annot_name,
             maf,
             mac,
+            tests,
             sig_thresh=2.5e-6, 
             mac_thresh=10,
-            cmac_min=25,
             threads=1,
             loco_preds=None,
             voxels=None
@@ -79,9 +79,9 @@ class RVcluster:
         annot_name: names of annotations
         maf: a np.array of MAF
         mac: a np.array of MAC
+        tests: a list of rv tests
         sig_thresh: significant threshold
         mac_thresh: a MAC threshold to denote ultrarare variants for ACAT-V
-        cmac_min: the minimal cumulative MAC for a variant set
         threads: number of threads
         loco_preds: a LOCOpreds instance of loco predictions
             loco_preds.data_reader(j) returns loco preds for chrj with matched subjects
@@ -95,9 +95,9 @@ class RVcluster:
         self.annot_name = annot_name
         self.maf = maf
         self.mac = mac
+        self.tests = tests
         self.sig_thresh = sig_thresh
         self.mac_thresh = mac_thresh
-        self.cmac_min = cmac_min
         self.threads = threads
         self.n_variants, self.n_subs = self.vset.shape
         self.n_covars = null_model.covar.shape[1]
@@ -111,6 +111,9 @@ class RVcluster:
             self.resid_ldr = null_model.resid_ldr - loco_preds.data_reader(chr)
         else:
             self.resid_ldr = null_model.resid_ldr
+        inner_ldr = np.dot(self.resid_ldr.T, self.resid_ldr).astype(np.float32)
+        self.var = np.sum(np.dot(self.bases, inner_ldr) * self.bases, axis=1)
+        self.var /= self.n_subs - self.n_covars  # (N, )
 
         if voxels is None:
             self.voxels = np.arange(self.bases.shape[0])
@@ -175,9 +178,9 @@ class RVcluster:
         """
         np.random.seed(sample_id)
         resid_ldr_rand = self.resid_ldr[np.random.permutation(self.n_subs)]
-        inner_ldr = np.dot(resid_ldr_rand.T, resid_ldr_rand).astype(np.float32)
-        self.var = np.sum(np.dot(self.bases, inner_ldr) * self.bases, axis=1)
-        self.var /= self.n_subs - self.n_covars  # (N, )
+        # inner_ldr = np.dot(resid_ldr_rand.T, resid_ldr_rand).astype(np.float32)
+        # self.var = np.sum(np.dot(self.bases, inner_ldr) * self.bases, axis=1)
+        # self.var /= self.n_subs - self.n_covars  # (N, )
         self.half_ldr_score = self.vset @ resid_ldr_rand 
 
     def _variant_set_test(self, sample_id):
@@ -189,7 +192,9 @@ class RVcluster:
     
         with ThreadPoolExecutor(max_workers=self.threads) as executor:
             futures = [
-                executor.submit(self._variant_set_test_, sample_id, gene_id, gene_name, numeric_idx)
+                executor.submit(
+                    self._variant_set_test_, sample_id, gene_id, gene_name, numeric_idx
+                )
                 for gene_id, (gene_name, numeric_idx) in enumerate(self.numeric_idx_list.items())
             ]
             
@@ -209,18 +214,16 @@ class RVcluster:
         half_ldr_score, cov_mat, maf, mac = self._parse_data(
             numeric_idx
         )
-        if half_ldr_score is None or np.sum(mac) < self.cmac_min:
-            return None
         if self.phred_cate is not None:
             annot = self.phred_cate[numeric_idx]
         else:
             annot = None
         is_rare = mac < self.mac_thresh
         vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, annot)
-        pvalues = vset_test.do_inference(self.annot_name)
+        # pvalues = vset_test.do_inference(self.annot_name)
+        pvalues = vset_test.do_inference_tests(self.tests, self.annot_name)
         pvalues.insert(0, "INDEX", self.voxels+1)
-        # sig_pvalues = pvalues.loc[pvalues["STAAR-O"] < self.sig_thresh, ["INDEX", "STAAR-O"]]
-        sig_pvalues = pvalues.loc[pvalues["STAAR-O"] < self.sig_thresh]
+        sig_pvalues = pvalues.loc[pvalues.iloc[:, 1] < self.sig_thresh]
         if len(sig_pvalues) > 0:
             sig_pvalues.insert(0, "CMAC", np.sum(mac))
             sig_pvalues.insert(0, "N_VARIANTS", len(mac))
@@ -261,7 +264,17 @@ class RVcluster:
         return sig_pvalues_list
 
 
-def creating_mask(locus, variant_sets, variant_category, vset, maf, mac, cmac_min):
+def creating_mask(
+        locus, 
+        variant_sets, 
+        variant_category, 
+        vset, 
+        maf, 
+        mac, 
+        cmac_min, 
+        cmac_max=np.inf, 
+        use_annot_weights=False
+    ):
     """
     Creating masks for a variant category and split into genes
 
@@ -273,7 +286,9 @@ def creating_mask(locus, variant_sets, variant_category, vset, maf, mac, cmac_mi
     vset: (m, n) csr_matrix of genotype
     maf: a np.array of MAF
     mac: a np.array of MAC
-    cmac_min: min of mMAC
+    cmac_min: min of cMAC
+    cmac_max: max of cMAC
+    use_annot_weights: boolean, using annotation weights
 
     Returns:
     ---------
@@ -292,6 +307,11 @@ def creating_mask(locus, variant_sets, variant_category, vset, maf, mac, cmac_mi
     mask = Coding(locus, variant_type)
     mask_idx = mask.category_dict[variant_category]
     numeric_idx, phred_cate = mask.parse_annot(mask_idx)
+    annot_name = mask.annot_name
+
+    if not use_annot_weights:
+        annot_name = None
+        phred_cate = None # TODO: modify Coding so dont need to parse
     
     chr = locus.aggregate(hl.agg.take(locus.locus.contig, 1)[0])
     if locus.locus.dtype.reference_genome.name == "GRCh38":
@@ -313,10 +333,11 @@ def creating_mask(locus, variant_sets, variant_category, vset, maf, mac, cmac_mi
             start_idx += 1
         if end_idx > start_idx + 1:
             numeric_idxs = list(range(start_idx, end_idx))
-            if np.sum(mac[numeric_idxs]) >= cmac_min:
+            cmac = np.sum(mac[numeric_idxs])
+            if cmac >= cmac_min and cmac <= cmac_max:
                 gene_numeric_idxs[gene[0]] = numeric_idxs
 
-    return chr, gene_numeric_idxs, phred_cate, mask.annot_name, vset, maf, mac
+    return chr, gene_numeric_idxs, phred_cate, annot_name, vset, maf, mac
 
 
 def check_input(args, log):
@@ -345,16 +366,18 @@ def check_input(args, log):
         args.n_bootstrap = 100
         log.info("Set #bootstrap as 100")
     if args.mac_thresh is None:
-        args.mac_thresh = 10
-        log.info(f"Set --mac-thresh as default 10")
+        args.mac_thresh = 30
+        log.info(f"Set --mac-thresh as default 30")
     elif args.mac_thresh < 0:
         raise ValueError("--mac-thresh must be greater than 0")
     if args.sig_thresh is None:
         args.sig_thresh = 2.5e-6
         log.info("Set significance threshold as 2.5e-6")
     if args.cmac_min is None:
-        args.cmac_min = 25
-        log.info(f"Set --cmac-min as default 25")
+        args.cmac_min = 30
+        log.info(f"Set --cmac-min as default 30")
+    if args.cmac_max is None:
+        args.cmac_max = np.inf
 
 
 def run(args, log):
@@ -372,7 +395,8 @@ def run(args, log):
         # reading sparse genotype data
         sparse_genotype = SparseGenotype(args.sparse_genotype)
         log.info(f"Read sparse genotype data from {args.sparse_genotype}")
-        log.info(f"{sparse_genotype.vset.shape[1]} subjects and {sparse_genotype.vset.shape[0]} variants.")
+        log.info((f"{sparse_genotype.vset.shape[1]} subjects and "
+                  f"{sparse_genotype.vset.shape[0]} variants."))
 
         # reading loco preds
         if args.loco_preds is not None:
@@ -405,8 +429,8 @@ def run(args, log):
         log.info(f"{len(common_ids)} common subjects in the data.")
         log.info(
             (
-                f"{null_model.covar.shape[1]} fixed effects in the covariates (including the intercept) "
-                "after removing redundant effects.\n"
+                f"{null_model.covar.shape[1]} fixed effects in the covariates "
+                "(including the intercept) after removing redundant effects.\n"
             )
         )
 
@@ -436,10 +460,26 @@ def run(args, log):
         # creating mask
         (
             chr, gene_numeric_idxs, phred_cate, annot_name, vset, maf, mac
-        ) = creating_mask(locus, args.variant_sets, args.variant_category, vset, maf, mac, args.cmac_min)
-        log.info((f"Using {len(gene_numeric_idxs)} genes (cMAC >= {args.cmac_min}) of "
-                  f"{args.variant_category} variants in wild bootstrap."
-        ))
+        ) = creating_mask(
+            locus, 
+            args.variant_sets, 
+            args.variant_category,
+            vset, 
+            maf, 
+            mac, 
+            args.cmac_min, 
+            args.cmac_max,
+            args.use_annot_weights
+        )
+        if args.cmac_max == np.inf:
+            log.info((f"Using {len(gene_numeric_idxs)} genes (cMAC >= {args.cmac_min}) of "
+                      f"{args.variant_category} variants in wild bootstrap."
+            ))
+        else:
+            log.info((f"Using {len(gene_numeric_idxs)} genes "
+                      f"({args.cmac_min} <= cMAC <= {args.cmac_max}) of "
+                      f"{args.variant_category} variants in wild bootstrap."
+            ))
 
         # wild bootstrap
         cluster = RVcluster(
@@ -451,6 +491,7 @@ def run(args, log):
             annot_name,
             maf, 
             mac, 
+            args.rv_tests,
             args.sig_thresh, 
             args.mac_thresh,
             args.cmac_min,

@@ -592,7 +592,15 @@ common_parser.add_argument(
     "--cmac-min",
     type=int,
     help=(
-        "The minimal of cumulative MAC in a variant set. "
+        "The minimum of cumulative MAC in a variant set. "
+        "Supported modules: --rv-coding, --rv-noncoding, --rv, --rv-cluster."
+    )
+)
+common_parser.add_argument(
+    "--cmac-max",
+    type=int,
+    help=(
+        "The maximum of cumulative MAC in a variant set. "
         "Supported modules: --rv-coding, --rv-noncoding, --rv, --rv-cluster."
     )
 )
@@ -605,6 +613,24 @@ common_parser.add_argument(
         "a FreeSurfer surface mesh file (.pial) for FreeSurfer morphometry data. "
         "Supported modules: --image, --tfce."
     ),
+)
+common_parser.add_argument(
+    "--rv-tests",
+    help=(
+        "Gene based tests for rare variant analysis. "
+        "Must be one or some of ('burden', 'skat', 'staar'). "
+        "Multiple tests are separated by comma. "
+        "STAAR will run all tests and combine individual p-values. "
+        "Supported modules: --rv-coding, --rv-noncoding, --rv, --rv-cluster."
+    ),
+)
+common_parser.add_argument(
+    "--use-annot-weights", 
+    action="store_true", 
+    help=(
+        "Using annotation weights. "
+        "Supported modules: --rv-coding, --rv-noncoding, --rv, --rv-cluster."
+    )
 )
 
 # arguments for herigc.py
@@ -1159,6 +1185,9 @@ def check_accepted_args(module, args, log):
             "annot_ht",
             "staar_only",
             "cmac_min",
+            "cmac_max",
+            "rv_tests",
+            "use_annot_weights",
             "sig_thresh"
         },
         "rv_noncoding":{
@@ -1183,6 +1212,9 @@ def check_accepted_args(module, args, log):
             "annot_ht",
             "staar_only",
             "cmac_min",
+            "cmac_max",
+            "rv_tests",
+            "use_annot_weights",
             "sig_thresh"
         },
         "rv":{
@@ -1209,6 +1241,9 @@ def check_accepted_args(module, args, log):
             "sliding_length",
             "staar_only",
             "cmac_min",
+            "cmac_max",
+            "rv_tests",
+            "use_annot_weights",
             "sig_thresh"
         },
         "cluster":{
@@ -1267,6 +1302,9 @@ def check_accepted_args(module, args, log):
             "variant_sets",
             "variant_category",
             "cmac_min",
+            "cmac_max",
+            "rv_tests",
+            "use_annot_weights",
             "threads"
         },
         "rv_cond":{
@@ -1479,7 +1517,15 @@ def process_args(args, log):
 
     if args.cmac_min is not None and args.cmac_min <= 1:
         raise ValueError("--cmac-min must be greater than 1")
-        
+    if args.cmac_max is not None and args.cmac_min > args.cmac_max:
+        raise ValueError("--cmac-min must be no greater than --cmac-max")
+    
+    if args.rv_tests is not None:
+        args.rv_tests = [x.lower() for x in args.rv_tests.split(",")]
+        for rv_test in args.rv_tests:
+            if rv_test not in {"burden", "skat", "staar"}:
+                raise ValueError(f"invalid rv test: {rv_test}")
+
 
 def main(args, log):
     dirname = os.path.dirname(args.out)

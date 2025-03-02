@@ -75,7 +75,7 @@ class VariantSetTest:
         """
         w1 = beta.pdf(self.maf, 1, 25).reshape(1, -1)
         w2 = beta.pdf(self.maf, 1, 1).reshape(1, -1)
-        w3 = beta.pdf(self.maf, 0.5, 0.5).reshape(1, -1)
+        # w3 = beta.pdf(self.maf, 0.5, 0.5).reshape(1, -1)
         weights_dict = dict()
 
         if annot is None:
@@ -83,8 +83,8 @@ class VariantSetTest:
             weights_dict["skat(1,1)"] = w2
             weights_dict["burden(1,25)"] = w1
             weights_dict["burden(1,1)"] = w2
-            weights_dict["acatv(1,25)"] = (w1 / w3) ** 2
-            weights_dict["acatv(1,1)"] = (w2 / w3) ** 2
+            # weights_dict["acatv(1,25)"] = (w1 / w3) ** 2
+            # weights_dict["acatv(1,1)"] = (w2 / w3) ** 2
         else:
             if (annot <= 0).any():
                 raise ValueError("annotation weights must be greater than 0")
@@ -95,8 +95,8 @@ class VariantSetTest:
             weights_dict["skat(1,1)"] = self._combine_weights(w2, np.sqrt(annot))
             weights_dict["burden(1,25)"] = self._combine_weights(w1, annot)
             weights_dict["burden(1,1)"] = self._combine_weights(w2, annot)
-            weights_dict["acatv(1,25)"] = self._combine_weights((w1 / w3) ** 2, annot)
-            weights_dict["acatv(1,1)"] = self._combine_weights((w2 / w3) ** 2, annot)
+            # weights_dict["acatv(1,25)"] = self._combine_weights((w1 / w3) ** 2, annot)
+            # weights_dict["acatv(1,1)"] = self._combine_weights((w2 / w3) ** 2, annot)
 
         return weights_dict
 
@@ -330,8 +330,76 @@ class VariantSetTest:
         all_results_df = pd.concat(all_results, axis=1)
 
         return all_results_df
+    
+    def do_inference_tests(self, tests, annot_name=None):
+        """
+        Doing inference for the variant set using multiple weights and methods.
+        if tests == burden or skat, do maf(1,1), maf(1,25), and weights
+        if burden, output burden stats
+        if tests == staar, do burden, skat, staar-burden, staar-skat, and staaro
 
+        Parameters:
+        ------------
+        tests: a list of tests
+        annot_name: a list of functional annotation names
 
+        Returns:
+        ---------
+        all_results_df: a pd.DataFrame of results, each columns is a method
+        
+        """
+        n_weights = self.weights["skat(1,25)"].shape[0]
+        all_results = list()
+        burden_1_25_pvalues = np.zeros((n_weights, self.N))
+        burden_1_1_pvalues = np.zeros((n_weights, self.N))
+        skat_1_25_pvalues = np.zeros((n_weights, self.N))
+        skat_1_1_pvalues = np.zeros((n_weights, self.N))
+
+        if "burden" in tests or "staar" in tests:
+            for i in range(n_weights):
+                burden_1_25_pvalues[i] = self._burden_test(self.weights["burden(1,25)"][i])
+                burden_1_1_pvalues[i] = self._burden_test(self.weights["burden(1,1)"][i])
+
+        if "skat" in tests or "staar" in tests:
+            for i in range(n_weights):
+                skat_1_25_pvalues[i] = self._skat_test(self.weights["skat(1,25)"][i])
+                skat_1_1_pvalues[i] = self._skat_test(self.weights["skat(1,1)"][i])
+        
+        if "staar" in tests:
+            all_pvalues = np.vstack(
+                [
+                    skat_1_25_pvalues,
+                    skat_1_1_pvalues,
+                    burden_1_25_pvalues,
+                    burden_1_1_pvalues,
+                ]
+            )
+            results_STAAR_O = pd.DataFrame(
+                cauchy_combination(all_pvalues), columns=["STAAR-O"]
+            )
+            all_results.append(results_STAAR_O)
+
+        for pvalues, test_method in (
+            (skat_1_25_pvalues, "SKAT(1,1)"),
+            (skat_1_1_pvalues, "SKAT(1,25)"),
+            (burden_1_25_pvalues, "Burden(1,1)"),
+            (burden_1_1_pvalues, "Burden(1,25)"),
+        ):
+            if pvalues.sum() == 0:
+                continue
+            if n_weights > 1:
+                comb_pvalues = cauchy_combination(pvalues).reshape(-1, 1)
+            else:
+                comb_pvalues = None
+            all_pvalues = format_results(
+                pvalues.T, comb_pvalues, test_method, annot_name
+            )
+            all_results.append(all_pvalues)
+        all_results_df = pd.concat(all_results, axis=1)
+
+        return all_results_df
+
+        
 def cauchy_combination(pvalues, weights=None, axis=0):
     """
     Cauchy combination for an array of pvalues and weights.
