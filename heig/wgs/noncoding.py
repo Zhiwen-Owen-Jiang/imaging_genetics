@@ -308,8 +308,8 @@ def check_input(args, log):
         raise ValueError("--mac-thresh must be greater than 0")
     
     if args.cmac_min is None:
-        args.cmac_min = 2
-        log.info(f"Set --cmac-min as default 2")
+        args.cmac_min = 25
+        log.info(f"Set --cmac-min as default 25")
 
     if args.variant_category is None:
         variant_category = ["all"]
