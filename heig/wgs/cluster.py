@@ -73,7 +73,6 @@ class Cluster:
         self.gprocessor = gprocessor
         self.resid_ldrs = resid_ldrs
         self.covar = covar
-        self.n = covar.shape[0]
         self.n_snps = None
         self.bases = bases
         self.voxels = voxels
@@ -163,7 +162,7 @@ class Cluster:
 
         """
         rand_resid_ldrs = self.resid_ldrs.values * rand_v
-        ldr_cov = np.dot(rand_resid_ldrs.T, rand_resid_ldrs) / self.n
+        ldr_cov = np.dot(rand_resid_ldrs.T, rand_resid_ldrs) / self.n_subs
         sumstats = read_sumstats(f"{self.temp_path}_bootstrap_ldr_sumstats")
         ldr_n = np.array(sumstats.snpinfo["N"]).reshape(-1, 1)
         snp_idxs = np.ones(sumstats.n_snps, dtype=bool)
