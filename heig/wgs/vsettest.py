@@ -267,20 +267,20 @@ class VariantSetTest:
         skat_1_1_pvalues = np.zeros((n_weights, self.N))
         burden_1_25_pvalues = np.zeros((n_weights, self.N))
         burden_1_1_pvalues = np.zeros((n_weights, self.N))
-        acatv_1_25_pvalues = np.zeros((n_weights, self.N))
-        acatv_1_1_pvalues = np.zeros((n_weights, self.N))
+        # acatv_1_25_pvalues = np.zeros((n_weights, self.N))
+        # acatv_1_1_pvalues = np.zeros((n_weights, self.N))
 
         for i in range(n_weights):
             skat_1_25_pvalues[i] = self._skat_test(self.weights["skat(1,25)"][i])
             skat_1_1_pvalues[i] = self._skat_test(self.weights["skat(1,1)"][i])
             burden_1_25_pvalues[i] = self._burden_test(self.weights["burden(1,25)"][i])
             burden_1_1_pvalues[i] = self._burden_test(self.weights["burden(1,1)"][i])
-            acatv_1_25_pvalues[i] = self._acatv_test(
-                self.weights["acatv(1,25)"][i], self.weights["burden(1,25)"][i]
-            )
-            acatv_1_1_pvalues[i] = self._acatv_test(
-                self.weights["acatv(1,1)"][i], self.weights["burden(1,1)"][i]
-            )
+            # acatv_1_25_pvalues[i] = self._acatv_test(
+            #     self.weights["acatv(1,25)"][i], self.weights["burden(1,25)"][i]
+            # )
+            # acatv_1_1_pvalues[i] = self._acatv_test(
+            #     self.weights["acatv(1,1)"][i], self.weights["burden(1,1)"][i]
+            # )
 
         all_pvalues = np.vstack(
             [
@@ -288,35 +288,36 @@ class VariantSetTest:
                 skat_1_1_pvalues,
                 burden_1_25_pvalues,
                 burden_1_1_pvalues,
-                acatv_1_25_pvalues,
-                acatv_1_1_pvalues,
+                # acatv_1_25_pvalues,
+                # acatv_1_1_pvalues,
             ]
         )
         results_STAAR_O = pd.DataFrame(
             cauchy_combination(all_pvalues), columns=["STAAR-O"]
         )
-        results_ACAT_O = cauchy_combination(
-            np.vstack(
-                [
-                    skat_1_25_pvalues[0],
-                    skat_1_1_pvalues[0],
-                    burden_1_25_pvalues[0],
-                    burden_1_1_pvalues[0],
-                    acatv_1_25_pvalues[0],
-                    acatv_1_1_pvalues[0],
-                ]
-            )
-        )
-        results_ACAT_O = pd.DataFrame(results_ACAT_O, columns=["ACAT-O"])
-        all_results = [results_STAAR_O, results_ACAT_O]
+        # results_ACAT_O = cauchy_combination(
+        #     np.vstack(
+        #         [
+        #             skat_1_25_pvalues[0],
+        #             skat_1_1_pvalues[0],
+        #             burden_1_25_pvalues[0],
+        #             burden_1_1_pvalues[0],
+        #             acatv_1_25_pvalues[0],
+        #             acatv_1_1_pvalues[0],
+        #         ]
+        #     )
+        # )
+        # results_ACAT_O = pd.DataFrame(results_ACAT_O, columns=["ACAT-O"])
+        # all_results = [results_STAAR_O, results_ACAT_O]
+        all_results = [results_STAAR_O]
 
         for pvalues, test_method in (
             (skat_1_25_pvalues, "SKAT(1,25)"),
             (skat_1_1_pvalues, "SKAT(1,1)"),
             (burden_1_25_pvalues, "Burden(1,25)"),
             (burden_1_1_pvalues, "Burden(1,1)"),
-            (acatv_1_25_pvalues, "ACAT-V(1,25)"),
-            (acatv_1_1_pvalues, "ACAT-V(1,1)"),
+            # (acatv_1_25_pvalues, "ACAT-V(1,25)"),
+            # (acatv_1_1_pvalues, "ACAT-V(1,1)"),
         ):
             if n_weights > 1:
                 comb_pvalues = cauchy_combination(pvalues).reshape(-1, 1)
