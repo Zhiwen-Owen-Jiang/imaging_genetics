@@ -1,8 +1,8 @@
 import logging
+import h5py
 import numpy as np
 import hail as hl
 from concurrent.futures import ThreadPoolExecutor
-from tqdm import tqdm
 from scipy.sparse import csr_matrix
 from scipy.stats import chi2
 import heig.input.dataset as ds
@@ -48,33 +48,40 @@ class Permutation:
         ------------
         mask: an instance of CreatingMask
         threads: number of threads
-        ind_voxels: a np.array of independent voxel idxs (0-based)
 
         """
-        self.vset_list = mask.vset_list
-        self.cov_mat_list = mask.cov_mat_list
+        self.vset_dict = mask.vset_dict
+        self.cov_mat_dict = mask.cov_mat_dict
         self.resid_voxels = mask.resid_voxels
         self.var = mask.var
         self.n_masks = mask.n_masks
+        self.n_points = {k: mask.resid_voxels.shape[1]*v for k,v in self.n_masks.items()}
+        self.total_points = 5*10**7
+        self.cmac_bins = [(2,2), (3,3), (4,4), (5,5), (6,7), (8,9),
+                          (10,14), (15,20), (21,30), (31,60), (61,100)]
         self.threads = threads
         self.n_subs = self.resid_voxels.shape[0]
         self.sig_thresh = chi2.ppf(1 - 2.5e-6, 1)
-        self.n_points = mask.resid_voxels.shape[1] * len(mask.vset_list)
         self.logger = logging.getLogger(__name__)
 
-        self.burden_stats_denom_list = self._get_burden_stats_denom()
+        self.burden_stats_denom_dict = self._get_burden_stats_denom()
 
     def _get_burden_stats_denom(self):
-        burden_stats_denom_list = list()
-        for cov_mat in self.cov_mat_list:
-            burden_stats_denom_list.append(self.var * np.sum(cov_mat))
-        return burden_stats_denom_list
+        burden_stats_denom_dict = {
+            (2,2): list(), (3,3): list(), (4,4): list(), (5,5): list(), 
+            (6,7): list(), (8,9): list(), (10,14): list(), (15,20): list(), 
+            (21,30): list(), (31,60): list(), (61,100): list()
+        }
+        for bin, cov_mat_list in self.cov_mat_dict.items():
+            for cov_mat in cov_mat_list:
+                burden_stats_denom_dict[bin].append(self.var * np.sum(cov_mat))
+        return burden_stats_denom_dict
 
     def _permute(self):
         resid_voxels_rand = self.resid_voxels[np.random.permutation(self.n_subs)]
         return resid_voxels_rand
 
-    def _variant_set_test(self, resid_voxels_rand):
+    def _variant_set_test(self, resid_voxels_rand, bin):
         """
         A wrapper function of variant set test for multiple sets
 
@@ -84,9 +91,9 @@ class Permutation:
         with ThreadPoolExecutor(max_workers=self.threads) as executor:
             futures = [
                 executor.submit(
-                    self._variant_set_test_, idx, resid_voxels_rand
+                    self._variant_set_test_, bin, idx, resid_voxels_rand
                 )
-                for idx in range(self.n_masks)
+                for idx in range(self.n_masks[bin])
             ]
             
             for future in futures:
@@ -96,13 +103,13 @@ class Permutation:
         burden_stats = np.concatenate(burden_stats_list)
         return burden_stats
 
-    def _variant_set_test_(self, idx, resid_voxels_rand):
+    def _variant_set_test_(self, bin, idx, resid_voxels_rand):
         """
         Testing a single variant set
         
         """
-        vset = self.vset_list[idx]
-        burden_stats_denom = self.burden_stats_denom_list[idx]
+        vset = self.vset_dict[bin][idx]
+        burden_stats_denom = self.burden_stats_denom_dict[bin][idx]
         half_score = vset @ resid_voxels_rand
         burden_stats = np.sum(half_score, axis=0) ** 2 / burden_stats_denom
 
@@ -113,11 +120,33 @@ class Permutation:
         The main function for permutation
 
         """
-        resid_voxels_rand = self._permute()
-        burden_stats = self._variant_set_test(resid_voxels_rand)
-        burden_stats = burden_stats[burden_stats > self.sig_thresh]
+        burden_sig_stats_dict = {
+            (2,2): list(), (3,3): list(), (4,4): list(), (5,5): list(), 
+            (6,7): list(), (8,9): list(), (10,14): list(), (15,20): list(), 
+            (21,30): list(), (31,60): list(), (61,100): list()
+        }
+        burden_count_dict = {
+            (2,2): 0, (3,3): 0, (4,4): 0, (5,5): 0, 
+            (6,7): 0, (8,9): 0, (10,14): 0, (15,20): 0, 
+            (21,30): 0, (31,60): 0, (61,100): 0
+        }
+        finished_bins = set()
+        while len(finished_bins) < 11:
+            resid_voxels_rand = self._permute()
+            for bin in self.cmac_bins:
+                if bin not in finished_bins:
+                    burden_stats = self._variant_set_test(resid_voxels_rand, bin)
+                    burden_stats = burden_stats[burden_stats > self.sig_thresh]
+                    burden_sig_stats_dict[bin].append(burden_stats)
+                    burden_count_dict[bin] += self.n_points[bin] 
+                    if burden_count_dict[bin] > self.total_points:
+                        finished_bins.add(bin)
+                        self.logger.info(f"cMAC bin {bin} finished.")
 
-        return burden_stats
+        for bin, sig_stats in burden_sig_stats_dict.items():
+            burden_sig_stats_dict[bin] = np.sort(np.concatenate(sig_stats))
+
+        return burden_sig_stats_dict, burden_count_dict
     
 
 class CreatingMask:
@@ -125,6 +154,8 @@ class CreatingMask:
     Generating summary statistics for each variant set
     
     """
+    cmac_bins = [(2,2), (3,3), (4,4), (5,5), (6,7), (8,9),
+                 (10,14), (15,20), (21,30), (31,60), (61,100)]
     def __init__(
             self,
             null_model,
@@ -152,9 +183,9 @@ class CreatingMask:
         self.geno_ref, self.chr, self.positions = self._extract_variant_category()
         self.resid_voxels, self.var = self._misc(loco_preds)
         self.gene_numeric_idxs = self._parse_genes(cmac_min, cmac_max)
-        self.n_masks = len(self.gene_numeric_idxs)
+        self.n_masks = {k:len(v) for k, v in self.gene_numeric_idxs.items()}
         self.vset_ld = self._get_band_ld_matrix()
-        self.vset_list, self.cov_mat_list = self._sumstats()
+        self.vset_dict, self.cov_mat_dict = self._sumstats()
 
     def _extract_variant_category(self):
         self.locus = self.locus.add_index("idx")
@@ -188,7 +219,12 @@ class CreatingMask:
         return resid_voxels, var
     
     def _parse_genes(self, cmac_min, cmac_max):
-        gene_numeric_idxs = dict()
+        gene_numeric_idxs = {
+            (2,2): list(), (3,3): list(), (4,4): list(), (5,5): list(), 
+            (6,7): list(), (8,9): list(), (10,14): list(), (15,20): list(), 
+            (21,30): list(), (31,60): list(), (61,100): list()
+        }
+        all_bins = list(gene_numeric_idxs.keys())
         for _, gene in self.variant_sets.iterrows():
             _, start, end = parse_interval(gene[1], self.geno_ref)
             start_idx = find_loc(self.positions, start)
@@ -198,8 +234,14 @@ class CreatingMask:
             if end_idx > start_idx + 1:
                 numeric_idxs = list(range(start_idx, end_idx))
                 cmac = np.sum(self.mac[numeric_idxs])
-                if cmac >= cmac_min and cmac <= cmac_max:
-                    gene_numeric_idxs[gene[0]] = numeric_idxs
+                if cmac >= 2 and cmac <= 100:
+                    bin_idx = find_loc([2,3,4,5,6,8,10,15,21,31,61], cmac)
+                    gene_numeric_idxs[all_bins[bin_idx]].append(numeric_idxs)
+                    # gene_numeric_idxs[gene[0]] = numeric_idxs   
+                         
+        for bin, numeric_idx_list in gene_numeric_idxs.items():
+            if len(numeric_idx_list) == 0:
+                raise ValueError(f"no genes for cMAC bin {bin}")
 
         return gene_numeric_idxs
     
@@ -209,7 +251,7 @@ class CreatingMask:
         the length of the largest gene
         
         """
-        bandwidth = max([len(v) for _, v in self.gene_numeric_idxs.items()])
+        bandwidth = 100
         n_variants = len(self.maf)
         diagonal_data = list()
         banded_data = list()
@@ -257,15 +299,24 @@ class CreatingMask:
         half_covar_proj = np.dot(covar_U, covar_Vt).astype(np.float32)
         vset_half_covar_proj = self.vset @ half_covar_proj
 
-        vset_list = list()
-        cov_mat_list = list()
-        for _, numeric_idx in self.gene_numeric_idxs.items():
-            x = np.array(vset_half_covar_proj[numeric_idx])
-            vset_ld = self.vset_ld[numeric_idx][:, numeric_idx]
-            vset_list.append(self.vset[numeric_idx])
-            cov_mat_list.append(np.array((vset_ld - x @ x.T)))
+        vset_dict = {
+            (2,2): list(), (3,3): list(), (4,4): list(), (5,5): list(), 
+            (6,7): list(), (8,9): list(), (10,14): list(), (15,20): list(), 
+            (21,30): list(), (31,60): list(), (61,100): list()
+        }
+        cov_mat_dict = {
+            (2,2): list(), (3,3): list(), (4,4): list(), (5,5): list(), 
+            (6,7): list(), (8,9): list(), (10,14): list(), (15,20): list(), 
+            (21,30): list(), (31,60): list(), (61,100): list()
+        }
+        for bin, numeric_idx_list in self.gene_numeric_idxs.items():
+            for numeric_idx in numeric_idx_list:
+                x = np.array(vset_half_covar_proj[numeric_idx])
+                vset_ld = self.vset_ld[numeric_idx][:, numeric_idx]
+                vset_dict[bin].append(self.vset[numeric_idx])
+                cov_mat_dict[bin].append(np.array((vset_ld - x @ x.T)))
             
-        return vset_list, cov_mat_list
+        return vset_dict, cov_mat_dict
             
 
 def select_voxels_greedy(corr, corr_threshold=0.3):
@@ -311,10 +362,10 @@ def check_input(args, log):
         raise ValueError("--null-model is required")
     if args.variant_category is None:
         raise ValueError("--variant-category is required")
-    if args.cmac_min is None:
-        raise ValueError("--cmac-min is required")
-    if args.cmac_max is None:
-        raise ValueError("--cmac-max is required")
+    # if args.cmac_min is None:
+    #     raise ValueError("--cmac-min is required")
+    # if args.cmac_max is None:
+    #     raise ValueError("--cmac-max is required")
 
     args.variant_category = args.variant_category.lower()
     if args.variant_category not in {
@@ -327,9 +378,9 @@ def check_input(args, log):
         "ptv_ds",
         }:
         raise ValueError(f"invalid variant category: {args.variant_category}")
-    if args.n_bootstrap is None:
-        args.n_bootstrap = 20000
-        log.info("Set #permutation as 20000")
+    # if args.n_bootstrap is None:
+    #     args.n_bootstrap = 20000
+    #     log.info("Set #permutation as 20000")
 
 
 def run(args, log):
@@ -423,24 +474,20 @@ def run(args, log):
         )
 
         log.info((f"Using {mask.n_masks} genes "
-                  f"({args.cmac_min} <= cMAC <= {args.cmac_max}) of "
                   f"{args.variant_category} variants in permutation."
         ))
 
         # permutation
         permutation = Permutation(mask, args.threads)
-
-        for _ in tqdm(
-            range(args.n_bootstrap), desc=f"{args.n_bootstrap} permutation samples"
-        ):
-            burden_stats = permutation.run()
-            with open(args.out + "_sig_chisq.txt", "a") as file:
-                np.savetxt(file, burden_stats, fmt="%f")
-            with open(args.out + "_insig_count.txt", "a") as file:
-                file.write(f"{permutation.n_points - len(burden_stats)}\n")
+        burden_sig_stats_dict, burden_count_dict = permutation.run()
+        with h5py.File(f"{args.out}_burden_perm.h5", 'w') as file:
+            for bin, sig_stats in burden_sig_stats_dict.items():
+                bin_str = "_".join(str(x) for x in bin)
+                dataset = file.create_dataset(bin_str, data=sig_stats)
+                dataset.attrs["count"] =  burden_count_dict[bin]
 
         # save results
-        log.info(f"\nSaved permutation results to {args.out}.txt")
+        log.info(f"\nSaved permutation results to {args.out}_burden_perm.h5")
 
     finally:
         if "loco_preds" in locals() and args.loco_preds is not None:
