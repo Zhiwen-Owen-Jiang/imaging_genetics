@@ -7,7 +7,7 @@ from heig.wgs.utils import *
 
 
 OFFICIAL_NAME = {
-    "plof": "predicted loss of function (pLoF) variants",
+    "plof": "putative loss of function (pLoF) variants",
     "synonymous": "synonymous variants",
     "missense": "missense variants",
     "disruptive_missense": "disruptive missense variants",
@@ -113,13 +113,14 @@ class Coding:
 
         return category_dict
 
-    def parse_annot(self, idx):
+    def parse_annot(self, idx, use_annot_weights):
         """
         Parsing annotations and converting to np.array
 
         Parameters:
         ------------
         idx: a hail.expr of boolean indices to extract variants
+        use_annot_weights: boolean, using annotation weights
 
         Returns:
         ---------
@@ -131,13 +132,14 @@ class Coding:
         numeric_idx = filtered_annot.idx.collect()
         if len(numeric_idx) <= 1:
             return numeric_idx, None
-        if self.annot_cols is not None:
+        if self.annot_cols is not None and use_annot_weights:
             annot_phred = filtered_annot.annot.select(*self.annot_cols).collect()
             phred_cate = np.array(
                 [[getattr(row, col) for col in self.annot_cols] for row in annot_phred]
             )
         else:
             phred_cate = None
+            self.annot_cols, self.annot_name = None, None
 
         return numeric_idx, phred_cate
 
@@ -150,7 +152,10 @@ def coding_vset_analysis(
     vset_test, 
     variant_category, 
     mac_thresh, 
+    tests,
     cmac_min, 
+    cmac_max,
+    use_annot_weights,
     log
 ):
     """
@@ -167,7 +172,10 @@ def coding_vset_analysis(
         one of ('all', 'plof', 'plof_ds', 'missense', 'disruptive_missense',
         'synonymous', 'ptv', 'ptv_ds')
     mac_thresh: a MAC threshold to denote ultrarare variants for ACAT-V
-    cmac_min: the minimal cumulative MAC for a variant set
+    tests: a list of rv tests
+    cmac_min: the minimum cumulative MAC for a variant set
+    cmac_max: the maximumcumulative MAC for a variant set
+    use_annot_weights: boolean, using annotation weights
     log: a logger
 
     Returns:
@@ -192,7 +200,7 @@ def coding_vset_analysis(
             if variant_category[0] != "all" and cate not in variant_category:
                 continue
             else:
-                numeric_idx, phred_cate = coding.parse_annot(idx)
+                numeric_idx, phred_cate = coding.parse_annot(idx, use_annot_weights)
                 if len(numeric_idx) <= 1:
                     log.info(f"Skipping {OFFICIAL_NAME[cate]} (< 2 variants).")
                     continue
@@ -202,8 +210,10 @@ def coding_vset_analysis(
                 if half_ldr_score is None:
                     continue
                 cmac = int(np.sum(mac))
-                if cmac < cmac_min:
-                    log.info(f"Skipping {OFFICIAL_NAME[cate]} (< {cmac_min} cumulative MAC).")
+                if cmac < cmac_min or cmac > cmac_max:
+                    log.info(
+                        f"Skipping {OFFICIAL_NAME[cate]} (cMAC ({cmac}) out of range)."
+                    )
                     continue
                 is_rare = mac < mac_thresh
                 vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)
@@ -213,17 +223,18 @@ def coding_vset_analysis(
                         f"({vset_test.n_variants} variants, {cmac} alleles) ..."
                     )
                 )
-                pvalues = vset_test.do_inference(coding.annot_name)
+                # pvalues = vset_test.do_inference(coding.annot_name)
+                pvalues = vset_test.do_inference_tests(tests, coding.annot_name)
                 cate_pvalues[cate] = {
                     "n_variants": vset_test.n_variants,
                     "cMAC": cmac,
                     "pvalues": pvalues,
                 }
 
-        if "missense" in cate_pvalues and "disruptive_missense" in cate_pvalues:
-            cate_pvalues["missense"] = process_missense(
-                cate_pvalues["missense"], cate_pvalues["disruptive_missense"]
-            )
+        # if "missense" in cate_pvalues and "disruptive_missense" in cate_pvalues:
+        #     cate_pvalues["missense"] = process_missense(
+        #         cate_pvalues["missense"], cate_pvalues["disruptive_missense"]
+        #     )
 
         yield gene[0], chr, start, end, cate_pvalues
 
@@ -252,32 +263,33 @@ def process_missense(m_pvalues, dm_pvalues):
     m_pvalues["SKAT(1,1)-Disruptive"] = dm_pvalues["SKAT(1,1)"]
     m_pvalues["Burden(1,25)-Disruptive"] = dm_pvalues["Burden(1,25)"]
     m_pvalues["Burden(1,1)-Disruptive"] = dm_pvalues["Burden(1,1)"]
-    m_pvalues["ACAT-V(1,25)-Disruptive"] = dm_pvalues["ACAT-V(1,25)"]
-    m_pvalues["ACAT-V(1,1)-Disruptive"] = dm_pvalues["ACAT-V(1,1)"]
+    # m_pvalues["ACAT-V(1,25)-Disruptive"] = dm_pvalues["ACAT-V(1,25)"]
+    # m_pvalues["ACAT-V(1,1)-Disruptive"] = dm_pvalues["ACAT-V(1,1)"]
 
     columns = m_pvalues.columns.values
     skat_1_25 = np.array([column.startswith("SKAT(1,25)") for column in columns])
     skat_1_1 = np.array([column.startswith("SKAT(1,1)") for column in columns])
     burden_1_25 = np.array([column.startswith("Burden(1,25)") for column in columns])
     burden_1_1 = np.array([column.startswith("Burden(1,1)") for column in columns])
-    acatv_1_25 = np.array([column.startswith("ACAT-V(1,25)") for column in columns])
-    acatv_1_1 = np.array([column.startswith("ACAT-V(1,1)") for column in columns])
+    # acatv_1_25 = np.array([column.startswith("ACAT-V(1,25)") for column in columns])
+    # acatv_1_1 = np.array([column.startswith("ACAT-V(1,1)") for column in columns])
 
     staar_s_1_25 = cauchy_combination(m_pvalues.loc[:, skat_1_25].values.T)
     staar_s_1_1 = cauchy_combination(m_pvalues.loc[:, skat_1_1].values.T)
     staar_b_1_25 = cauchy_combination(m_pvalues.loc[:, burden_1_25].values.T)
     staar_b_1_1 = cauchy_combination(m_pvalues.loc[:, burden_1_1].values.T)
-    staar_a_1_25 = cauchy_combination(m_pvalues.loc[:, acatv_1_25].values.T)
-    staar_a_1_1 = cauchy_combination(m_pvalues.loc[:, acatv_1_1].values.T)
+    # staar_a_1_25 = cauchy_combination(m_pvalues.loc[:, acatv_1_25].values.T)
+    # staar_a_1_1 = cauchy_combination(m_pvalues.loc[:, acatv_1_1].values.T)
 
     m_pvalues["STAAR-S(1,25)"] = staar_s_1_25
     m_pvalues["STAAR-S(1,1)"] = staar_s_1_1
     m_pvalues["STAAR-B(1,25)"] = staar_b_1_25
     m_pvalues["STAAR-B(1,1)"] = staar_b_1_1
-    m_pvalues["STAAR-A(1,25)"] = staar_a_1_25
-    m_pvalues["STAAR-A(1,1)"] = staar_a_1_1
+    # m_pvalues["STAAR-A(1,25)"] = staar_a_1_25
+    # m_pvalues["STAAR-A(1,1)"] = staar_a_1_1
 
-    all_columns = [skat_1_25, skat_1_1, burden_1_25, burden_1_1, acatv_1_25, acatv_1_1]
+    # all_columns = [skat_1_25, skat_1_1, burden_1_25, burden_1_1, acatv_1_25, acatv_1_1]
+    all_columns = [skat_1_25, skat_1_1, burden_1_25, burden_1_1]
     all_columns = reduce(np.logical_or, all_columns)
     all_columns = np.concatenate([all_columns, np.ones(6, dtype=bool)])
     m_pvalues["STAAR-O"] = cauchy_combination(m_pvalues.loc[:, all_columns].values.T)
@@ -310,8 +322,10 @@ def check_input(args, log):
         raise ValueError("--mac-thresh must be greater than 0")
     
     if args.cmac_min is None:
-        args.cmac_min = 25
-        log.info(f"Set --cmac-min as default 25")
+        args.cmac_min = 30
+        log.info(f"Set --cmac-min as default 30")
+    if args.cmac_max is None:
+        args.cmac_max = np.inf
 
     if args.variant_category is None:
         variant_category = ["all"]
@@ -384,7 +398,10 @@ def run(args, log):
             vset_test,
             variant_category,
             args.mac_thresh,
+            args.rv_tests,
             args.cmac_min,
+            args.cmac_max,
+            args.use_annot_weights,
             log,
         )
 
@@ -395,7 +412,7 @@ def run(args, log):
             cate_output = format_output(
                 cate_pvalues,
                 rv_sumstats.voxel_idxs,
-                args.staar_only,
+                False,
                 args.sig_thresh
             )
             if cate_output is not None:

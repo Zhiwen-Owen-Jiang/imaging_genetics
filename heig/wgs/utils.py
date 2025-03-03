@@ -900,7 +900,7 @@ def format_output(cate_pvalues, voxels, staar_only, sig_thresh):
             cate_results = cate_results["pvalues"]
         cate_results = pd.concat([meta_data, cate_results], axis=1)
         if sig_thresh is not None:
-            cate_results = cate_results.loc[cate_results["STAAR-O"] < sig_thresh]
+            cate_results = cate_results.loc[cate_results.iloc[:, 4:].min(axis=1) < sig_thresh]
         if cate_results.shape[0] > 0:
             if output is None:
                 output = cate_results.copy()

@@ -176,7 +176,7 @@ class RVcluster:
         Each time partition new variant sets
 
         """
-        np.random.seed(sample_id)
+        # np.random.seed(sample_id)
         resid_ldr_rand = self.resid_ldr[np.random.permutation(self.n_subs)]
         # inner_ldr = np.dot(resid_ldr_rand.T, resid_ldr_rand).astype(np.float32)
         # self.var = np.sum(np.dot(self.bases, inner_ldr) * self.bases, axis=1)
@@ -306,13 +306,9 @@ def creating_mask(
     geno_ref = locus.reference_genome.collect()[0]
     mask = Coding(locus, variant_type)
     mask_idx = mask.category_dict[variant_category]
-    numeric_idx, phred_cate = mask.parse_annot(mask_idx)
+    numeric_idx, phred_cate = mask.parse_annot(mask_idx, use_annot_weights)
     annot_name = mask.annot_name
 
-    if not use_annot_weights:
-        annot_name = None
-        phred_cate = None # TODO: modify Coding so dont need to parse
-    
     chr = locus.aggregate(hl.agg.take(locus.locus.contig, 1)[0])
     if locus.locus.dtype.reference_genome.name == "GRCh38":
         chr = int(chr.replace("chr", ""))
@@ -494,7 +490,6 @@ def run(args, log):
             args.rv_tests,
             args.sig_thresh, 
             args.mac_thresh,
-            args.cmac_min,
             args.threads, 
             loco_preds,
             args.voxels,
