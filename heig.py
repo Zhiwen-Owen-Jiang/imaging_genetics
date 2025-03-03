@@ -90,6 +90,9 @@ rv_single_parser = parser.add_argument_group(
 tfce_parser = parser.add_argument_group(
     title="Arguments specific to threshold-free cluster enhancement (TFCE)"
 )
+permutation_parser = parser.add_argument_group(
+    title="Arguments specific to permutation for burden test"
+)
 
 
 # module arguments
@@ -176,6 +179,12 @@ tfce_parser.add_argument(
     action="store_true",
     help="Evaluating significant rare variant associations by TFCE.",
 )
+permutation_parser.add_argument(
+    "--permute",
+    action="store_true",
+    help="Generating null distribution of burden score statistics",
+)
+
 
 
 # common arguments
@@ -1368,7 +1377,34 @@ def check_accepted_args(module, args, log):
             "variant_category",
             "total_points",
             "threads"
-        }
+        },
+        "permute":{
+            "permute",
+            "out",
+            "null_model",
+            "spark_conf",
+            "grch37",
+            "sparse_genotype",
+            "n_bootstrap",
+            "voxels",
+            "n_ldrs",
+            "keep",
+            "remove",
+            "extract_locus",
+            "exclude_locus",
+            "maf_min",
+            "maf_max",
+            "mac_max",
+            "mac_min",
+            "chr_interval",
+            "loco_preds",
+            "annot_ht",
+            "variant_sets",
+            "variant_category",
+            "cmac_min",
+            "cmac_max",
+            "threads"
+        },
     }
 
     ignored_args = []
@@ -1553,6 +1589,7 @@ def main(args, log):
         + args.rv_cond
         + args.rv_single
         + args.tfce
+        + args.permute
         != 1
     ):
         raise ValueError(
@@ -1561,7 +1598,7 @@ def main(args, log):
                 "--read-image, --fpca, --make-ldr, --heri-gc, --ld-matrix, --sumstats, "
                 "--voxel-gwas, --gwas, --relatedness, --make-mt, --rv-null, --make-rv-sumstats, "
                 "--rv-annot, --rv-coding, --rv-noncoding, --rv, --cluster, --rv-cluster, "
-                "--rv-cond, --rv-single, --tfce"
+                "--rv-cond, --rv-single, --tfce, --permute"
             )
         )
 
@@ -1628,6 +1665,9 @@ def main(args, log):
     elif args.tfce:
         check_accepted_args('tfce', args, log)
         import heig.wgs.tfce as module
+    elif args.permute:
+        check_accepted_args('permute', args, log)
+        import heig.wgs.permutation as module
 
     process_args(args, log)
     module.run(args, log)
