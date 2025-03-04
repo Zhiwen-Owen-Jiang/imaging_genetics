@@ -590,10 +590,10 @@ common_parser.add_argument(
     )
 )
 common_parser.add_argument(
-    "--n-bootstrap",
+    "--n-bootstrap", "--n-samples",
     type=int,
     help=(
-        "Number of bootstrap samples. Default: 50. "
+        "Number of bootstrap/permutation samples. "
         "Supported modules: --cluster, --rv-cluster."
     )
 )
@@ -638,6 +638,13 @@ common_parser.add_argument(
     action="store_true", 
     help=(
         "Using annotation weights. "
+        "Supported modules: --rv-coding, --rv-noncoding, --rv, --rv-cluster."
+    )
+)
+common_parser.add_argument(
+    "--perm",
+    help=(
+        "Directory to permutation results. "
         "Supported modules: --rv-coding, --rv-noncoding, --rv, --rv-cluster."
     )
 )
@@ -1197,7 +1204,8 @@ def check_accepted_args(module, args, log):
             "cmac_max",
             "rv_tests",
             "use_annot_weights",
-            "sig_thresh"
+            "sig_thresh",
+            "perm"
         },
         "rv_noncoding":{
             "rv_noncoding",
@@ -1224,7 +1232,8 @@ def check_accepted_args(module, args, log):
             "cmac_max",
             "rv_tests",
             "use_annot_weights",
-            "sig_thresh"
+            "sig_thresh",
+            "perm"
         },
         "rv":{
             "rv",
@@ -1253,7 +1262,8 @@ def check_accepted_args(module, args, log):
             "cmac_max",
             "rv_tests",
             "use_annot_weights",
-            "sig_thresh"
+            "sig_thresh",
+            "perm"
         },
         "cluster":{
             "cluster",
@@ -1314,7 +1324,8 @@ def check_accepted_args(module, args, log):
             "cmac_max",
             "rv_tests",
             "use_annot_weights",
-            "threads"
+            "threads",
+            "perm"
         },
         "rv_cond":{
             "rv_cond",
@@ -1451,6 +1462,7 @@ def process_args(args, log):
     ds.check_existence(args.rv_sumstats_part2, "_locus_info.ht")
     ds.check_existence(args.annot_ht)
     ds.check_existence(args.variant_sets)
+    ds.check_existence(args.perm)
 
     if args.n_ldrs is not None and args.n_ldrs <= 0:
         raise ValueError("--n-ldrs must be greater than 0")

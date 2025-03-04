@@ -3,6 +3,7 @@ import numpy as np
 from functools import reduce
 from heig.wgs.wgs2 import RVsumstats, get_interval, extract_chr_interval
 from heig.wgs.vsettest import VariantSetTest, cauchy_combination
+from heig.wgs.utils import PermDistribution
 from heig.wgs.utils import *
 
 
@@ -216,7 +217,7 @@ def coding_vset_analysis(
                     )
                     continue
                 is_rare = mac < mac_thresh
-                vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, phred_cate)
+                vset_test.input_vset(half_ldr_score, cov_mat, maf, cmac, is_rare, phred_cate)
                 log.info(
                     (
                         f"Doing analysis for {OFFICIAL_NAME[cate]} "
@@ -224,11 +225,12 @@ def coding_vset_analysis(
                     )
                 )
                 # pvalues = vset_test.do_inference(coding.annot_name)
-                pvalues = vset_test.do_inference_tests(tests, coding.annot_name)
+                pvalues, burden_test = vset_test.do_inference_tests(tests, coding.annot_name)
                 cate_pvalues[cate] = {
                     "n_variants": vset_test.n_variants,
                     "cMAC": cmac,
                     "pvalues": pvalues,
+                    "burden_test": burden_test,
                 }
 
         # if "missense" in cate_pvalues and "disruptive_missense" in cate_pvalues:
@@ -311,9 +313,11 @@ def check_input(args, log):
     if args.variant_sets is None:
         raise ValueError("--variant-sets is required")
     log.info(f"{args.variant_sets.shape[0]} genes in --variant-sets.")
+    if args.perm is None:
+        raise ValueError("--perm is required")
     
-    if args.staar_only:
-        log.info("Saving STAAR-O results only.")
+    # if args.staar_only:
+    #     log.info("Saving STAAR-O results only.")
 
     if args.mac_thresh is None:
         args.mac_thresh = 10
@@ -322,10 +326,21 @@ def check_input(args, log):
         raise ValueError("--mac-thresh must be greater than 0")
     
     if args.cmac_min is None:
-        args.cmac_min = 30
-        log.info(f"Set --cmac-min as default 30")
+        args.cmac_min = 2
+        log.info(f"Set --cmac-min as default 2")
     if args.cmac_max is None:
         args.cmac_max = np.inf
+    
+    if args.cmac_min < 100:
+        if "staar" in args.rv_tests or "skat" in args.rv_tests:
+            log.info(
+                ("WARNING: SKAT/STAAR cannot be used when cMAC < 100. "
+                 "Only burden will be used.")
+            )
+        if args.use_annot_weights:
+            log.info(
+                "WARNING: annotation weights cannot be used when cMAC < 500."
+            )
 
     if args.variant_category is None:
         variant_category = ["all"]
@@ -388,8 +403,12 @@ def run(args, log):
         log.info(f"Read functional annotations from {args.annot_ht}")
         annot = hl.read_table(args.annot_ht)
 
+        # reading permutation
+        log.info(f"Read permutation from {args.perm}")
+        perm = PermDistribution(args.perm)
+
         # single gene analysis
-        vset_test = VariantSetTest(rv_sumstats.bases, rv_sumstats.var)
+        vset_test = VariantSetTest(rv_sumstats.bases, rv_sumstats.var, perm)
         all_vset_test_pvalues = coding_vset_analysis(
             rv_sumstats,
             annot,
@@ -409,12 +428,13 @@ def run(args, log):
         log.info(f"Saved result index file to {args.out}_result_index.txt")
 
         for set_name, chr, start, end, cate_pvalues in all_vset_test_pvalues:
-            cate_output = format_output(
+            cate_output, burden_output = format_output(
                 cate_pvalues,
                 rv_sumstats.voxel_idxs,
                 False,
                 args.sig_thresh
             )
+
             if cate_output is not None:
                 out_path = f"{args.out}_{set_name}.txt"
                 index_file.write_index(
@@ -437,5 +457,19 @@ def run(args, log):
                 )
             else:
                 log.info(f"No significant results for {set_name}.")
+            
+            if burden_output is not None:
+                out_path = f"{args.out}_{set_name}_burden.txt"
+                burden_output.to_csv(
+                    out_path,
+                    sep="\t",
+                    header=True,
+                    na_rep="NA",
+                    index=None,
+                    float_format="%.5e",
+                )
+                log.info(
+                    f"Saved burden results for {set_name} to {args.out}_{set_name}_burden.txt"
+                )
     finally:
         clean(args.out)

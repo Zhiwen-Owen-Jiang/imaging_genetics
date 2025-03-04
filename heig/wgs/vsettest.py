@@ -3,6 +3,7 @@ import pandas as pd
 from functools import reduce
 from scipy.stats import chi2, cauchy, beta
 from heig.wgs.pvalue import saddle2
+from heig.utils import find_loc
 
 
 """
@@ -14,7 +15,7 @@ and use this quantile to quickly screen insignificant results
 
 
 class VariantSetTest:
-    def __init__(self, bases, var):
+    def __init__(self, bases, var, perm):
         """
         Variant set test for rare variants
 
@@ -23,17 +24,20 @@ class VariantSetTest:
         N: number of voxels
         bases: (N, r) np.array, functional bases
         var: (N, ) np.array, voxel variance
+        perm: an instance of PermDistribution
 
         """
         self.N = bases.shape[0]
         self.bases = bases
         self.var = var
+        self.perm = perm
 
     def input_vset(
         self,
         half_ldr_score,
         cov_mat,
         maf,
+        cmac,
         is_rare,
         annotation_pred=None,
         annot_transform=True,
@@ -52,11 +56,13 @@ class VariantSetTest:
 
         """
         self.maf = maf
+        self.cmac = cmac
+        self.annot_weights = None if cmac < 500 else annotation_pred
         self.is_rare = is_rare
         self.half_ldr_score = half_ldr_score  # Z'(I-M)\Xi, (m, r)
         self.half_score = np.dot(self.half_ldr_score, self.bases.T)  # Z'(I-M)Y, (m, N)
         self.cov_mat = cov_mat
-        self.weights = self._get_weights(annotation_pred, annot_transform)
+        self.weights = self._get_weights(self.annot_weights, annot_transform)
         self.n_variants = self.half_ldr_score.shape[0]
 
     def _get_weights(self, annot=None, annot_transform=True):
@@ -176,11 +182,25 @@ class VariantSetTest:
         pvalues: (N, ) array
 
         """
-        burden_score_num = np.dot(weights, self.half_score) ** 2  # (N, )
-        burden_score_denom = self.var * np.dot(np.dot(weights, self.cov_mat), weights)
-        burden_score = burden_score_num / burden_score_denom  # (N, )
-        pvalues = chi2.sf(burden_score, 1)
-        return pvalues
+        # burden_score_num = np.dot(weights, self.half_score) ** 2  # (N, )
+        # burden_score_denom = self.var * np.dot(np.dot(weights, self.cov_mat), weights)
+        # burden_score = burden_score_num / burden_score_denom  # (N, )
+        # pvalues = chi2.sf(burden_score, 1)
+        w2cov_mat = np.dot(np.dot(weights, self.cov_mat), weights)
+        burden_effect = np.dot(weights, self.half_score) / w2cov_mat
+        burden_se = np.sqrt(self.var / w2cov_mat)
+        burden_chisq = (burden_effect / burden_se) ** 2
+
+        if self.cmac > 100:
+            pvalues = chi2.sf(burden_chisq, 1)
+        else:
+            bin_idx = find_loc(self.perm.breaks, self.cmac)
+            bin = self.perm.bins[bin_idx]
+            pvalues = (self.perm.sig_stats[bin] > burden_chisq.reshape(-1, 1))
+            pvalues = pvalues.sum(axis=1) / self.perm.count[bin]
+            pvalues[pvalues >= self.perm.max_p[bin]] = np.nan
+
+        return burden_effect, burden_se, pvalues
 
     def _acatv_test(self, weights_A, weights_B):
         """
@@ -352,20 +372,22 @@ class VariantSetTest:
         all_results = list()
         burden_1_25_pvalues = np.zeros((n_weights, self.N))
         burden_1_1_pvalues = np.zeros((n_weights, self.N))
+        burden_effect, burden_se, burden_pvalue = None, None, None
         skat_1_25_pvalues = np.zeros((n_weights, self.N))
         skat_1_1_pvalues = np.zeros((n_weights, self.N))
 
         if "burden" in tests or "staar" in tests:
+            burden_effect, burden_se, burden_pvalue = self._burden_test(self.weights["burden(1,1)"][0])
             for i in range(n_weights):
-                burden_1_25_pvalues[i] = self._burden_test(self.weights["burden(1,25)"][i])
-                burden_1_1_pvalues[i] = self._burden_test(self.weights["burden(1,1)"][i])
+                _, _, burden_1_25_pvalues[i] = self._burden_test(self.weights["burden(1,25)"][i])
+                _, _, burden_1_1_pvalues[i] = self._burden_test(self.weights["burden(1,1)"][i])
 
-        if "skat" in tests or "staar" in tests:
+        if ("skat" in tests or "staar" in tests) and self.cmac > 100:
             for i in range(n_weights):
                 skat_1_25_pvalues[i] = self._skat_test(self.weights["skat(1,25)"][i])
                 skat_1_1_pvalues[i] = self._skat_test(self.weights["skat(1,1)"][i])
         
-        if "staar" in tests:
+        if "staar" in tests and self.cmac > 100:
             all_pvalues = np.vstack(
                 [
                     skat_1_25_pvalues,
@@ -385,9 +407,9 @@ class VariantSetTest:
             (burden_1_25_pvalues, "Burden(1,1)"),
             (burden_1_1_pvalues, "Burden(1,25)"),
         ):
-            if pvalues.sum() == 0:
+            if pvalues.sum() == 0: # nan == 0 is False
                 continue
-            if n_weights > 1:
+            if n_weights > 1 and self.cmac > 100:
                 comb_pvalues = cauchy_combination(pvalues).reshape(-1, 1)
             else:
                 comb_pvalues = None
@@ -397,7 +419,16 @@ class VariantSetTest:
             all_results.append(all_pvalues)
         all_results_df = pd.concat(all_results, axis=1)
 
-        return all_results_df
+        if burden_effect is not None:
+            burden_test = pd.DataFrame(
+                {'Burden_effect': burden_effect, 
+                 'Burden_se': burden_se,
+                 'Burden_pvalue': burden_pvalue}
+            )
+        else:
+            burden_test = None
+
+        return all_results_df, burden_test
 
         
 def cauchy_combination(pvalues, weights=None, axis=0):

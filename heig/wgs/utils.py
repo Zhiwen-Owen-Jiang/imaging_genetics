@@ -1,4 +1,5 @@
 import os
+import h5py
 import time
 import shutil
 import json
@@ -883,7 +884,8 @@ def format_output(cate_pvalues, voxels, staar_only, sig_thresh):
     output: a pd.DataFrame of pvalues with metadata
 
     """
-    output = None
+    output = list()
+    burden_output = list()
 
     for mask, cate_results in cate_pvalues.items():
         meta_data = pd.DataFrame(
@@ -900,14 +902,29 @@ def format_output(cate_pvalues, voxels, staar_only, sig_thresh):
             cate_results = cate_results["pvalues"]
         cate_results = pd.concat([meta_data, cate_results], axis=1)
         if sig_thresh is not None:
-            cate_results = cate_results.loc[cate_results.iloc[:, 4:].min(axis=1) < sig_thresh]
+            to_keep = cate_results.iloc[:, 4:].min(axis=1) < sig_thresh
+            cate_results = cate_results.loc[to_keep]
         if cate_results.shape[0] > 0:
-            if output is None:
-                output = cate_results.copy()
-            else:
-                output = pd.concat([output, cate_results])
+            output.append(cate_results)
 
-    return output
+        if "burden_test" in cate_pvalues and cate_results["burden_test"] is not None:
+            burden_test = pd.concat([meta_data, cate_results["burden_test"]], axis=1)
+            if sig_thresh is not None:
+                burden_test = burden_test.loc[to_keep]
+            if burden_test.shape[0] > 0:
+                burden_output.append(burden_test)
+    
+    if len(output) > 0:
+        output = pd.concat(output)
+    else:
+        output = None
+
+    if len(burden_output) > 0:
+        burden_output = pd.concat(burden_output)
+    else:
+        burden_output = None
+
+    return output, burden_output
 
 
 class IndexFile:
@@ -920,6 +937,41 @@ class IndexFile:
         with open(self.out_dir, 'a') as file:
             msg = f"{gene}\t{chr}\t{start}\t{end}\t{result_file}\n"
             file.write(msg)
+
+
+class PermDistribution:
+    def __init__(self, perm_file):
+        self.sig_stats = dict()
+        self.count = dict()
+        self.max_p = dict()
+        self.bins = list()
+        self.breaks = list()
+
+        h5file = h5py.File(f"{perm_file}", "r")
+        all_bins = self.list_datasets(h5file)
+        for bin_str in all_bins:
+            bin = tuple([int(x) for x in bin_str.split("_")])
+            data = h5file[bin_str]
+            count = data.attrs["count"]
+            self.sig_stats[bin] = data[:]
+            self.count[bin] = count
+            self.max_p[bin] = len(self.sig_stats[bin]) / count
+            self.bins.append(bin)
+            self.breaks.append(int(bin_str.split("_")[0]))
+        self.bins.sort()
+        self.breaks.sort()
+        h5file.close()
+
+    @staticmethod
+    def list_datasets(hdf5_file):
+        dataset_names = []
+        
+        def visitor_func(name, node):
+            if isinstance(node, h5py.Dataset):
+                dataset_names.append(name)
+        
+        hdf5_file.visititems(visitor_func)
+        return dataset_names
 
 
 # class Table:

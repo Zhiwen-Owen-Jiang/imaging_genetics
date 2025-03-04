@@ -56,12 +56,12 @@ class Permutation:
         self.var = mask.var
         self.n_masks = mask.n_masks
         self.n_points = {k: mask.resid_voxels.shape[1]*v for k,v in self.n_masks.items()}
-        self.total_points = 5*10**8
+        self.total_points = 5*10**9
         self.cmac_bins = [(2,2), (3,3), (4,4), (5,5), (6,7), (8,9),
                           (10,11), (12,14), (15,20), (21,30), (31,60), (61,100)]
         self.threads = threads
         self.n_subs = self.resid_voxels.shape[0]
-        self.sig_thresh = chi2.ppf(1 - 2.5e-6, 1)
+        self.sig_thresh = chi2.ppf(1 - 1e-5, 1)
         self.logger = logging.getLogger(__name__)
 
         self.burden_stats_denom_dict = self._get_burden_stats_denom()
