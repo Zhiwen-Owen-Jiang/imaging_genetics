@@ -56,9 +56,9 @@ class Permutation:
         self.var = mask.var
         self.n_masks = mask.n_masks
         self.n_points = {k: mask.resid_voxels.shape[1]*v for k,v in self.n_masks.items()}
-        self.total_points = 5*10**7
+        self.total_points = 5*10**8
         self.cmac_bins = [(2,2), (3,3), (4,4), (5,5), (6,7), (8,9),
-                          (10,14), (15,20), (21,30), (31,60), (61,100)]
+                          (10,11), (12,14), (15,20), (21,30), (31,60), (61,100)]
         self.threads = threads
         self.n_subs = self.resid_voxels.shape[0]
         self.sig_thresh = chi2.ppf(1 - 2.5e-6, 1)
@@ -69,8 +69,8 @@ class Permutation:
     def _get_burden_stats_denom(self):
         burden_stats_denom_dict = {
             (2,2): list(), (3,3): list(), (4,4): list(), (5,5): list(), 
-            (6,7): list(), (8,9): list(), (10,14): list(), (15,20): list(), 
-            (21,30): list(), (31,60): list(), (61,100): list()
+            (6,7): list(), (8,9): list(), (10,11): list(), (12,14): list(), 
+            (15,20): list(), (21,30): list(), (31,60): list(), (61,100): list()
         }
         for bin, cov_mat_list in self.cov_mat_dict.items():
             for cov_mat in cov_mat_list:
@@ -122,16 +122,16 @@ class Permutation:
         """
         burden_sig_stats_dict = {
             (2,2): list(), (3,3): list(), (4,4): list(), (5,5): list(), 
-            (6,7): list(), (8,9): list(), (10,14): list(), (15,20): list(), 
-            (21,30): list(), (31,60): list(), (61,100): list()
+            (6,7): list(), (8,9): list(), (10,11): list(), (12,14): list(), 
+            (15,20): list(), (21,30): list(), (31,60): list(), (61,100): list()
         }
         burden_count_dict = {
             (2,2): 0, (3,3): 0, (4,4): 0, (5,5): 0, 
-            (6,7): 0, (8,9): 0, (10,14): 0, (15,20): 0, 
-            (21,30): 0, (31,60): 0, (61,100): 0
+            (6,7): 0, (8,9): 0, (10,11): 0, (12,14): 0, 
+            (15,20): 0, (21,30): 0, (31,60): 0, (61,100): 0
         }
         finished_bins = set()
-        while len(finished_bins) < 11:
+        while len(finished_bins) < len(burden_count_dict):
             resid_voxels_rand = self._permute()
             for bin in self.cmac_bins:
                 if bin not in finished_bins:
@@ -155,7 +155,7 @@ class CreatingMask:
     
     """
     cmac_bins = [(2,2), (3,3), (4,4), (5,5), (6,7), (8,9),
-                 (10,14), (15,20), (21,30), (31,60), (61,100)]
+                 (10,11), (12,14), (15,20), (21,30), (31,60), (61,100)]
     def __init__(
             self,
             null_model,
@@ -221,8 +221,8 @@ class CreatingMask:
     def _parse_genes(self, cmac_min, cmac_max):
         gene_numeric_idxs = {
             (2,2): list(), (3,3): list(), (4,4): list(), (5,5): list(), 
-            (6,7): list(), (8,9): list(), (10,14): list(), (15,20): list(), 
-            (21,30): list(), (31,60): list(), (61,100): list()
+            (6,7): list(), (8,9): list(), (10,11): list(), (12,14): list(), 
+            (15,20): list(), (21,30): list(), (31,60): list(), (61,100): list()
         }
         all_bins = list(gene_numeric_idxs.keys())
         for _, gene in self.variant_sets.iterrows():
@@ -235,7 +235,7 @@ class CreatingMask:
                 numeric_idxs = list(range(start_idx, end_idx))
                 cmac = np.sum(self.mac[numeric_idxs])
                 if cmac >= 2 and cmac <= 100:
-                    bin_idx = find_loc([2,3,4,5,6,8,10,15,21,31,61], cmac)
+                    bin_idx = find_loc([2,3,4,5,6,8,10,12,15,21,31,61], cmac)
                     gene_numeric_idxs[all_bins[bin_idx]].append(numeric_idxs)
                     # gene_numeric_idxs[gene[0]] = numeric_idxs   
                          
@@ -301,13 +301,13 @@ class CreatingMask:
 
         vset_dict = {
             (2,2): list(), (3,3): list(), (4,4): list(), (5,5): list(), 
-            (6,7): list(), (8,9): list(), (10,14): list(), (15,20): list(), 
-            (21,30): list(), (31,60): list(), (61,100): list()
+            (6,7): list(), (8,9): list(), (10,11): list(), (12,14): list(), 
+            (15,20): list(), (21,30): list(), (31,60): list(), (61,100): list()
         }
         cov_mat_dict = {
             (2,2): list(), (3,3): list(), (4,4): list(), (5,5): list(), 
-            (6,7): list(), (8,9): list(), (10,14): list(), (15,20): list(), 
-            (21,30): list(), (31,60): list(), (61,100): list()
+            (6,7): list(), (8,9): list(), (10,11): list(), (12,14): list(), 
+            (15,20): list(), (21,30): list(), (31,60): list(), (61,100): list()
         }
         for bin, numeric_idx_list in self.gene_numeric_idxs.items():
             for numeric_idx in numeric_idx_list:
@@ -473,11 +473,20 @@ def run(args, log):
             loco_preds,
         )
 
-        log.info((f"Using {mask.n_masks} genes "
-                  f"{args.variant_category} variants in permutation."
-        ))
+        # log.info((f"Using {mask.n_masks} genes "
+        #           f"{args.variant_category} variants in permutation."
+        # ))
+        max_key_len = max(len(str(key)) for key in mask.n_masks.keys())
+        max_val_len = max(len(str(value)) for value in mask.n_masks.values())
+        max_len = max([max_key_len, max_val_len])
+        keys_str = "  ".join(f"{str(key):<{max_len}}" for key in mask.n_masks.keys())
+        values_str = "  ".join(f"{str(value):<{max_len}}" for value in mask.n_masks.values())
+        log.info("Number of genes in each cMAC bin:")
+        log.info(keys_str)
+        log.info(values_str)
 
         # permutation
+        log.info("Doing permutation ...")
         permutation = Permutation(mask, args.threads)
         burden_sig_stats_dict, burden_count_dict = permutation.run()
         with h5py.File(f"{args.out}_burden_perm.h5", 'w') as file:
@@ -487,7 +496,7 @@ def run(args, log):
                 dataset.attrs["count"] =  burden_count_dict[bin]
 
         # save results
-        log.info(f"\nSaved permutation results to {args.out}_burden_perm.h5")
+        log.info(f"\nSaved permutation results to {args.out}_perm.h5")
 
     finally:
         if "loco_preds" in locals() and args.loco_preds is not None:
