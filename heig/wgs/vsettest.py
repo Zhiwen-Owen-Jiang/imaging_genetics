@@ -57,7 +57,7 @@ class VariantSetTest:
         """
         self.maf = maf
         self.cmac = cmac
-        self.annot_weights = None if cmac < 500 else annotation_pred
+        self.annot_weights = annotation_pred if cmac > 500 else None
         self.is_rare = is_rare
         self.half_ldr_score = half_ldr_score  # Z'(I-M)\Xi, (m, r)
         self.half_score = np.dot(self.half_ldr_score, self.bases.T)  # Z'(I-M)Y, (m, N)

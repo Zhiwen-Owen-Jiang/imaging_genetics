@@ -331,16 +331,13 @@ def check_input(args, log):
     if args.cmac_max is None:
         args.cmac_max = np.inf
     
-    if args.cmac_min < 100:
-        if "staar" in args.rv_tests or "skat" in args.rv_tests:
-            log.info(
-                ("WARNING: SKAT/STAAR cannot be used when cMAC < 100. "
-                 "Only burden will be used.")
-            )
-        if args.use_annot_weights:
-            log.info(
-                "WARNING: annotation weights cannot be used when cMAC < 500."
-            )
+    if args.cmac_min <= 100 and ("staar" in args.rv_tests or "skat" in args.rv_tests):
+        log.info(
+            ("WARNING: SKAT/STAAR cannot be used when cMAC <= 100. "
+             "Only burden will be used.")
+        )
+    if args.cmac_min <= 500 and args.use_annot_weights:
+        log.info("WARNING: annotation weights cannot be used when cMAC <= 500.")
 
     if args.variant_category is None:
         variant_category = ["all"]
