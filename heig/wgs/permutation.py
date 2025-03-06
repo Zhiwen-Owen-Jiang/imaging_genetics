@@ -4,7 +4,7 @@ import h5py
 import numpy as np
 import hail as hl
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, vstack
 from scipy.stats import chi2
 import heig.input.dataset as ds
 from heig.wgs.null import NullModel
@@ -58,7 +58,7 @@ class Permutation:
         self.vset = mask.vset
         self.var = mask.var
         self.n_masks = mask.n_masks
-        self.n_points = {k: mask.resid_voxels.shape[1]*v for k,v in self.n_masks.items()}
+        self.voxels = mask.voxels
         self.total_points = n_samples
         self.cmac_bins = [(2,2), (3,3), (4,4), (5,5), (6,7), (8,9),
                           (10,11), (12,14), (15,20), (21,30), (31,60), (61,100)]
@@ -74,11 +74,7 @@ class Permutation:
         Calculating denominator of burden stats (irrelavant to permutation)
 
         """
-        burden_stats_denom_dict = {
-            (2,2): list(), (3,3): list(), (4,4): list(), (5,5): list(), 
-            (6,7): list(), (8,9): list(), (10,11): list(), (12,14): list(), 
-            (15,20): list(), (21,30): list(), (31,60): list(), (61,100): list()
-        }
+        burden_stats_denom_dict = {bin: list() for bin in self.cmac_bins}
         for bin, cov_mat_list in self.cov_mat_dict.items():
             for cov_mat in cov_mat_list:
                 burden_stats_denom_dict[bin].append(self.var * np.sum(cov_mat))
@@ -99,74 +95,79 @@ class Permutation:
         with ThreadPoolExecutor(max_workers=self.threads) as executor:
             futures = [
                 executor.submit(
-                    self._variant_set_test_, bin, idx, half_score
+                    self._variant_set_test_, 
+                    self.burden_stats_denom_dict[bin][idx], 
+                    half_score[self.gene_numeric_idxs[bin][idx]]
                 )
                 for idx in range(self.n_masks[bin])
             ]
-            
-            # for future in as_completed(futures):
-            #     result = future.result()
-            #     if result is not None:
-            #         burden_stats_list.append(result) # increased 25% of time
             
             burden_stats_list = [
                 future.result() for future in as_completed(futures) if future.result() is not None
             ]
         
-        return np.concatenate(burden_stats_list) if burden_stats_list else None
+        return vstack(burden_stats_list) if len(burden_stats_list) > 0 else None
 
-    def _variant_set_test_(self, bin, idx, half_score):
+    def _variant_set_test_(self, burden_stats_denom, half_score):
         """
         Testing a single variant set
         
         """
-        burden_stats_denom = self.burden_stats_denom_dict[bin][idx]
-        half_score1 = half_score[self.gene_numeric_idxs[bin][idx]]
-        burden_stats = np.sum(half_score1, axis=0) ** 2 / burden_stats_denom
-        burden_stats = burden_stats[burden_stats > self.sig_thresh]
-        if len(burden_stats) == 0:
-            return None
-        return burden_stats
+        burden_stats = np.einsum('ij->j', half_score) ** 2 / burden_stats_denom
+        col = np.nonzero(burden_stats > self.sig_thresh)[0]
+        if col.size > 0:
+            row = np.zeros_like(col)
+            values = burden_stats[col]
+            burden_stats = csr_matrix((values, (row, col)),shape=(1, burden_stats.size))
+            return burden_stats
+        return None
         
     def run(self):
         """
         The main function for permutation
 
         """
-        burden_sig_stats_dict = {
-            (2,2): list(), (3,3): list(), (4,4): list(), (5,5): list(), 
-            (6,7): list(), (8,9): list(), (10,11): list(), (12,14): list(), 
-            (15,20): list(), (21,30): list(), (31,60): list(), (61,100): list()
-        }
-        burden_count_dict = {
-            (2,2): 0, (3,3): 0, (4,4): 0, (5,5): 0, 
-            (6,7): 0, (8,9): 0, (10,11): 0, (12,14): 0, 
-            (15,20): 0, (21,30): 0, (31,60): 0, (61,100): 0
-        }
+        burden_sig_stats_dict = dict()
+        burden_sig_stats_temp_dict = {bin: list() for bin in self.cmac_bins}
+        burden_count_dict = {bin: 0 for bin in self.cmac_bins}
         finished_bins = set()
         total_permute_time = 0
+        total_data_time = 0
         
         while len(finished_bins) < len(burden_count_dict):
+            start_time = time.perf_counter()
             half_score = self._permute()
+            elapsed_time = (time.perf_counter() - start_time)
+            total_data_time += elapsed_time
 
             for bin in self.cmac_bins:
                 if bin not in finished_bins:
-                    start_time = time.time()
+                    start_time = time.perf_counter()
                     burden_stats = self._variant_set_test(half_score, bin)
-                    elapsed_time = (time.time() - start_time)
+                    elapsed_time = (time.perf_counter() - start_time)
                     total_permute_time += elapsed_time
+
                     if burden_stats is not None:
-                        burden_sig_stats_dict[bin].append(burden_stats)
-                    burden_count_dict[bin] += self.n_points[bin] 
-                    if burden_count_dict[bin] > self.total_points or self.n_points[bin] == 0:
+                        burden_sig_stats_temp_dict[bin].append(burden_stats)
+
+                    burden_count_dict[bin] += self.n_masks[bin] 
+                    if burden_count_dict[bin] > self.total_points or self.n_masks[bin] == 0:
                         finished_bins.add(bin)
                         self.logger.info(f"cMAC bin {bin} finished.")
 
-        for bin, sig_stats in burden_sig_stats_dict.items():
-            if len(sig_stats) > 0:
-                burden_sig_stats_dict[bin] = np.sort(np.concatenate(sig_stats))
+        self.logger.info(f"total data time {total_data_time}s")
+        self.logger.info(f"total test time {total_permute_time}s")
         
-        self.logger.info(f"total test time: {total_permute_time}s")
+        for bin, voxel_sig_stats in burden_sig_stats_temp_dict.items():
+            if len(voxel_sig_stats) == 0:
+                voxel_sig_stats_dict = {voxel: list() for voxel in self.voxels}
+            else:
+                voxel_sig_stats = vstack(voxel_sig_stats).tocsc()
+                voxel_sig_stats_dict = {
+                    self.voxels[i]: voxel_sig_stats[:, i].data.tolist() 
+                    for i in range(voxel_sig_stats.shape[1])
+                }
+                burden_sig_stats_dict[bin] = voxel_sig_stats_dict
 
         return burden_sig_stats_dict, burden_count_dict
     
@@ -176,11 +177,10 @@ class CreatingMask:
     Generating summary statistics for each variant set
     
     """
-    cmac_bins = [(2,2), (3,3), (4,4), (5,5), (6,7), (8,9),
-                 (10,11), (12,14), (15,20), (21,30), (31,60), (61,100)]
     def __init__(
             self,
             null_model,
+            voxels,
             locus, 
             variant_sets, 
             variant_category, 
@@ -201,6 +201,13 @@ class CreatingMask:
         self.bases = null_model.bases
         self.maf = maf
         self.mac = mac
+        self.cmac_bins = [(2,2), (3,3), (4,4), (5,5), (6,7), (8,9),
+                          (10,11), (12,14), (15,20), (21,30), (31,60), (61,100)]
+        
+        if voxels is None:
+            self.voxels = np.arange(self.bases.shape[0])
+        else:
+            self.voxels = voxels
         
         self.geno_ref, self.chr, self.positions = self._extract_variant_category()
         self.resid_voxels, self.var = self._misc(loco_preds)
@@ -253,12 +260,7 @@ class CreatingMask:
         Parsing genes and put into cMAC bins
         
         """
-        gene_numeric_idxs = {
-            (2,2): list(), (3,3): list(), (4,4): list(), (5,5): list(), 
-            (6,7): list(), (8,9): list(), (10,11): list(), (12,14): list(), 
-            (15,20): list(), (21,30): list(), (31,60): list(), (61,100): list()
-        }
-        all_bins = list(gene_numeric_idxs.keys())
+        gene_numeric_idxs = {bin: list() for bin in self.cmac_bins}
         for _, gene in self.variant_sets.iterrows():
             _, start, end = parse_interval(gene[1], self.geno_ref)
             start_idx = find_loc(self.positions, start)
@@ -270,8 +272,7 @@ class CreatingMask:
                 cmac = np.sum(self.mac[numeric_idxs])
                 if cmac >= cmac_min and cmac <= cmac_max:
                     bin_idx = find_loc([2,3,4,5,6,8,10,12,15,21,31,61], cmac)
-                    gene_numeric_idxs[all_bins[bin_idx]].append(numeric_idxs)
-                    # gene_numeric_idxs[gene[0]] = numeric_idxs   
+                    gene_numeric_idxs[self.cmac_bins[bin_idx]].append(numeric_idxs)
                          
         for bin, numeric_idx_list in gene_numeric_idxs.items():
             if len(numeric_idx_list) == 0:
@@ -337,21 +338,11 @@ class CreatingMask:
         half_covar_proj = np.dot(covar_U, covar_Vt).astype(np.float32)
         vset_half_covar_proj = self.vset @ half_covar_proj
 
-        # vset_dict = {
-        #     (2,2): list(), (3,3): list(), (4,4): list(), (5,5): list(), 
-        #     (6,7): list(), (8,9): list(), (10,11): list(), (12,14): list(), 
-        #     (15,20): list(), (21,30): list(), (31,60): list(), (61,100): list()
-        # }
-        cov_mat_dict = {
-            (2,2): list(), (3,3): list(), (4,4): list(), (5,5): list(), 
-            (6,7): list(), (8,9): list(), (10,11): list(), (12,14): list(), 
-            (15,20): list(), (21,30): list(), (31,60): list(), (61,100): list()
-        }
+        cov_mat_dict = {bin: list() for bin in self.cmac_bins}
         for bin, numeric_idx_list in self.gene_numeric_idxs.items():
             for numeric_idx in numeric_idx_list:
                 x = np.array(vset_half_covar_proj[numeric_idx])
                 vset_ld = self.vset_ld[numeric_idx][:, numeric_idx]
-                # vset_dict[bin].append(self.vset[numeric_idx])
                 cov_mat_dict[bin].append(np.array((vset_ld - x @ x.T)))
             
         return cov_mat_dict
@@ -388,8 +379,6 @@ def select_voxels_greedy(corr, corr_threshold=0.3):
 
 
 def check_input(args, log):
-    if args.voxels is None:
-        raise ValueError("--voxels is required")
     if args.sparse_genotype is None:
         raise ValueError("--sparse-genotype is required")
     if args.spark_conf is None:
@@ -502,6 +491,7 @@ def run(args, log):
         # creating mask
         mask = CreatingMask(
             null_model,
+            args.voxels,
             locus, 
             args.variant_sets, 
             args.variant_category,
@@ -513,9 +503,6 @@ def run(args, log):
             loco_preds,
         )
 
-        # log.info((f"Using {mask.n_masks} genes "
-        #           f"{args.variant_category} variants in permutation."
-        # ))
         max_key_len = max(len(str(key)) for key in mask.n_masks.keys())
         max_val_len = max(len(str(value)) for value in mask.n_masks.values())
         max_len = max([max_key_len, max_val_len])
@@ -530,10 +517,12 @@ def run(args, log):
         permutation = Permutation(mask, args.n_bootstrap, args.threads)
         burden_sig_stats_dict, burden_count_dict = permutation.run()
         with h5py.File(f"{args.out}_burden_perm.h5", 'w') as file:
-            for bin, sig_stats in burden_sig_stats_dict.items():
-                bin_str = "_".join(str(x) for x in bin)
-                dataset = file.create_dataset(bin_str, data=sig_stats)
-                dataset.attrs["count"] =  burden_count_dict[bin]
+            for bin, voxel_sig_stats in burden_sig_stats_dict.items():
+                for voxel, sig_stats in voxel_sig_stats.items():
+                    sig_stats = np.sort(sig_stats).astype(np.float32)
+                    bin_str = "_".join(str(x) for x in bin) + "_" + str(voxel)
+                    dataset = file.create_dataset(bin_str, data=sig_stats)
+                    dataset.attrs["count"] =  burden_count_dict[bin]
 
         # save results
         log.info(f"\nSaved permutation results to {args.out}_burden_perm.h5")
