@@ -443,53 +443,81 @@ class CreatingMask:
         return cov_mat_dict
             
 
-# def select_voxels_greedy(corr, corr_threshold=0.3):
-#     """
-#     Select a subset of voxels such that the absolute correlation
-#     between any two selected voxels is less than corr_threshold.
+def merge_perm_files(perm_files, out, sig_thresh):
+    """
+    Merge a list of permutation files
+    
+    """
+    cmac_bins = [(2,2), (3,3), (4,4), (5,5), (6,7), (8,9),
+                 (10,11), (12,14), (15,20), (21,30), (31,60), (61,100)]
+    burden_sig_stats_dict = {bin: dict() for bin in cmac_bins}
+    burden_count_dict = {bin: 0 for bin in cmac_bins}
+    all_bins = None
 
-#     Parameters:
-#     ------------
-#     corr: (N, N) np.array of voxel correlations
-#     corr_threshold : correlation threshold to enforce
+    for perm_file in perm_files:
+        h5file = h5py.File(f"{perm_file}", "r")
+        if all_bins is None:
+            all_bins = _list_datasets(h5file)
+        for bin_str in all_bins:
+            bin1, bin2, voxel = tuple([int(x) for x in bin_str.split("_")])
+            bin = tuple([bin1, bin2])
+            data = h5file[bin_str]
+            count = data.attrs["count"]
+            if voxel in burden_sig_stats_dict[bin]:
+                burden_sig_stats_dict[bin][voxel].append(data[:])
+            else:
+                burden_sig_stats_dict[bin][voxel] = [data[:]]
+        for bin in cmac_bins:
+            burden_count_dict[bin] += count
+        h5file.close()
 
-#     Returns:
-#     ---------
-#     selected_voxels: a list of voxel indices that survive the correlation filter
+    with h5py.File(f"{out}_burden_perm.h5", 'w') as file:
+        for bin, voxel_sig_stats in burden_sig_stats_dict.items():
+            for voxel, sig_stats in voxel_sig_stats.items():
+                sig_stats = np.sort(np.concatenate(sig_stats)).astype(np.float32)
+                if sig_thresh is not None:
+                    sig_stats = sig_stats[-int(sig_thresh * burden_count_dict[bin]):]
+                bin_str = "_".join(str(x) for x in bin) + "_" + str(voxel)
+                dataset = file.create_dataset(bin_str, data=sig_stats)
+                dataset.attrs["count"] = burden_count_dict[bin]
 
-#     """
-#     voxel_order = np.arange(corr.shape[0])
 
-#     selected_voxels = []
-#     for voxel in voxel_order:
-#         too_correlated = False
-#         for s in selected_voxels:
-#             if abs(corr[voxel, s]) >= corr_threshold:
-#                 too_correlated = True
-#                 break
-#         if not too_correlated:
-#             selected_voxels.append(voxel)
-
-#     return selected_voxels
+def _list_datasets(hdf5_file):
+    dataset_names = []
+    
+    def visitor_func(name, node):
+        if isinstance(node, h5py.Dataset):
+            dataset_names.append(name)
+    
+    hdf5_file.visititems(visitor_func)
+    return dataset_names
 
 
 def check_input(args, log):
-    if args.sparse_genotype is None:
-        raise ValueError("--sparse-genotype is required")
-    if args.spark_conf is None:
-        raise ValueError("--spark-conf is required")
-    # if args.annot_ht is None:
-    #     raise ValueError("--annot-ht (FAVOR annotation) is required")
-    if args.null_model is None:
-        raise ValueError("--null-model is required")
-    # if args.variant_category is None:
-    #     raise ValueError("--variant-category is required")
-    # if args.cmac_min is None:
-    #     args.cmac_min = 2
-    #     log.info(f"Set --cmac-min as default 2")
-    # if args.cmac_max is None:
-    #     args.cmac_max = 100
-    #     log.info(f"Set --cmac-max as default 100")
+    if args.perm_list is None:
+        if args.sparse_genotype is None:
+            raise ValueError("--sparse-genotype is required")
+        if args.spark_conf is None:
+            raise ValueError("--spark-conf is required")
+        # if args.annot_ht is None:
+        #     raise ValueError("--annot-ht (FAVOR annotation) is required")
+        if args.null_model is None:
+            raise ValueError("--null-model is required")
+        # if args.variant_category is None:
+        #     raise ValueError("--variant-category is required")
+        # if args.cmac_min is None:
+        #     args.cmac_min = 2
+        #     log.info(f"Set --cmac-min as default 2")
+        # if args.cmac_max is None:
+        #     args.cmac_max = 100
+        #     log.info(f"Set --cmac-max as default 100")
+        if args.n_bootstrap is None:
+            args.n_bootstrap = 5e7
+            log.info("Set total number of permutation as 5e7")
+    else:
+        args.perm_list = ds.parse_input(args.perm_list)
+        for x in args.perm_list:
+            ds.check_existence(x)
 
     # args.variant_category = args.variant_category.lower()
     # if args.variant_category not in {
@@ -502,124 +530,129 @@ def check_input(args, log):
     #     "ptv_ds",
     #     }:
     #     raise ValueError(f"invalid variant category: {args.variant_category}")
-    if args.n_bootstrap is None:
-        args.n_bootstrap = 5e7
-        log.info("Set total number of permutation as 5e7")
-
+    
 
 def run(args, log):
     # checking if input is valid
     check_input(args, log)
-    try:
-        init_hail(args.spark_conf, args.grch37, args.out, log)
-        # reading data and selecting LDRs
-        log.info(f"Read null model from {args.null_model}")
-        null_model = NullModel(args.null_model)
-        null_model.select_ldrs(args.n_ldrs)
-        null_model.select_voxels(args.voxels)
 
-        # reading sparse genotype data
-        sparse_genotype = SparseGenotype(args.sparse_genotype)
-        log.info(f"Read sparse genotype data from {args.sparse_genotype}")
-        log.info((f"{sparse_genotype.vset.shape[1]} subjects and "
-                  f"{sparse_genotype.vset.shape[0]} variants."))
+    if args.perm_list is not None:
+        # if args.sig_thresh is not None:
+        #     log.info(f"Permutation results will be trimmed for {args.sig_thresh}")
+        log.info(f"Merging permutation results from {len(args.perm_list)} files ...")
+        merge_perm_files(args.perm_list, args.out, args.sig_thresh)
+        log.info(f"\nSaved merged permutation results to {args.out}_burden_perm.h5")
+    else:
+        try:
+            init_hail(args.spark_conf, args.grch37, args.out, log)
+            # reading data and selecting LDRs
+            log.info(f"Read null model from {args.null_model}")
+            null_model = NullModel(args.null_model)
+            null_model.select_ldrs(args.n_ldrs)
+            null_model.select_voxels(args.voxels)
 
-        # reading loco preds
-        if args.loco_preds is not None:
-            log.info(f"Read LOCO predictions from {args.loco_preds}")
-            loco_preds = LOCOpreds(args.loco_preds)
-            if args.n_ldrs is not None:
-                loco_preds.select_ldrs((0, args.n_ldrs))
-            if loco_preds.ldr_col[1] - loco_preds.ldr_col[0] != null_model.n_ldrs:
-                raise ValueError(
-                    (
-                        "inconsistent dimension in LDRs and LDR LOCO predictions. "
-                        "Try to use --n-ldrs"
+            # reading sparse genotype data
+            sparse_genotype = SparseGenotype(args.sparse_genotype)
+            log.info(f"Read sparse genotype data from {args.sparse_genotype}")
+            log.info((f"{sparse_genotype.vset.shape[1]} subjects and "
+                    f"{sparse_genotype.vset.shape[0]} variants."))
+
+            # reading loco preds
+            if args.loco_preds is not None:
+                log.info(f"Read LOCO predictions from {args.loco_preds}")
+                loco_preds = LOCOpreds(args.loco_preds)
+                if args.n_ldrs is not None:
+                    loco_preds.select_ldrs((0, args.n_ldrs))
+                if loco_preds.ldr_col[1] - loco_preds.ldr_col[0] != null_model.n_ldrs:
+                    raise ValueError(
+                        (
+                            "inconsistent dimension in LDRs and LDR LOCO predictions. "
+                            "Try to use --n-ldrs"
+                        )
                     )
+                common_ids = ds.get_common_idxs(
+                    sparse_genotype.ids.index,
+                    null_model.ids,
+                    loco_preds.ids,
+                    args.keep,
                 )
-            common_ids = ds.get_common_idxs(
-                sparse_genotype.ids.index,
-                null_model.ids,
-                loco_preds.ids,
-                args.keep,
+            else:
+                common_ids = ds.get_common_idxs(
+                    sparse_genotype.ids.index, null_model.ids, args.keep
+                )
+            common_ids = ds.remove_idxs(common_ids, args.remove)
+
+            # extract and align subjects with the genotype data
+            null_model.keep(common_ids)
+            null_model.remove_dependent_columns()
+            log.info(f"{len(common_ids)} common subjects in the data.")
+            log.info(
+                (
+                    f"{null_model.covar.shape[1]} fixed effects in the covariates "
+                    "(including the intercept) after removing redundant effects.\n"
+                )
             )
-        else:
-            common_ids = ds.get_common_idxs(
-                sparse_genotype.ids.index, null_model.ids, args.keep
+
+            if args.loco_preds is not None:
+                loco_preds.keep(common_ids)
+            else:
+                loco_preds = None
+
+            # log.info(f"Processing sparse genetic data ...")
+            if args.extract_locus is not None:
+                args.extract_locus = read_extract_locus(args.extract_locus, args.grch37, log)
+            if args.exclude_locus is not None:
+                args.exclude_locus = read_exclude_locus(args.exclude_locus, args.grch37, log)
+            
+            sparse_genotype.keep(common_ids)
+            sparse_genotype.extract_exclude_locus(args.extract_locus, args.exclude_locus)
+            sparse_genotype.extract_chr_interval(args.chr_interval)
+            sparse_genotype.extract_maf(args.maf_min, args.maf_max)
+            sparse_genotype.extract_mac(args.mac_min, args.mac_max)
+
+            # # reading annotation
+            # log.info(f"Read functional annotations from {args.annot_ht}")
+            # annot = hl.read_table(args.annot_ht)
+            # sparse_genotype.annotate(annot)
+            vset, locus, maf, mac = sparse_genotype.parse_data()
+
+            # creating mask
+            mask = CreatingMask(
+                null_model,
+                args.voxels,
+                locus, 
+                vset,
+                mac, 
+                loco_preds,
             )
-        common_ids = ds.remove_idxs(common_ids, args.remove)
 
-        # extract and align subjects with the genotype data
-        null_model.keep(common_ids)
-        null_model.remove_dependent_columns()
-        log.info(f"{len(common_ids)} common subjects in the data.")
-        log.info(
-            (
-                f"{null_model.covar.shape[1]} fixed effects in the covariates "
-                "(including the intercept) after removing redundant effects.\n"
-            )
-        )
+            log.info(f"{mask.n_variants} variants used in permutation.")
+            max_key_len = max(len(str(key)) for key in mask.n_masks.keys())
+            max_val_len = max(len(str(value)) for value in mask.n_masks.values())
+            max_len = max([max_key_len, max_val_len])
+            keys_str = "  ".join(f"{str(key):<{max_len}}" for key in mask.n_masks.keys())
+            values_str = "  ".join(f"{str(value):<{max_len}}" for value in mask.n_masks.values())
+            log.info("Number of genes in each cMAC bin:")
+            log.info(keys_str)
+            log.info(values_str)
 
-        if args.loco_preds is not None:
-            loco_preds.keep(common_ids)
-        else:
-            loco_preds = None
+            # permutation
+            log.info("Doing permutation ...")
+            permutation = Permutation(mask, args.n_bootstrap, args.threads)
+            burden_sig_stats_dict, burden_count_dict = permutation.run()
+            with h5py.File(f"{args.out}_burden_perm.h5", 'w') as file:
+                for bin, voxel_sig_stats in burden_sig_stats_dict.items():
+                    for voxel, sig_stats in voxel_sig_stats.items():
+                        sig_stats = np.sort(sig_stats).astype(np.float32)
+                        bin_str = "_".join(str(x) for x in bin) + "_" + str(voxel)
+                        dataset = file.create_dataset(bin_str, data=sig_stats)
+                        dataset.attrs["count"] =  burden_count_dict[bin]
 
-        # log.info(f"Processing sparse genetic data ...")
-        if args.extract_locus is not None:
-            args.extract_locus = read_extract_locus(args.extract_locus, args.grch37, log)
-        if args.exclude_locus is not None:
-            args.exclude_locus = read_exclude_locus(args.exclude_locus, args.grch37, log)
-        
-        sparse_genotype.keep(common_ids)
-        sparse_genotype.extract_exclude_locus(args.extract_locus, args.exclude_locus)
-        sparse_genotype.extract_chr_interval(args.chr_interval)
-        sparse_genotype.extract_maf(args.maf_min, args.maf_max)
-        sparse_genotype.extract_mac(args.mac_min, args.mac_max)
+            # save results
+            log.info(f"\nSaved permutation results to {args.out}_burden_perm.h5")
 
-        # # reading annotation
-        # log.info(f"Read functional annotations from {args.annot_ht}")
-        # annot = hl.read_table(args.annot_ht)
-        # sparse_genotype.annotate(annot)
-        vset, locus, maf, mac = sparse_genotype.parse_data()
+        finally:
+            if "loco_preds" in locals() and args.loco_preds is not None:
+                loco_preds.close()
 
-        # creating mask
-        mask = CreatingMask(
-            null_model,
-            args.voxels,
-            locus, 
-            vset,
-            mac, 
-            loco_preds,
-        )
-
-        log.info(f"{mask.n_variants} variants used in permutation.")
-        max_key_len = max(len(str(key)) for key in mask.n_masks.keys())
-        max_val_len = max(len(str(value)) for value in mask.n_masks.values())
-        max_len = max([max_key_len, max_val_len])
-        keys_str = "  ".join(f"{str(key):<{max_len}}" for key in mask.n_masks.keys())
-        values_str = "  ".join(f"{str(value):<{max_len}}" for value in mask.n_masks.values())
-        log.info("Number of genes in each cMAC bin:")
-        log.info(keys_str)
-        log.info(values_str)
-
-        # permutation
-        log.info("Doing permutation ...")
-        permutation = Permutation(mask, args.n_bootstrap, args.threads)
-        burden_sig_stats_dict, burden_count_dict = permutation.run()
-        with h5py.File(f"{args.out}_burden_perm.h5", 'w') as file:
-            for bin, voxel_sig_stats in burden_sig_stats_dict.items():
-                for voxel, sig_stats in voxel_sig_stats.items():
-                    sig_stats = np.sort(sig_stats).astype(np.float32)
-                    bin_str = "_".join(str(x) for x in bin) + "_" + str(voxel)
-                    dataset = file.create_dataset(bin_str, data=sig_stats)
-                    dataset.attrs["count"] =  burden_count_dict[bin]
-
-        # save results
-        log.info(f"\nSaved permutation results to {args.out}_burden_perm.h5")
-
-    finally:
-        if "loco_preds" in locals() and args.loco_preds is not None:
-            loco_preds.close()
-
-        clean(args.out)
+            clean(args.out)
