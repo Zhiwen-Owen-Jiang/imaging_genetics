@@ -941,25 +941,23 @@ class IndexFile:
 
 class PermDistribution:
     def __init__(self, perm_file):
-        self.sig_stats = dict()
-        self.count = dict()
-        self.max_p = dict()
-        self.bins = list()
-        self.breaks = list()
+        self.bins = [(2,2), (3,3), (4,4), (5,5), (6,7), (8,9),
+                     (10,11), (12,14), (15,20), (21,30), (31,60), (61,100)]
+        self.sig_stats = {bin: dict() for bin in self.bins}
+        self.count = {bin: 0 for bin in self.bins} 
+        self.max_p = {bin: dict() for bin in self.bins}
+        self.breaks = [bin[0] for bin in self.bins]
 
         h5file = h5py.File(f"{perm_file}", "r")
         all_bins = self.list_datasets(h5file)
         for bin_str in all_bins:
-            bin = tuple([int(x) for x in bin_str.split("_")])
+            bin1, bin2, voxel = tuple([int(x) for x in bin_str.split("_")])
+            bin = tuple([bin1, bin2])
             data = h5file[bin_str]
             count = data.attrs["count"]
-            self.sig_stats[bin] = data[:]
+            self.sig_stats[bin][voxel] = data[:]
             self.count[bin] = count
-            self.max_p[bin] = len(self.sig_stats[bin]) / count
-            self.bins.append(bin)
-            self.breaks.append(int(bin_str.split("_")[0]))
-        self.bins.sort()
-        self.breaks.sort()
+            self.max_p[bin][voxel] = len(self.sig_stats[bin][voxel]) / count
         h5file.close()
 
     @staticmethod

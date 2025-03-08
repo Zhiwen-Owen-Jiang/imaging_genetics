@@ -6,16 +6,9 @@ from heig.wgs.pvalue import saddle2
 from heig.utils import find_loc
 
 
-"""
-TODO:
-1. try to compute quantiles for a mixture of chisq1 distribution
-and use this quantile to quickly screen insignificant results
-
-"""
-
 
 class VariantSetTest:
-    def __init__(self, bases, var, perm):
+    def __init__(self, bases, var, perm, voxels):
         """
         Variant set test for rare variants
 
@@ -25,12 +18,14 @@ class VariantSetTest:
         bases: (N, r) np.array, functional bases
         var: (N, ) np.array, voxel variance
         perm: an instance of PermDistribution
+        voxels: a list of voxel idxs
 
         """
         self.N = bases.shape[0]
         self.bases = bases
         self.var = var
         self.perm = perm
+        self.voxels = voxels
 
     def input_vset(
         self,
@@ -196,11 +191,22 @@ class VariantSetTest:
         else:
             bin_idx = find_loc(self.perm.breaks, self.cmac)
             bin = self.perm.bins[bin_idx]
-            pvalues = (self.perm.sig_stats[bin] > burden_chisq.reshape(-1, 1))
-            pvalues = pvalues.sum(axis=1) / self.perm.count[bin]
-            pvalues[pvalues >= self.perm.max_p[bin]] = np.nan
+            
+            pvalues = [
+                self._search_pvalue(
+                    self.perm.sig_stats[bin][voxel], 
+                    burden_chisq[i], 
+                    self.perm.count[bin], 
+                    self.perm.max_p[bin][voxel]
+                ) for i, voxel in enumerate(self.voxels)
+            ]
 
         return burden_effect, burden_se, pvalues
+    
+    def _search_pvalue(self, sig_stats, burden_chisq, count, max_p):
+        idx = np.searchsorted(sig_stats, burden_chisq, side='left')
+        pvalue = (len(sig_stats) - idx) / count
+        return pvalue if pvalue < max_p else np.nan
 
     def _acatv_test(self, weights_A, weights_B):
         """

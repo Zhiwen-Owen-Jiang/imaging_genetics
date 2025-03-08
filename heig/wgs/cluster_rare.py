@@ -2,7 +2,7 @@ import time
 import logging
 import numpy as np
 import hail as hl
-from concurrent.futures import ThreadPoolExecutor
+# from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from scipy.sparse import csr_matrix
 import heig.input.dataset as ds
@@ -11,6 +11,7 @@ from heig.wgs.relatedness import LOCOpreds
 from heig.wgs.vsettest import VariantSetTest
 from heig.wgs.mt import SparseGenotype
 from heig.wgs.coding import Coding
+from heig.wgs.utils import PermDistribution
 from heig.utils import find_loc
 from heig.wgs.utils import *
 
@@ -61,6 +62,8 @@ class RVcluster:
             maf,
             mac,
             tests,
+            perm,
+            cmac_bins_count,
             sig_thresh=2.5e-6, 
             mac_thresh=10,
             threads=1,
@@ -79,6 +82,8 @@ class RVcluster:
         maf: a np.array of MAF
         mac: a np.array of MAC
         tests: a list of rv tests
+        perm: an instance of PermDistribution
+        cmac_bins_count: a dict of number of genes for each cMAC bin
         sig_thresh: significant threshold
         mac_thresh: a MAC threshold to denote ultrarare variants for ACAT-V
         threads: number of threads
@@ -95,6 +100,9 @@ class RVcluster:
         self.maf = maf
         self.mac = mac
         self.tests = tests
+        self.perm = perm
+        self.cmac_bins_count = cmac_bins_count
+        self.all_bins = list(self.cmac_bins_count.keys())
         self.sig_thresh = sig_thresh
         self.mac_thresh = mac_thresh
         self.threads = threads
@@ -182,26 +190,40 @@ class RVcluster:
         # self.var /= self.n_subs - self.n_covars  # (N, )
         self.half_ldr_score = self.vset @ resid_ldr_rand 
 
+    # def _variant_set_test(self, sample_id):
+    #     """
+    #     A wrapper function of variant set test for multiple sets
+
+    #     """
+    #     # sig_pvalues_list = []
+    
+    #     with ThreadPoolExecutor(max_workers=self.threads) as executor:
+    #         futures = [
+    #             executor.submit(
+    #                 self._variant_set_test_, sample_id, gene_id, gene_name, numeric_idx
+    #             )
+    #             for gene_id, (gene_name, numeric_idx) in enumerate(self.numeric_idx_list.items())
+    #         ]
+                    
+    #         sig_pvalues_list = [
+    #             future.result() for future in as_completed(futures) if future.result() is not None
+    #         ]
+        
+    #     return sig_pvalues_list
+    
     def _variant_set_test(self, sample_id):
         """
         A wrapper function of variant set test for multiple sets
-
+        
         """
         sig_pvalues_list = []
-    
-        with ThreadPoolExecutor(max_workers=self.threads) as executor:
-            futures = [
-                executor.submit(
-                    self._variant_set_test_, sample_id, gene_id, gene_name, numeric_idx
-                )
-                for gene_id, (gene_name, numeric_idx) in enumerate(self.numeric_idx_list.items())
-            ]
-            
-            for future in futures:
-                result = future.result()
-                if result is not None:
-                    sig_pvalues_list.append(result)
-        
+        for gene_id, (gene_name, numeric_idx) in enumerate(self.numeric_idx_list.items()):
+            sig_pvalues = self._variant_set_test_(
+                sample_id, gene_id, gene_name, numeric_idx
+            )
+            if sig_pvalues is not None:
+                sig_pvalues_list.append(sig_pvalues)
+
         return sig_pvalues_list
 
     def _variant_set_test_(self, sample_id, gene_id, gene_name, numeric_idx):
@@ -209,22 +231,25 @@ class RVcluster:
         Testing a single variant set
         
         """
-        vset_test = VariantSetTest(self.bases, self.var)
-        half_ldr_score, cov_mat, maf, mac = self._parse_data(
-            numeric_idx
-        )
+        vset_test = VariantSetTest(self.bases, self.var, self.perm, self.voxels)
+        half_ldr_score, cov_mat, maf, mac = self._parse_data(numeric_idx)
         if self.phred_cate is not None:
             annot = self.phred_cate[numeric_idx]
         else:
             annot = None
         is_rare = mac < self.mac_thresh
-        vset_test.input_vset(half_ldr_score, cov_mat, maf, is_rare, annot)
-        # pvalues = vset_test.do_inference(self.annot_name)
-        pvalues = vset_test.do_inference_tests(self.tests, self.annot_name)
+        cmac = np.sum(mac)
+        vset_test.input_vset(half_ldr_score, cov_mat, maf, cmac, is_rare, annot)
+        pvalues, _ = vset_test.do_inference_tests(self.tests, self.annot_name)
         pvalues.insert(0, "INDEX", self.voxels+1)
         sig_pvalues = pvalues.loc[pvalues.iloc[:, 1] < self.sig_thresh]
         if len(sig_pvalues) > 0:
-            sig_pvalues.insert(0, "CMAC", np.sum(mac))
+            sig_pvalues = sig_pvalues.iloc[:, :2]
+            sig_pvalues.columns = ["INDEX", "P"]
+            bin_idx = find_loc([x[0] for x in self.all_bins], cmac)
+            cmac_bin_count = self.cmac_bins_count[self.all_bins[bin_idx]]
+            sig_pvalues.insert(0, "CMAC_BIN_COUNT", cmac_bin_count)
+            sig_pvalues.insert(0, "CMAC", cmac)
             sig_pvalues.insert(0, "N_VARIANTS", len(mac))
             sig_pvalues.insert(0, "GENE", gene_name)
             sig_pvalues.insert(0, "GENE_ID", gene_id+1)
@@ -242,7 +267,7 @@ class RVcluster:
         half_ldr_score = np.array(self.half_ldr_score[numeric_idx])
         vset_half_covar_proj = np.array(self.vset_half_covar_proj[numeric_idx])
         vset_ld = self.vset_ld[numeric_idx][:, numeric_idx]
-        cov_mat = np.array((vset_ld - vset_half_covar_proj @ vset_half_covar_proj.T))
+        cov_mat = np.array((vset_ld - vset_half_covar_proj @ vset_half_covar_proj.T)) # TODO: compute once
         maf = self.maf[numeric_idx]
         mac = self.mac[numeric_idx]
         
@@ -320,6 +345,14 @@ def creating_mask(
 
     gene_numeric_idxs = dict()
     positions = np.array(locus.locus.position.collect())[numeric_idx]
+    cmac_bins_count = {
+        (2,2): 0, (3,3): 0, (4,4): 0, (5,5): 0, 
+        (6,7): 0, (8,9): 0, (10,11): 0, (12,14): 0, 
+        (15,20): 0, (21,30): 0, (31,60): 0, (61,100): 0,
+        (101, 500): 0, (501,): 0
+    }
+    all_bins = list(cmac_bins_count.keys())
+
     for _, gene in variant_sets.iterrows():
         _, start, end = parse_interval(gene[1], geno_ref)
         start_idx = find_loc(positions, start)
@@ -331,8 +364,10 @@ def creating_mask(
             cmac = np.sum(mac[numeric_idxs])
             if cmac >= cmac_min and cmac <= cmac_max:
                 gene_numeric_idxs[gene[0]] = numeric_idxs
+                bin_idx = find_loc([x[0] for x in all_bins], cmac)
+                cmac_bins_count[all_bins[bin_idx]] += 1
 
-    return chr, gene_numeric_idxs, phred_cate, annot_name, vset, maf, mac
+    return chr, gene_numeric_idxs, cmac_bins_count, phred_cate, annot_name, vset, maf, mac
 
 
 def check_input(args, log):
@@ -346,6 +381,9 @@ def check_input(args, log):
         raise ValueError("--null-model is required")
     if args.variant_category is None:
         raise ValueError("--variant-category is required")
+    if args.perm is None:
+        raise ValueError("--perm is required")
+    
     args.variant_category = args.variant_category.lower()
     if args.variant_category not in {
         "plof",
@@ -369,10 +407,17 @@ def check_input(args, log):
         args.sig_thresh = 2.5e-6
         log.info("Set significance threshold as 2.5e-6")
     if args.cmac_min is None:
-        args.cmac_min = 30
-        log.info(f"Set --cmac-min as default 30")
+        args.cmac_min = 2
+        log.info(f"Set --cmac-min as default 2")
     if args.cmac_max is None:
         args.cmac_max = np.inf
+    if args.cmac_min <= 100 and ("staar" in args.rv_tests or "skat" in args.rv_tests):
+        log.info(
+            ("WARNING: SKAT/STAAR cannot be used for genes with cMAC <= 100. "
+             "Only burden will be used.")
+        )
+    if args.cmac_min <= 500 and args.use_annot_weights:
+        log.info("WARNING: annotation weights cannot be used for genes with cMAC <= 500.")
 
 
 def run(args, log):
@@ -452,9 +497,13 @@ def run(args, log):
         sparse_genotype.annotate(annot)
         vset, locus, maf, mac = sparse_genotype.parse_data()
 
+        # reading permutation
+        log.info(f"Read permutation from {args.perm}")
+        perm = PermDistribution(args.perm)
+
         # creating mask
         (
-            chr, gene_numeric_idxs, phred_cate, annot_name, vset, maf, mac
+            chr, gene_numeric_idxs, cmac_bins_count, phred_cate, annot_name, vset, maf, mac
         ) = creating_mask(
             locus, 
             args.variant_sets, 
@@ -487,6 +536,8 @@ def run(args, log):
             maf, 
             mac, 
             args.rv_tests,
+            perm,
+            cmac_bins_count,
             args.sig_thresh, 
             args.mac_thresh,
             args.threads, 
@@ -503,6 +554,7 @@ def run(args, log):
             sig_pvalues_list = cluster.cluster_analysis(i)
             with open(args.out + ".txt", "a") as file:
                 for sig_pvalues in sig_pvalues_list:
+                    sig_pvalues['CMAC_BIN_COUNT'] *= args.n_bootstrap
                     if print_head:
                         sig_pvalues = sig_pvalues.to_csv(
                             sep="\t", header=True, na_rep="NA", index=None, float_format="%.5e"

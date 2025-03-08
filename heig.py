@@ -591,7 +591,7 @@ common_parser.add_argument(
 )
 common_parser.add_argument(
     "--n-bootstrap", "--n-samples",
-    type=int,
+    type=float,
     help=(
         "Number of bootstrap/permutation samples. "
         "Supported modules: --cluster, --rv-cluster."
@@ -946,6 +946,15 @@ tfce_parser.add_argument(
     "--total-points",
     type=int,
     help="Total number of data points in wild bootstrap."
+)
+
+# arguments for permutation.py
+permutation_parser.add_argument(
+    "--perm-list",
+    help=(
+        "a list of permutation files. "
+        "Multiple files can be provided using {:}, e.g., `perm{1:10}.h5`."
+    )
 )
 
 
@@ -1324,7 +1333,6 @@ def check_accepted_args(module, args, log):
             "cmac_max",
             "rv_tests",
             "use_annot_weights",
-            "threads",
             "perm"
         },
         "rv_cond":{
@@ -1414,7 +1422,8 @@ def check_accepted_args(module, args, log):
             "variant_category",
             "cmac_min",
             "cmac_max",
-            "threads"
+            "perm_list",
+            "sig_thresh",
         },
     }
 
@@ -1573,6 +1582,9 @@ def process_args(args, log):
         for rv_test in args.rv_tests:
             if rv_test not in {"burden", "skat", "staar"}:
                 raise ValueError(f"invalid rv test: {rv_test}")
+        
+    if args.n_bootstrap is not None:
+        args.n_bootstrap = int(args.n_bootstrap)
 
 
 def main(args, log):
